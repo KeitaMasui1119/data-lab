@@ -52,6 +52,11 @@ de = [
     "pyiceberg>=0.10.0",
     "dbt-duckdb>=1.9.0",
     "shandy-sqlfmt[jinjafmt]>=0.26.0",
+    "requests>=2.32.0",
+    "beautifulsoup4>=4.14.0",
+    "lxml>=6.0.0",
+    "scrapy>=2.13.0",
+    "yfinance>=0.2.60"
 ]
 
 [tool.hatch.build.targets.wheel]
