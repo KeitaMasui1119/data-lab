@@ -1,0 +1,3 @@
+dbt-core==1.9.3
+dbt-duckdb==1.9.3
+shandy-sqlfmt[jinjafmt]==0.26.0
