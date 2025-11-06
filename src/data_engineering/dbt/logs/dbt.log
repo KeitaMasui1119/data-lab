@@ -1,0 +1,31 @@
+[0m11:43:55.690312 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x730eb4a02150>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x730eb30ec1d0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x730eb2a0a660>]}
+
+
+============================== 11:43:55.764939 | 504c61ed-6ea5-40d8-b0bc-86da85e8ff92 ==============================
+[0m11:43:55.764939 [info ] [MainThread]: Running with dbt=1.10.13
+[0m11:43:55.765957 [debug] [MainThread]: running dbt with arguments {'log_format': 'default', 'profiles_dir': '/home/vscode/.dbt', 'printer_width': '80', 'log_path': 'logs', 'log_cache_events': 'False', 'empty': 'None', 'version_check': 'True', 'cache_selected_only': 'False', 'indirect_selection': 'eager', 'no_print': 'None', 'static_parser': 'True', 'quiet': 'False', 'target_path': 'None', 'use_colors': 'True', 'send_anonymous_usage_stats': 'True', 'fail_fast': 'False', 'warn_error': 'None', 'invocation_command': 'dbt init jaffle_shop', 'use_experimental_parser': 'False', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'debug': 'False', 'partial_parse': 'True', 'write_json': 'True', 'introspect': 'True'}
+[0m11:43:55.833869 [info ] [MainThread]: Creating dbt configuration folder at /home/vscode/.dbt
+[0m11:43:55.838353 [debug] [MainThread]: Starter project path: /home/vscode/.venv/lib/python3.12/site-packages/dbt/include/starter_project
+[0m11:43:55.853384 [info ] [MainThread]:
+Your new dbt project "jaffle_shop" was created!
+
+For more information on how to configure the profiles.yml file,
+please consult the dbt documentation here:
+
+  https://docs.getdbt.com/docs/configure-your-profile
+
+One more thing:
+
+Need help? Don't hesitate to reach out to us via GitHub issues or on Slack:
+
+  https://community.getdbt.com/
+
+Happy modeling!
+
+[0m11:43:55.854204 [info ] [MainThread]: Setting up your profile.
+[0m11:43:59.632034 [info ] [MainThread]: Profile jaffle_shop written to /home/vscode/.dbt/profiles.yml using target's sample configuration. Once updated, you'll be able to start developing with dbt.
+[0m11:43:59.633212 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": true, "command_wall_clock_time": 4.0031734, "process_in_blocks": "145048", "process_kernel_time": 0.823618, "process_mem_max_rss": "132520", "process_out_blocks": "72", "process_user_time": 3.620738}
+[0m11:43:59.633917 [debug] [MainThread]: Command `dbt init` succeeded at 11:43:59.633774 after 4.00 seconds
+[0m11:43:59.634368 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x730eb256a780>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x730eb29a1670>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x730eb1f3f710>]}
+[0m11:43:59.634887 [debug] [MainThread]: Flushing usage events
+[0m11:44:00.428683 [debug] [MainThread]: An error was encountered while trying to flush usage events
