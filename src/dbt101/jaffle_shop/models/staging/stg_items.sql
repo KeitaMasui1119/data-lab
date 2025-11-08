@@ -6,4 +6,4 @@ SELECT
     order_id,
     sku AS product_sku
 FROM
-    {{ ref('raw_items') }}
+    {{ source('jaffle_shop_raw', 'items') }}

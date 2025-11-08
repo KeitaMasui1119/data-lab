@@ -1,0 +1,157 @@
+version: 2
+
+sources:
+  - name: jaffle_shop_raw
+    description: "Jaffle Shopの生データ（DuckDBに格納）"
+    database: dev # DuckDBのデータベース名
+    schema: jaffle_shop_raw # 作成したスキーマ名
+
+    tables:
+      - name: customers
+        description: "顧客マスターデータ"
+        columns:
+          - name: id
+            description: "顧客ID（UUID）"
+            tests:
+              - unique
+              - not_null
+          - name: name
+            description: "顧客名"
+            tests:
+              - not_null
+
+      - name: orders
+        description: "注文トランザクションデータ"
+        columns:
+          - name: id
+            description: "注文ID（UUID）"
+            tests:
+              - unique
+              - not_null
+          - name: customer
+            description: "顧客ID（customers.idへの参照）"
+            tests:
+              - not_null
+              - relationships:
+                  to: source('jaffle_shop_raw', 'customers')
+                  field: id
+          - name: ordered_at
+            description: "注文日時"
+            tests:
+              - not_null
+          - name: store_id
+            description: "店舗ID"
+            tests:
+              - not_null
+              - relationships:
+                  to: source('jaffle_shop_raw', 'stores')
+                  field: id
+          - name: subtotal
+            description: "小計（銭単位）"
+            tests:
+              - not_null
+          - name: tax_paid
+            description: "税額（銭単位）"
+            tests:
+              - not_null
+          - name: order_total
+            description: "合計金額（銭単位）"
+            tests:
+              - not_null
+
+      - name: stores
+        description: "店舗マスターデータ"
+        columns:
+          - name: id
+            description: "店舗ID（UUID）"
+            tests:
+              - unique
+              - not_null
+          - name: name
+            description: "店舗名"
+            tests:
+              - not_null
+          - name: opened_at
+            description: "開店日時"
+            tests:
+              - not_null
+          - name: tax_rate
+            description: "税率（小数）"
+            tests:
+              - not_null
+
+      - name: items
+        description: "注文アイテムデータ（注文と製品を紐付ける）"
+        columns:
+          - name: id
+            description: "アイテムID（UUID）"
+            tests:
+              - unique
+              - not_null
+          - name: order_id
+            description: "注文ID"
+            tests:
+              - not_null
+              - relationships:
+                  to: source('jaffle_shop_raw', 'orders')
+                  field: id
+          - name: sku
+            description: "製品SKU"
+            tests:
+              - not_null
+              - relationships:
+                  to: source('jaffle_shop_raw', 'products')
+                  field: sku
+
+      - name: products
+        description: "製品マスターデータ"
+        columns:
+          - name: sku
+            description: "製品SKU（JAF-###, BEV-###形式）"
+            tests:
+              - unique
+              - not_null
+          - name: name
+            description: "製品名"
+            tests:
+              - not_null
+          - name: type
+            description: "製品タイプ（jaffle/beverage）"
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["jaffle", "beverage"]
+          - name: price
+            description: "価格（銭単位）"
+            tests:
+              - not_null
+          - name: description
+            description: "製品説明"
+
+      - name: supplies
+        description: "サプライ（材料・資材）データ"
+        columns:
+          - name: id
+            description: "サプライID（SUP-###形式）"
+            tests:
+              - unique
+              - not_null
+          - name: name
+            description: "サプライ名"
+            tests:
+              - not_null
+          - name: cost
+            description: "コスト（銭単位）"
+            tests:
+              - not_null
+          - name: perishable
+            description: "腐敗性フラグ（true/false）"
+            tests:
+              - not_null
+          - name: sku
+            description: "関連する製品SKU"
+            tests:
+              - not_null
+              - relationships:
+                  to: source('jaffle_shop_raw', 'products')
+                  field: sku

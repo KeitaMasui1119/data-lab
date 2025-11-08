@@ -9,4 +9,4 @@ SELECT
     tax_paid / 100.0 AS tax_paid_dollars,
     order_total / 100.0 AS order_total_dollars
 FROM
-    {{ ref('raw_orders') }}
+    {{ source('jaffle_shop_raw', 'orders') }}
