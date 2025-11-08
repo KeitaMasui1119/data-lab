@@ -1,2 +1,2 @@
 /workspace/src/data_engineering/dbt/logs/dbt.log
-/workspace/src/data_engineering/01_data_scraping/jepx_scraper.py
+/workspace/src/data_engineering/data_scraping/jepx_scraper.py
