@@ -134,7 +134,7 @@ sources:
           - name: id
             description: "サプライID（SUP-###形式）"
             tests:
-              - unique
+              #- unique マスターデータではないので、コメントアウト
               - not_null
           - name: name
             description: "サプライ名"
