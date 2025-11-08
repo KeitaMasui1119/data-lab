@@ -1,0 +1,80 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: "顧客の基本情報"
+    columns:
+      - name: customer_id
+        description: "顧客の一意識別子"
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_orders
+    description: "注文の基本情報"
+    columns:
+      - name: order_id
+        description: "注文の一意識別子"
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: "注文した顧客のID"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
+      - name: ordered_at
+        description: "注文日時"
+        tests:
+          - not_null
+      - name: store_id
+        description: "店舗ID"
+        tests:
+          - not_null
+
+  - name: stg_items
+    description: "注文アイテムの基本情報"
+    columns:
+      - name: item_id
+        description: "アイテムの一意識別子"
+        tests:
+          - unique
+          - not_null
+      - name: order_id
+        description: "アイテムに関連する注文ID"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
+      - name: product_sku
+        description: "製品SKU"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_products')
+              field: product_sku
+
+  - name: fact_orders
+    description: "注文と支払い情報を結合したファクトテーブル"
+    columns:
+      - name: order_id
+        description: "注文の一意識別子"
+        tests:
+          - unique
+          - not_null
+      - name: order_total_dollars
+        description: "注文の合計金額（ドル）"
+        tests:
+          - not_null
+
+  - name: dim_customers
+    description: "顧客情報と注文サマリーを結合したディメンションテーブル"
+    columns:
+      - name: customer_id
+        description: "顧客の一意識別子"
+        tests:
+          - unique
+          - not_null
