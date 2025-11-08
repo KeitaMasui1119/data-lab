@@ -2,10 +2,14 @@ version: 2
 
 models:
   - name: stg_customers
-    description: "顧客の基本情報"
+    description: >
+      顧客の基本情報。
+      このテーブルには、Jaffle Shopに登録したすべての顧客情報が含まれています。
     columns:
       - name: customer_id
-        description: "顧客の一意識別子"
+        description: >
+          顧客の一意識別子。
+          あいうえお
         tests:
           - unique
           - not_null
