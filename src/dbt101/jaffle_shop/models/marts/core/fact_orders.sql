@@ -29,12 +29,13 @@ final AS (
         orders.store_id,
         orders.subtotal_dollars,
         orders.tax_paid_dollars,
+        orders.order_total_dollars,
         COALESCE(order_items_agg.product_count, 0) AS product_count,
         COALESCE(order_items_agg.item_count, 0) AS item_count
     FROM
         orders
     LEFT JOIN
-        order_items_agg_
+        order_items_agg
     USING
         (order_id)
 )

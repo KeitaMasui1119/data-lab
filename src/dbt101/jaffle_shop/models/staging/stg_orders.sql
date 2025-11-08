@@ -6,7 +6,7 @@ SELECT
     ordered_at,
     store_id,
     subtotal / 100.0 AS subtotal_dollars,
-    tax_paid / 100.0 AS tax_paid_dollers,
-    order_total / 100.0 AS order_total_dollers
+    tax_paid / 100.0 AS tax_paid_dollars,
+    order_total / 100.0 AS order_total_dollars
 FROM
     {{ ref('raw_orders') }}
