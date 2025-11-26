@@ -1,1 +1,3 @@
-/workspace/src/dbt101/logs/dbt.log
+src/dbt101/logs/dbt.log
+src/stg/data_lake/*
+src/prd/data_lake/*
