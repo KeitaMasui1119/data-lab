@@ -32,8 +32,7 @@
         "UV_PROJECT_ENVIRONMENT": "/home/vscode/.venv",
         "UV_GROUPS": "dev ds"
     },
-    // 初回: uv.lock 生成 → 以後: --frozen 同期（グループ対応）
-    "postCreateCommand": "uv lock || true && uv sync --frozen $(for g in $UV_GROUPS; do printf ' --group %s' \"$g\"; done)",
+    "postCreateCommand": "uv lock || true && uv sync --frozen $(for g in $UV_GROUPS; do printf ' --group %s' \"$g\"; done) && git config --global user.name 'Keita Masui' && git config --global user.email 'rfrnndam.tennis365@gmail.com'",
     "postStartCommand": "uv run pre-commit install || true",
     "remoteUser": "vscode"
 }
