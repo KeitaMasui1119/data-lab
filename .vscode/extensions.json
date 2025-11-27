@@ -2,7 +2,6 @@
     "recommendations": [
         "charliermarsh.ruff",
         "codezombiech.gitignore",
-        "eamodio.gitlens",
         "exiasr.hadolint",
         "kevinrose.vsc-python-indent",
         "mosapride.zenkaku",
