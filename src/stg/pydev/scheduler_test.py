@@ -7,7 +7,7 @@ def main():
     ts = now.strftime("%Y-%m-%d %H:%M:%S")
 
     # ログ保存先
-    log_dir = Path("/workspace/src/stg/data_lake")
+    log_dir = Path("src/stg/data_lake")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "scheduler.log"
 
