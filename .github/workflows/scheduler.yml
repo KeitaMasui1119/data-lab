@@ -3,7 +3,7 @@ name: Hourly Scheduler
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # 毎時0分に実行
+    - cron: "*/1 * * * *" # 毎時0分に実行
   workflow_dispatch: # 手動実行も可能
 jobs:
   run-hourly-script:
