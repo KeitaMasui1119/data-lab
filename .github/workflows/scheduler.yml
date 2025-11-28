@@ -27,4 +27,4 @@ jobs:
         run: uv sync
 
       - name: Run Scheduled script
-        run: uv run python /workspace/src/stg/pydev/scheduler_test.py
+        run: uv run python src/stg/pydev/scheduler_test.py
