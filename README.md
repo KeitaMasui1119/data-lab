@@ -1,231 +1,92 @@
-# This README.md file will be updated.
-
-
-# VSCode Dev Container: Python Development with uv and Ruff
+# 🚀 Data Engineering Practice & Portfolio: Local Data Lakehouse
 
 <div align="center">
 
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-[![Versions](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12%20|%203.13%20|%203.14%20-green.svg)](https://github.com/a5chin/python-uv)
-![code coverage](https://raw.githubusercontent.com/a5chin/python-uv/coverage-badge/coverage.svg?raw=true)
-
-[![Docker](https://github.com/a5chin/python-uv/actions/workflows/docker.yml/badge.svg)](https://github.com/a5chin/python-uv/actions/workflows/docker.yml)
-[![Format](https://github.com/a5chin/python-uv/actions/workflows/format.yml/badge.svg)](https://github.com/a5chin/python-uv/actions/workflows/format.yml)
-[![Lint](https://github.com/a5chin/python-uv/actions/workflows/lint.yml/badge.svg)](https://github.com/a5chin/python-uv/actions/workflows/lint.yml)
-[![Test](https://github.com/a5chin/python-uv/actions/workflows/test.yml/badge.svg)](https://github.com/a5chin/python-uv/actions/workflows/test.yml)
-
 </div>
 
-## Overview
-This repository contains configurations to set up a Python development environment using VSCode's Dev Container feature.
-The environment includes uv, and Ruff.
+## 🎯 Project Overview & Portfolio Value
 
-![demo](docs/img/ruff.gif)
+This repository serves as a **training platform and portfolio** designed to acquire and demonstrate **versatile data engineering skills**.
 
-If the Ruff format does not work, try reloading the VS Code window.
-Specifically, you can solve this problem by following the steps below.
+The project focuses on building a **local Data Lakehouse** infrastructure, simulating a cloud environment using **MinIO** (S3-compatible storage) and **DuckDB/dbt**. This approach allows for cost-effective, reproducible development of modern ELT pipelines.
 
-1. Type `⌘+⇧+P` to open the command palette
-2. Type `Developer: Reload Window` in the command palette to reload the window
+### Key Portfolio Highlights
+1.  **Cloud Simulation**: Avoids vendor lock-in and costs by using **MinIO** to replicate core **S3/GCS API** functionality locally.
+2.  **Data Lakehouse Proficiency**: Implements the Lakehouse pattern by having **DuckDB** directly query **Parquet files** stored in MinIO, facilitating powerful, SQL-based ELT.
+3.  **Code Quality & Efficiency**: Enforces high standards using the **Rust-based ecosystem** (`uv` for ultra-fast package management and `Ruff` for strict, efficient linting).
 
-### Contents
-- [This README.md file will be updated.](#this-readmemd-file-will-be-updated)
-- [VSCode Dev Container: Python Development with uv and Ruff](#vscode-dev-container-python-development-with-uv-and-ruff)
-  - [Overview](#overview)
-    - [Contents](#contents)
-  - [Branches](#branches)
-  - [Settings](#settings)
-  - [Dev Container](#dev-container)
-  - [GitHub Actions](#github-actions)
-  - [Ruff](#ruff)
-  - [pre-commit](#pre-commit)
-  - [pytest](#pytest)
-  - [cookiecutter](#cookiecutter)
-  - [Appendix](#appendix)
-    - [Install libraries](#install-libraries)
-    - [The structure of this repository](#the-structure-of-this-repository)
+***
 
-## Branches
-- [main](https://github.com/a5chin/python-uv/tree/main)
-- [jupyter](https://github.com/a5chin/python-uv/tree/jupyter)
-- [rye](https://github.com/a5chin/python-uv/tree/rye)（Archived）
+## ⚙️ Technical Stack & Rationale
 
-## Settings
-- files.insertFinalNewline
-- files.trimTrailingWhitespace
-- editor.formatOnSave
-  - dockercompose
-  - dockerfile
-  - github-actions-workflow
-  - json, jsonc
-  - python
-  - toml
-  - yaml
+| Category | Tool | Rationale (Why this tool was chosen) |
+| :--- | :--- | :--- |
+| **Development** | **Python** | The industry standard for data engineering. Focus on practicing advanced concepts like **Type Hinting** and robust exception handling. |
+| **Data Lake** | **MinIO** (Docker) | To master **cloud object storage concepts** (objects, buckets, S3 API) and **Parquet file storage** in a fully isolated, local environment. |
+| **Analytics Engine/DWH** | **DuckDB** | Used as the **analytical core** of the Lakehouse. Chosen for its extreme speed in **columnar processing** and ability to query external files directly. |
+| **Data Transformation (ELT)** | **dbt (Data Build Tool)** | To practice **Data as Code**. Ensures **data lineage** and **idempotency** by managing complex SQL transformations and dependencies. |
+| **Environment/Quality** | **uv, Ruff** | Focus on performance and quality control. **`uv`** provides instant dependency resolution; **`Ruff`** enforces Python best practices efficiently. |
 
-## Dev Container
-- `devcontainer.json`
-  - features
-    - hadolint
-  - extentions
-    - [charliermarsh.ruff](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff)
-    - [codezombiech.gitignore](https://marketplace.visualstudio.com/items?itemName=codezombiech.gitignore)
-    - [eamodio.gitlens](https://marketplace.visualstudio.com/items?itemName=eamodio.gitlens)
-    - [kevinrose.vsc-python-indent](https://marketplace.visualstudio.com/items?itemName=kevinrose.vsc-python-indent)
-    - [mosapride.zenkaku](https://marketplace.visualstudio.com/items?itemName=mosapride.zenkaku)
-    - [ms-azuretools.vscode-docker](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-docker)
-    - [ms-python.python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
-    - [njpwerner.autodocstring](https://marketplace.visualstudio.com/items?itemName=njpwerner.autodocstring)
-    - [oderwat.indent-rainbow](https://marketplace.visualstudio.com/items?itemName=oderwat.indent-rainbow)
-    - [pkief.material-icon-theme](https://marketplace.visualstudio.com/items?itemName=pkief.material-icon-theme)
-    - [redhat.vscode-yaml](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)
-    - [shardulm94.trailing-spaces](https://marketplace.visualstudio.com/items?itemName=shardulm94.trailing-spaces)
-    - [tamasfe.even-better-toml](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml)
-    - [usernamehw.errorlens](https://marketplace.visualstudio.com/items?itemName=usernamehw.errorlens)
-    - [yzhang.markdown-all-in-one](https://marketplace.visualstudio.com/items?itemName=yzhang.markdown-all-in-one)
-- `Dockerfile`
-  - Only Dev dependencies
-    - `pre-commit`
-    - `pyright`
-    - `pytest`
-    - `ruff`
-- `buildWithRust.Dockerfile`
-  - Use the Rust compiler when you need it!
-  - Fix dockerfile in `.devcontainer/devcontainer.json`
+***
 
-## GitHub Actions
-- `docker.yml`
-  - Workflow to check if you can build with Docker
-- `pyright.yml`
-  - Workflow to check type
-- `test.yml`
-  - Workflow to check if all the described tests can be passed with pytest
-- `ruff.yml`
-  - Workflow to check if you can go through Formatter and Linter with Ruff
+## 🗺️ Training Roadmap & Progress
 
-## Ruff
-Ruff can be used to replace Flake8, Black, isort, pydocstyle, pyupgrade, autoflake, etc., and yet run tens to hundreds of times faster than the individual tools.
+The project structure follows the core categories of a comprehensive data engineering curriculum.
 
-To change the configuration, it is necessary to rewrite ruff.toml, and [it is recommended](https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules) to set it to ignore conflicts such as the following:
-```toml
-ignore = [
-    "COM812", "COM819",
-    "D100", "D203", "D213", "D300",
-    "E111", "E114", "E117",
-    "ISC001", "ISC002",
-    "Q000", "Q001", "Q002", "Q003",
-    "W191",
-]
-```
+| # | Category | Goal | Status | Relevant Modules/Files |
+| :-: | :--- | :--- | :--- | :--- |
+| 01 | **Data Scraping** | Learn various methods for data acquisition (requests, APIs, Scrapy). | ✅ Done | `scripts/ingestion.py` |
+| 02 | **ETL/ELT** | Master data loading, cleaning, and transformation logic. | 🔄 In Progress | `dbt/models/` |
+| 03 | **Data Pipeline** | Practice automation and orchestration techniques. | ⬜ To Do | |
+| 04 | **Data Lake** | Build a structured storage layer using MinIO and Parquet. | ✅ Done | `docker-compose.yml` |
+| 05 | **Data Warehouse** | Design and build normalized data marts. | ⬜ To Do | |
+| 06 | **Data Lakehouse** | Establish the MinIO + DuckDB seamless querying mechanism. | 🔄 In Progress | `scripts/duckdb_connector.py` |
+| 07 | **Streaming Data** | Fundamentals of real-time data processing. | ⬜ To Do | |
+| 08 | **Data Analytics & Visualization**| Automated reporting and dashboarding. | ⬜ To Do | |
+| 09 | **Data Governance/Security** | Data cataloging and access control basics. | ⬜ To Do | |
+| 10 | **Monitoring & Logging** | Implementing pipeline health checks and logging. | ⬜ To Do | |
 
-## pre-commit
-The `.pre-commit-config.yaml` file can contain scripts to be executed before commit.
+***
+
+## 🛠️ Environment Setup & Usage
+
+The entire platform is defined in **Docker Compose** for a reproducible and isolated development environment.
+
+### 1. Setup Instructions
+
+1.  Ensure **Docker Desktop** is running.
+2.  Open the repository in VS Code and select **Rebuild and Reopen in Container**. (This launches the `app` service and the `minio` service together).
+
+### 2. MinIO Access Details
+
+Use these credentials to connect DuckDB or Python S3 clients from within the Dev Container.
+
+| Item | Value | Note |
+| :--- | :--- | :--- |
+| **MinIO API Endpoint** | `minio:9000` | The service name within the Docker network. |
+| **MinIO Console (Web UI)** | `http://localhost:9001` | Access this URL from your host machine. |
+| **Access Key** | `minioadmin` | |
+| **Secret Key** | `minioadmin` | |
+
+### 3. Execution Flow
+
+Use the terminal inside the Dev Container to run the pipeline steps.
 
 ```sh
-# Python Formatter
-uv run ruff format .
-
-# Python Linter
-uv run ruff check . --fix
-
-# Docker Linter
-hodolint Dockerfile
-```
-
-## pytest
-To run the test, use the following command:
-```sh
-uv run pytest
-```
-
-## cookiecutter
-To use cookiecutter for template, use the following command:
-```sh
-uv run cookiecutter {url}
-```
-- Data Science
-  - https://github.com/drivendataorg/cookiecutter-data-science
-- Django
-  - https://github.com/cookiecutter/cookiecutter-django
-  - https://github.com/agconti/cookiecutter-django-rest
-  - https://github.com/vchaptsev/cookiecutter-django-vue
-  - https://github.com/chrisdev/wagtail-cookiecutter-foundation
-  - https://github.com/wemake-services/wemake-django-template
-- FastAPI
-  - https://github.com/fastapi/full-stack-fastapi-template
-- Flask
-  - https://github.com/cookiecutter-flask/cookiecutter-flask
-  - https://github.com/karec/cookiecutter-flask-restful
-  - https://github.com/italomaia/flask-empty
-
-## Appendix
-
-### Install libraries
-```sh
-# Install also include develop dependencies
+# 1. Synchronize Dependencies (using uv)
 uv sync
 
-# If you do not want dev dependencies to be installed
-uv sync --no-dev
+# 2. Extract & Load to MinIO (Raw Layer)
+# Runs the scraping script and uploads Parquet/CSV to MinIO (e.g., s3://datalake/raw/...)
+uv run python scripts/ingestion.py
 
-# Use the add command to add dependencies to your project
-uv add {libraries}
-```
+# 3. Transform (ELT with dbt)
+# Launches dbt, uses DuckDB to read raw data, and writes clean data to the Curated Layer.
+dbt run
 
-### The structure of this repository
-```
-.
-├── .devcontainer/
-│   ├── devcontainer.json
-│   └── Dockerfile
-├── .github/
-│   ├── actions/
-│   │   ├── setup-git-config
-│   │   │   └── action.yml
-│   │   └── setup-python-with-uv
-│   │       └── action.yml
-│   ├── workflows/
-│   │   ├── docker.yml
-│   │   ├── pyright.yml
-│   │   ├── ruff.yml
-│   │   └── test.yml
-│   └── dependabot.yml
-├── .vscode
-│   ├── extensions.json
-│   └── settings.json
-├── tests/
-│   └── tools/
-│        ├── test__config.py
-│        ├── test__logger.py
-│        └── test__tracer.py
-├── tools/
-│   ├── config/
-│   │    ├── __init__.py
-│   │    ├── fastapi.py
-│   │    └── settings.py
-│   ├── logger/
-│   │    ├── __init__.py
-│   │    ├── color.py
-│   │    ├── googlecloud.py
-│   │    ├── local.py
-│   │    ├── logger.py
-│   │    ├── style.py
-│   │    └── type.py
-│   ├── tracer/
-│   │    ├── __init__.py
-│   │    └── timer.py
-│   └── __init__.py
-├── .dockerignore
-├── .env.local
-├── .gitignore
-├── .pre-commit-config.yaml
-├── .python-version
-├── Dockerfile
-├── pyproject.toml
-├── pyrightconfig.json
-├── pytest.ini
-├── README.md
-├── ruff.toml
-└── uv.lock
-```
+# 4. Analytics / Query
+# DuckDB is used to query the Parquet files in the Curated Layer directly.
+uv run python scripts/analytics/query_data.py
