@@ -26,7 +26,10 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
-    "src/stg",
+    "src/stg/pydev",
+    "src/stg/scraper",
+    "*.ipynb",
+    "notebooks"
 ]
 
 # Same as Black.
@@ -34,18 +37,23 @@ line-length = 88
 indent-width = 4
 
 # Assume Python 3.14
-target-version = "py314"
+target-version = "py312"
 
 [lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
-select = ["ALL"]
+select = [
+    "E", # 基本スタイル・構文
+    "F", # バグ系(未使用変数など)
+    "W", # warning
+    "I", # import整形
+    "B", # bugger(バグ寄り)
+    "UP" # 古い構文の警告
+]
 ignore = [
+    "D",
+    "T201",
     "COM812",
     "COM819",
-    "D100",
-    "D203",
-    "D213",
-    "D300",
     "E111",
     "E114",
     "E117",

@@ -38,11 +38,12 @@ repos:
       - id: ruff
         name: Ruff check
         description: "Run 'ruff check' for extremely fast Python linting"
-        args: [--fix]
+        args: [--fix, --exclude, "*.ipynb", --exclude, "notebooks"]
 
       - id: ruff-format
         name: Ruff format
         description: "Run 'ruff format' for extremely fast Python formatting"
+        args: [--exclude, "*.ipynb", --exclude, "notebooks"]
 
   - repo: https://github.com/hadolint/hadolint
     rev: v2.12.0
