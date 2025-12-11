@@ -11,3 +11,6 @@ services:
     user: vscode
     volumes:
       - ..:/workspace:cached
+    dns:
+      - 8.8.8.8 # Google Public DNS Primary
+      - 1.1.1.1 # Cloudflare DNS Primary
