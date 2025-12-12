@@ -14,3 +14,26 @@ services:
     dns:
       - 8.8.8.8 # Google Public DNS Primary
       - 1.1.1.1 # Cloudflare DNS Primary
+  rustfs:
+    image: rustfs/rustfs:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    env_file:
+      - ../configuration/.env
+    volumes:
+      - rustfs-data:/data
+    environment:
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY}
+      - RUSTFS_CONSOLE_ENABLE=true
+    command: >
+      --address :9000
+      --console-enable
+      --access-key rustfsadmin
+      --secret-key rustfsadmin
+      /data
+    restart: unless-stopped
+
+volumes:
+  rustfs-data:
