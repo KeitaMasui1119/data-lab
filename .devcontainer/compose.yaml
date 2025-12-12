@@ -30,8 +30,6 @@ services:
     command: >
       --address :9000
       --console-enable
-      --access-key rustfsadmin
-      --secret-key rustfsadmin
       /data
     restart: unless-stopped
 
