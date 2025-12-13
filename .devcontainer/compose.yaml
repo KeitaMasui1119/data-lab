@@ -26,8 +26,6 @@ services:
     env_file:
       - ../configuration/.env
     environment:
-      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY}
-      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY}
       - RUSTFS_CONSOLE_ENABLE=true
     command: >
       --address :9000
