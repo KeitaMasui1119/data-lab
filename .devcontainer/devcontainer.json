@@ -3,7 +3,8 @@
     "dockerComposeFile": "../.devcontainer/compose.yaml",
     "service": "vscode",
     "runServices": [
-        "vscode"
+        "vscode",
+        "rustfs"
     ],
     "workspaceFolder": "/workspace",
     "features": {
