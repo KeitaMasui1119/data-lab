@@ -9,6 +9,7 @@ license = { file = "LICENSE" }
 
 dependencies = [
     "beautifulsoup4>=4.14.2",
+    "boto3>=1.42.9",
     "google-cloud-logging>=3.12.1",
     "google-cloud-storage>=3.6.0",
     "pydantic>=2.12.0",
