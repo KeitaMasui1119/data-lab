@@ -13,6 +13,8 @@ ENV PYTHONDONTWRITEBYTECODE=True \
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+    # Add sqlite3 (23th Dec 2025)
+    sqlite3 \
     # To remove the image size, it is recommended refresh the package cache as follows
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
