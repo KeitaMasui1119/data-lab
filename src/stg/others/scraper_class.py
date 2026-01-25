@@ -33,10 +33,12 @@ class JEPXScraper:
 
     def _setup_session(self) -> None:
         """セッションの初期設定."""
-        self.session.headers.update({
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Referer": self.config.referer,
-        })
+        self.session.headers.update(
+            {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": self.config.referer,
+            }
+        )
 
     @staticmethod
     def get_fiscal_year(timestamp: datetime) -> int:

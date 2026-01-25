@@ -45,7 +45,9 @@ class DuckDBLoader:
         if self.config.auto_checkpoint:
             self.conn.execute("PRAGMA enable_checkpoint_on_shutdown=true")
 
-    def execute(self, query: str, params: dict[str, Any] | None = None) -> duckdb.DuckDBPyConnection:
+    def execute(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> duckdb.DuckDBPyConnection:
         """SQLを実行.
 
         Args:
@@ -264,8 +266,6 @@ class DuckDBLoader:
 
 # 使用例
 if __name__ == "__main__":
-    from datetime import datetime
-
     # JEPXScraperと組み合わせて使う例
     # from jepx_scraper import JEPXScraper
 
