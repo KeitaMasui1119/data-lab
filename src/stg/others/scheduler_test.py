@@ -2,6 +2,7 @@
 import datetime
 from pathlib import Path
 
+
 def main():
     now = datetime.datetime.now()
     ts = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -18,6 +19,7 @@ def main():
         f.write(message)
 
     print(message, end="")  # GitHub Actionsログにも出す
+
 
 if __name__ == "__main__":
     main()
