@@ -3,3 +3,4 @@ src/stg/data_lake/*
 src/prd/data_lake/*
 .secrets/
 configuration/*
+data/*
