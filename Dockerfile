@@ -38,4 +38,4 @@ RUN uv sync --frozen --no-dev
 # セキュリティ設定(非rootユーザーで実行)
 USER appuser
 
-#CMD ["python", "src/main.py"]
+CMD ["python", "src/main.py"]
