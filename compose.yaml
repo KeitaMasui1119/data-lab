@@ -3,16 +3,13 @@ name: data_platform_prd
 services:
   app:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
+      target: prd
       args:
         UV_VERSION: latest
-    command: "sleep infinity"
     ports:
       - "8000:8000"
-    user: vscode
-    volumes:
-      - ..:/workspace:cached
     dns:
       - 8.8.8.8 # Google Public DNS Primary
       - 1.1.1.1 # Cloudflare DNS Primary

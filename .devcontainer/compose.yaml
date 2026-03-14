@@ -2,36 +2,12 @@ services:
   vscode:
     build:
       context: ..
-      dockerfile: .devcontainer/Dockerfile
-      args:
-        UV_VERSION: latest
+      dockerfile: Dockerfile
+      target: dev
     command: "sleep infinity"
-    ports:
-      - "8000:8000"
     user: vscode
     volumes:
       - ..:/workspace:cached
     dns:
       - 8.8.8.8 # Google Public DNS Primary
       - 1.1.1.1 # Cloudflare DNS Primary
-    depends_on:
-      - rustfs
-  rustfs:
-    image: rustfs/rustfs:latest
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - rustfs-data:/data
-    env_file:
-      - ../configuration/.env
-    environment:
-      - RUSTFS_CONSOLE_ENABLE=true
-    command: >
-      --address :9000
-      --console-enable
-      /data
-    restart: unless-stopped
-
-volumes:
-  rustfs-data:
