@@ -4,38 +4,46 @@ ARG VARIANT=3.12
 # uvのバイナリを取得するステージ
 FROM ghcr.io/astral-sh/uv:$UV_VERSION AS uv
 
-# 本番実行用のステージ
-FROM python:$VARIANT-slim
-
+# === 1. Base Stage(共通基盤) ===
+FROM python:$VARIANT-slim AS base
 WORKDIR /app
-
-RUN useradd -m appuser
-
 COPY --from=uv /uv /uvx /bin/
-COPY pyproject.toml uv.lock ./
-
 ENV PYTHONDONTWRITEBYTECODE=True \
     PYTHONUNBUFFERED=True \
     UV_LINK_MODE=copy \
-    # venvのパスをPATHに追加
     PATH="/app/.venv/bin:$PATH"
 
 # hadolint ignore=DL3008
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-    sqlite3 \
+    && apt-get install -y --no-install-recommends sqlite3 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# === 2. Dev Stage(DevContainer用) ===
+FROM base AS dev
+# DevContainerが要求する標準ユーザー(vscode)と必須ツールを追加
+# hadolint ignore=DL3008
+RUN useradd -m -s /bin/bash -u 1000 vscode \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends git curl ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+USER vscode
+WORKDIR /workspace
+CMD ["sleep", "infinity"]
+
+# === 3. Builder Stage(Prd依存解決用) ===
+FROM base AS builder
+COPY pyproject.toml uv.lock ./
+# 本番に必要なパッケージのみをインストール(devグループなどを除外)
 RUN uv sync --frozen --no-install-project --no-dev
 
-# アプリケーションコードのコピー
+# === 4. Prd Stage(本番稼働用) ===
+FROM base AS prd
+RUN useradd -m -s /bin/bash -u 1000 appuser
+# builderから完成したクリーンな仮想環境のみをコピー
+COPY --from=builder /app/.venv /app/.venv
+# ソースコードのコピー
 COPY --chown=appuser:appuser src ./src
-
-# プロジェクト自体のインストール
-RUN uv sync --frozen --no-dev
-
-# セキュリティ設定(非rootユーザーで実行)
 USER appuser
-
-CMD ["python", "src/main.py"]
+CMD ["python", "-m", "src.main"]
