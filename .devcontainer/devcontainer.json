@@ -36,7 +36,8 @@
         "DISPLAY": "dummy",
         "UV_PROJECT_ENVIRONMENT": "/home/vscode/.venv",
         "UV_GROUPS": "dev ds de",
-        "GOOGLE_APPLICATION_CREDENTIALS": "/workspace/.secrets/keita-masui-firstproject-46adeb7731b9.json"
+        "GOOGLE_APPLICATION_CREDENTIALS": "/workspace/.secrets/keita-masui-firstproject-46adeb7731b9.json",
+        "EDITOR": "code --wait"
     },
     "postCreateCommand": "uv lock || true && uv sync --frozen $(for g in $UV_GROUPS; do printf ' --group %s' \"$g\"; done) && git config --global user.name 'Keita Masui' && git config --global user.email 'rfrnndam.tennis365@gmail.com'",
     "postStartCommand": "uv run pre-commit install || true",
