@@ -1,7 +1,7 @@
 {
     "name": "data_platform",
     "dockerComposeFile": [
-        "../.devcontainer/compose.yaml",
+        "../compose.yaml",
         "compose.yaml"
     ],
     "service": "app",

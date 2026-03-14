@@ -1,13 +1,13 @@
 services:
-  vscode:
+  app:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
       target: dev
     command: "sleep infinity"
     user: vscode
     volumes:
-      - ..:/workspace:cached
+      - .:/workspace:cached
     dns:
       - 8.8.8.8 # Google Public DNS Primary
       - 1.1.1.1 # Cloudflare DNS Primary

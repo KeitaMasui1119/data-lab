@@ -22,9 +22,10 @@ RUN apt-get update \
 # === 2. Dev Stage(DevContainer用) ===
 FROM base AS dev
 # DevContainerが要求する標準ユーザー(vscode)と必須ツールを追加
+# hadolint ignore=DL3008
 RUN useradd -m -s /bin/bash -u 1000 vscode \
     && apt-get update \
-    && apt-get install -y --no-install-recommends git=2.53.0 curl=8.19.0 ca-certificates=2026.02.26 \
+    && apt-get install -y --no-install-recommends git curl ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 USER vscode
