@@ -14,7 +14,6 @@ dependencies = [
     'dbt-core>=1.11.7',
     'dbt-duckdb>=1.10.1',
     'ipykernel>=7.2.0',
-    'luigi>=3.8.0',
     'lxml>=6.0.2',
     'nbformat>=5.10.4',
     'numpy>=2.3.0',
@@ -30,7 +29,6 @@ dependencies = [
     'Scrapy>=2.14.2',
     'seaborn>=0.13.2',
     'shandy-sqlfmt[jinjafmt]>=0.29.0',
-    'yfinance>=1.2.0',
 ]
 
 [dependency-groups]
