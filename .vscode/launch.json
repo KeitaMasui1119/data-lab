@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Debug Ingestion Pipeline",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "python": "/home/vscode/.venv/bin/python3",
+            "justMyCode": false,
+            "env": {
+                "PYICEBERG_HOME": "${workspaceFolder}/configuration/iceberg"
+            },
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}
