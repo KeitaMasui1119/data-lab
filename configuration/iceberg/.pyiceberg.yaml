@@ -1,8 +1,6 @@
 catalog:
-  default:
+  dlh_dev:
     type: sql
     uri: sqlite:////workspace/data/catalog/pyiceberg_catalog.db
     warehouse: s3://jp-power-grid-dev
     s3.endpoint: http://localhost:9000
-    s3.access-key-id: RUSTFS_DEV_USER
-    s3.secret-access-key: 5lfrip8glbo39capHlpis9e3r09rasw9crEdestit5usteZ8keyu1up3Uw4madru
