@@ -126,8 +126,3 @@ def build_table_schema(file_path: str):
         return table_schema
     except Exception as e:
         raise ValueError(f"An unexpected error has occured. : {str(e)}") from e
-
-
-if __name__ == "__main__":
-    schema = build_table_schema(r"/workspace/data/schema/schema_spot_price.csv")
-    print(schema)
