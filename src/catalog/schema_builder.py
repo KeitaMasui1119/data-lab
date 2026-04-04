@@ -121,6 +121,48 @@ def build_table_schema(file_path: str):
                     identifier_ids.append(int(row["field_id"]))
 
                 column_field.append(field)
+            # Metadata schema
+            # --- ここからシステムロジック（監査カラムの強制注入） ---
+            audit_fields = [
+                NestedField(
+                    field_id=9001,
+                    name="source_data",
+                    field_type=StringType(),
+                    required=False,
+                    doc="Source data path or URL",
+                ),
+                NestedField(
+                    field_id=9002,
+                    name="status",
+                    field_type=StringType(),
+                    required=False,
+                    doc="new or updated",
+                ),
+                NestedField(
+                    field_id=9003,
+                    name="ingestion_time",
+                    field_type=TimestamptzType(),
+                    required=False,
+                    doc="Data insertion timestamp",
+                ),
+                NestedField(
+                    field_id=9004,
+                    name="ingestion_date",
+                    field_type=DateType(),
+                    required=False,
+                    doc="Data insertion date",
+                ),
+                NestedField(
+                    field_id=9005,
+                    name="execution_id",
+                    field_type=StringType(),
+                    required=False,
+                    doc="Pipeline Unique Run ID",
+                ),
+            ]
+
+            column_field.extend(audit_fields)
+
             table_schema = Schema(*column_field, identifier_field_ids=identifier_ids)
 
         return table_schema
