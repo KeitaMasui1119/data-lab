@@ -87,8 +87,7 @@ def provision_table(
 
 
 if __name__ == "__main__":
-    # 実行例（君の環境に合わせて書き換えろ）
-    CATALOG_NAME = "dlh_dev"  # .pyiceberg.yaml で定義したカタログ名
+    CATALOG_NAME = "dlh_dev"
 
     SCHEMA_BASE_DIR = Path("/workspace/data/schema")
     logger.info("=== Start concurrent provisioning ===")

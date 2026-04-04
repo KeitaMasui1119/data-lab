@@ -3,4 +3,6 @@ catalog:
     type: sql
     uri: sqlite:////workspace/data/catalog/pyiceberg_catalog.db
     warehouse: s3://jp-power-grid-dev
-    s3.endpoint: http://localhost:9000
+    s3.endpoint: http://rustfs:9000
+    s3.region: us-east-1
+    s3.path-style-access: "true"

@@ -1,0 +1,37 @@
+2026-04-04 08:13:28,326 | __main__ | INFO | === Start concurrent provisioning ===
+2026-04-04 08:13:28,327 | __main__ | INFO | --- Start provisioning: bronze.jepx_spot_price ---
+2026-04-04 08:13:29,413 | __main__ | INFO | Skip creating new namespace due to already existing 'bronze'.
+2026-04-04 08:13:29,413 | schema_builder | INFO | Start loading the definition of schema. : /workspace/data/schema/bronze/jepx_spot_price.csv
+2026-04-04 08:13:29,418 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
+2026-04-04 08:13:32,456 | pyiceberg.io.pyarrow | WARNING | Unable to resolve region for bucket jp-power-grid-dev
+2026-04-04 08:13:53,917 | __main__ | ERROR | Failed provisoning table on 'bronze.jepx_spot_price': When getting information for key 'bronze/jepx_spot_price/metadata/00000-8e2d09c9-cdbe-4d28-846e-aeb925c0322c.metadata.json' in bucket 'jp-power-grid-dev': AWS Error NETWORK_CONNECTION during HeadObject operation: curlCode: 7, Could not connect to server; Details: Failed to connect to localhost port 9000 after 0 ms: Could not connect to server
+2026-04-04 08:13:53,917 | __main__ | INFO | === Complete provisioning ===
+2026-04-04 08:23:26,895 | __main__ | INFO | === Start concurrent provisioning ===
+2026-04-04 08:23:26,896 | __main__ | INFO | --- Start provisioning: bronze.jepx_spot_price ---
+2026-04-04 08:23:27,917 | __main__ | INFO | Skip creating new namespace due to already existing 'bronze'.
+2026-04-04 08:23:27,918 | schema_builder | INFO | Start loading the definition of schema. : /workspace/data/schema/bronze/jepx_spot_price.csv
+2026-04-04 08:23:27,922 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
+2026-04-04 08:23:30,740 | pyiceberg.io.pyarrow | WARNING | Unable to resolve region for bucket jp-power-grid-dev
+2026-04-04 08:23:46,796 | __main__ | ERROR | Failed provisoning table on 'bronze.jepx_spot_price': When getting information for key 'bronze/jepx_spot_price/metadata/00000-a731c225-0451-4991-8303-4e3c6a47f0e8.metadata.json' in bucket 'jp-power-grid-dev': AWS Error ACCESS_DENIED during HeadObject operation: No response body.
+2026-04-04 08:23:46,796 | __main__ | INFO | === Complete provisioning ===
+2026-04-04 08:26:24,831 | __main__ | INFO | === Start concurrent provisioning ===
+2026-04-04 08:26:24,833 | __main__ | INFO | --- Start provisioning: bronze.jepx_spot_price ---
+2026-04-04 08:26:25,824 | __main__ | INFO | Skip creating new namespace due to already existing 'bronze'.
+2026-04-04 08:26:25,824 | schema_builder | INFO | Start loading the definition of schema. : /workspace/data/schema/bronze/jepx_spot_price.csv
+2026-04-04 08:26:25,828 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
+2026-04-04 08:26:44,216 | __main__ | ERROR | Failed provisoning table on 'bronze.jepx_spot_price': When getting information for key 'bronze/jepx_spot_price/metadata/00000-1271603d-57f7-4a89-9004-a7e32dc74d65.metadata.json' in bucket 'jp-power-grid-dev': AWS Error ACCESS_DENIED during HeadObject operation: No response body.
+2026-04-04 08:26:44,216 | __main__ | INFO | === Complete provisioning ===
+2026-04-04 08:30:59,814 | __main__ | INFO | === Start concurrent provisioning ===
+2026-04-04 08:30:59,816 | __main__ | INFO | --- Start provisioning: bronze.jepx_spot_price ---
+2026-04-04 08:31:00,888 | __main__ | INFO | Skip creating new namespace due to already existing 'bronze'.
+2026-04-04 08:31:00,889 | schema_builder | INFO | Start loading the definition of schema. : /workspace/data/schema/bronze/jepx_spot_price.csv
+2026-04-04 08:31:00,894 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
+2026-04-04 08:31:19,271 | __main__ | ERROR | Failed provisoning table on 'bronze.jepx_spot_price': When getting information for key 'bronze/jepx_spot_price/metadata/00000-0489b9c6-550e-4791-88bc-ce3f9a70e265.metadata.json' in bucket 'jp-power-grid-dev': AWS Error ACCESS_DENIED during HeadObject operation: No response body.
+2026-04-04 08:31:19,271 | __main__ | INFO | === Complete provisioning ===
+2026-04-04 08:34:06,368 | __main__ | INFO | === Start concurrent provisioning ===
+2026-04-04 08:34:06,370 | __main__ | INFO | --- Start provisioning: bronze.jepx_spot_price ---
+2026-04-04 08:34:07,421 | __main__ | INFO | Skip creating new namespace due to already existing 'bronze'.
+2026-04-04 08:34:07,422 | schema_builder | INFO | Start loading the definition of schema. : /workspace/data/schema/bronze/jepx_spot_price.csv
+2026-04-04 08:34:07,427 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
+2026-04-04 08:34:09,747 | __main__ | ERROR | Failed provisoning table on 'bronze.jepx_spot_price': When getting information for key 'bronze/jepx_spot_price/metadata/00000-7bb8afb0-94fb-4701-83e8-be7e6f297178.metadata.json' in bucket 'jp-power-grid-dev': AWS Error ACCESS_DENIED during HeadObject operation: No response body.
+2026-04-04 08:34:09,748 | __main__ | INFO | === Complete provisioning ===
