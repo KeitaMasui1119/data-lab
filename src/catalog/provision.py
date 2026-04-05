@@ -26,22 +26,15 @@ def provision_table(
         table_name (str): _description_
         schema_csv_path (str): _description_
     """
-    logger.info(f"--- Start provisioning: {namespace}.{table_name} ---")
-
     # 1. カタログのロード
     catalog = load_catalog(catalog_name)
-
-    # --- 💡ここに追加（PyIcebergが認識している全設定を暴露させる） ---
-    logger.info(f"Catalog Properties: {catalog.properties}")
 
     # 2. Namespaceの作成
     try:
         catalog.create_namespace(namespace)
-        logger.info(f"Create new namespace '{namespace}'.")
+        logger.info(f"Create new namespace: '{namespace}'.")
     except NamespaceAlreadyExistsError:
-        logger.info(
-            f"Skip creating new namespace due to already existing '{namespace}'."
-        )
+        logger.info(f"Skipping namespace creation: '{namespace}' already exists.")
 
     # 3. CSVから最新のスキーマ定義を読み込む
     identifier = f"{namespace}.{table_name}"
@@ -51,10 +44,7 @@ def provision_table(
     try:
         # テーブルが存在するか確認(存在しない場合はNoSuchTableErrorが発生)
         existing_table = catalog.load_table(identifier)
-        logger.info(
-            f"Table '{identifier}' already exists."
-            "Start checking the difference of schema."
-        )
+        logger.info(f"Table '{identifier}' exists. Checking schema diff.")
 
         # ここからスキーマ進化の処理
         existing_schema = existing_table.schema()
@@ -67,7 +57,7 @@ def provision_table(
 
         if removed_cols:
             logger.warning(
-                f"Warning: Column '{removed_cols}' may removed or modified on csv."
+                f"Column '{removed_cols}' may be removed or modified in the CSV."
             )
 
         if added_cols:
@@ -81,19 +71,19 @@ def provision_table(
                     )
             logger.info(f"Add new columns: {added_cols}")
         else:
-            logger.info("There is no change in schema.")
+            logger.info("No schema changes detected")
     except NoSuchTableError:
         # テーブルが存在しない場合は新規作成
-        logger.info(f"Create new table due to not existing table '{identifier}'.")
+        logger.info(f"Table '{identifier}' does not exist. Creating.")
         catalog.create_table(identifier=identifier, schema=new_schema)
-        logger.info(f"Complete creating table '{identifier}'.")
+        logger.info(f"Table '{identifier}' created successfully.")
 
 
 if __name__ == "__main__":
     CATALOG_NAME = "dlh_dev"
 
     SCHEMA_BASE_DIR = Path("/workspace/data/schema")
-    logger.info("=== Start concurrent provisioning ===")
+    logger.info("=== Provisioning began ===")
     for csv_file in SCHEMA_BASE_DIR.rglob("*.csv"):
         namespace = csv_file.parent.name
         table_name = csv_file.stem
@@ -105,8 +95,6 @@ if __name__ == "__main__":
                 schema_csv_path=str(csv_file),
             )
         except Exception as e:
-            logger.error(
-                f"Failed provisoning table on '{namespace}.{table_name}': {str(e)}"
-            )
+            logger.error(f"Failed to provision table '{namespace}.{table_name}': {e}")
             continue
-    logger.info("=== Complete provisioning ===")
+    logger.info("=== Provisioning completed ===")

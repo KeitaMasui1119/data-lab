@@ -81,3 +81,19 @@
 2026-04-05 12:50:30,874 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
 2026-04-05 12:50:33,348 | __main__ | INFO | Complete creating table 'bronze.jepx_spot_price'.
 2026-04-05 12:50:33,348 | __main__ | INFO | === Complete provisioning ===
+2026-04-05 13:06:48,279 | __main__ | INFO | === Start concurrent provisioning ===
+2026-04-05 13:06:48,280 | __main__ | INFO | --- Start provisioning: bronze.jepx_spot_price ---
+2026-04-05 13:06:49,203 | __main__ | INFO | Catalog Properties: {'type': 'sql', 'uri': 'sqlite:////workspace/data/catalog/pyiceberg_catalog.db', 'warehouse': 's3://jp-power-grid-dev', 's3.endpoint': 'http://rustfs:9000', 's3.region': 'us-east-1', 's3.path-style-access': 'true'}
+2026-04-05 13:06:49,216 | __main__ | INFO | Skip creating new namespace due to already existing 'bronze'.
+2026-04-05 13:06:49,217 | schema_builder | INFO | Start loading the definition of schema. : /workspace/data/schema/bronze/jepx_spot_price.csv
+2026-04-05 13:06:49,222 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
+2026-04-05 13:06:51,186 | __main__ | ERROR | Failed provisoning table on 'bronze.jepx_spot_price': When getting information for key 'bronze/jepx_spot_price/metadata/00000-a9c7f2a8-d7e3-4b53-a3d7-2a3ee530eb29.metadata.json' in bucket 'jp-power-grid-dev': AWS Error ACCESS_DENIED during HeadObject operation: No response body.
+2026-04-05 13:06:51,186 | __main__ | INFO | === Complete provisioning ===
+2026-04-05 13:14:35,509 | __main__ | INFO | === Start concurrent provisioning ===
+2026-04-05 13:14:35,511 | __main__ | INFO | --- Start provisioning: bronze.jepx_spot_price ---
+2026-04-05 13:14:36,659 | __main__ | INFO | Catalog Properties: {'type': 'sql', 'uri': 'sqlite:////workspace/data/catalog/pyiceberg_catalog.db', 'warehouse': 's3://jp-power-grid-dev', 's3.endpoint': 'http://rustfs:9000', 's3.region': 'us-east-1', 's3.path-style-access': 'true'}
+2026-04-05 13:14:36,670 | __main__ | INFO | Skip creating new namespace due to already existing 'bronze'.
+2026-04-05 13:14:36,670 | schema_builder | INFO | Start loading the definition of schema. : /workspace/data/schema/bronze/jepx_spot_price.csv
+2026-04-05 13:14:36,676 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
+2026-04-05 13:14:38,604 | __main__ | INFO | Complete creating table 'bronze.jepx_spot_price'.
+2026-04-05 13:14:38,604 | __main__ | INFO | === Complete provisioning ===
