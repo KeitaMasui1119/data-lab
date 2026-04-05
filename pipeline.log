@@ -65,3 +65,19 @@
 2026-04-05 12:36:50,096 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
 2026-04-05 12:37:08,635 | __main__ | ERROR | Failed provisoning table on 'bronze.jepx_spot_price': When getting information for key 'bronze/jepx_spot_price/metadata/00000-f8fcb1b1-7c25-474e-a27e-564a9351af85.metadata.json' in bucket 'jp-power-grid-dev': AWS Error ACCESS_DENIED during HeadObject operation: No response body.
 2026-04-05 12:37:08,635 | __main__ | INFO | === Complete provisioning ===
+2026-04-05 12:48:28,243 | __main__ | INFO | === Start concurrent provisioning ===
+2026-04-05 12:48:28,244 | __main__ | INFO | --- Start provisioning: bronze.jepx_spot_price ---
+2026-04-05 12:48:29,259 | __main__ | INFO | Catalog Properties: {'type': 'sql', 'uri': 'sqlite:////workspace/data/catalog/pyiceberg_catalog.db', 'warehouse': 's3://jp-power-grid-dev', 's3.endpoint': 'http://rustfs:9000', 's3.region': 'us-east-1', 's3.path-style-access': 'true'}
+2026-04-05 12:48:29,270 | __main__ | INFO | Skip creating new namespace due to already existing 'bronze'.
+2026-04-05 12:48:29,271 | schema_builder | INFO | Start loading the definition of schema. : /workspace/data/schema/bronze/jepx_spot_price.csv
+2026-04-05 12:48:29,277 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
+2026-04-05 12:48:31,353 | __main__ | ERROR | Failed provisoning table on 'bronze.jepx_spot_price': When getting information for key 'bronze/jepx_spot_price/metadata/00000-af909866-8f8a-498b-aa59-520fa68af424.metadata.json' in bucket 'jp-power-grid-dev': AWS Error ACCESS_DENIED during HeadObject operation: No response body.
+2026-04-05 12:48:31,354 | __main__ | INFO | === Complete provisioning ===
+2026-04-05 12:50:29,840 | __main__ | INFO | === Start concurrent provisioning ===
+2026-04-05 12:50:29,841 | __main__ | INFO | --- Start provisioning: bronze.jepx_spot_price ---
+2026-04-05 12:50:30,860 | __main__ | INFO | Catalog Properties: {'type': 'sql', 'uri': 'sqlite:////workspace/data/catalog/pyiceberg_catalog.db', 'warehouse': 's3://jp-power-grid-dev', 's3.endpoint': 'http://rustfs:9000', 's3.region': 'us-east-1', 's3.path-style-access': 'true', 's3.access-key-id': 'RUSTFS_DEV_USER', 's3.secret-access-key': '5lfrip8glbo39capHlpis9e3r09rasw9crEdestit5usteZ8keyu1up3Uw4madru'}
+2026-04-05 12:50:30,869 | __main__ | INFO | Skip creating new namespace due to already existing 'bronze'.
+2026-04-05 12:50:30,869 | schema_builder | INFO | Start loading the definition of schema. : /workspace/data/schema/bronze/jepx_spot_price.csv
+2026-04-05 12:50:30,874 | __main__ | INFO | Create new table due to not existing table 'bronze.jepx_spot_price'.
+2026-04-05 12:50:33,348 | __main__ | INFO | Complete creating table 'bronze.jepx_spot_price'.
+2026-04-05 12:50:33,348 | __main__ | INFO | === Complete provisioning ===
