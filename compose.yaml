@@ -23,7 +23,7 @@ services:
     volumes:
       - rustfs-data:/data
     env_file:
-      - ./configuration/.env
+      - ./.env
     environment:
       - RUSTFS_CONSOLE_ENABLE=true
     command: >

@@ -31,6 +31,9 @@ def provision_table(
     # 1. カタログのロード
     catalog = load_catalog(catalog_name)
 
+    # --- 💡ここに追加（PyIcebergが認識している全設定を暴露させる） ---
+    logger.info(f"Catalog Properties: {catalog.properties}")
+
     # 2. Namespaceの作成
     try:
         catalog.create_namespace(namespace)
