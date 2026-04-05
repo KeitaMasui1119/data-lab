@@ -4,3 +4,4 @@ src/prd/data_lake/*
 .secrets/
 data/*
 .env
+*.log
