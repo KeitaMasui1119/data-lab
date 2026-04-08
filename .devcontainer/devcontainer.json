@@ -35,7 +35,7 @@
     "containerEnv": {
         "DISPLAY": "dummy",
         "UV_PROJECT_ENVIRONMENT": "/home/vscode/.venv",
-        "UV_GROUPS": "dev ds de",
+        "UV_GROUPS": "dev",
         "GOOGLE_APPLICATION_CREDENTIALS": "/workspace/.secrets/keita-masui-firstproject-46adeb7731b9.json",
         "EDITOR": "code --wait"
     },
