@@ -167,4 +167,4 @@ def build_table_schema(file_path: str):
 
         return table_schema
     except Exception as e:
-        raise ValueError(f"An unexpected error has occured. : {str(e)}") from e
+        raise RuntimeError(f"An unexpected error has occurred. : {str(e)}") from e
