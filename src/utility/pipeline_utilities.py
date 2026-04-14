@@ -2,6 +2,18 @@ import polars as pl
 
 from utility.utilities import gen_uuid, get_now_utc
 
+# Iceberg（メタデータCSV）の型からPolarsの型へのマッピング
+ICEBERG_TO_POLARS_TYPE = {
+    "int": pl.Int32,
+    "long": pl.Int64,
+    "double": pl.Float64,
+    "float": pl.Float32,
+    "string": pl.Utf8,
+    "date": pl.Date,
+    "timestamp": pl.Datetime,
+    "boolean": pl.Boolean,
+}
+
 
 def add_metadata(df: pl.DataFrame, execution_id: str | None = None) -> pl.DataFrame:
     """
@@ -34,3 +46,43 @@ def add_metadata(df: pl.DataFrame, execution_id: str | None = None) -> pl.DataFr
     )
 
     return df
+
+
+def build_schema_exprs(schema_csv_path: str) -> list[pl.Expr]:
+    """
+    Build a list of Polars expressions from a schema definition CSV.
+
+    This function reads a schema CSV file and generates expressions that
+    cast and rename columns based on the schema definition.
+
+    Args:
+        schema_csv_path (str): Path to the CSV file containing schema definitions.
+
+    Returns:
+        list[pl.Expr]:  A list of Polars expressions for column casting and renaming.
+    """
+    schema_df = pl.read_csv(schema_csv_path)
+
+    exprs = []
+    # Process each row in the schema definition CSV
+    for row in schema_df.iter_rows(named=True):
+        src_col = row["source_name"]
+        tgt_col = row["name"]
+        type_str = row["type"]
+
+        # 条件分岐の中で直接 append するか、
+        # 解析ツールが「必ず値が入る」と認識できる構造にする
+        if type_str == "date":
+            exprs.append(
+                pl.col(src_col)
+                .str.to_date(format="%Y/%m/%d", strict=True)
+                .alias(tgt_col)
+            )
+        elif type_str == "timestamp":
+            exprs.append(pl.col(src_col).str.to_datetime(strict=True).alias(tgt_col))
+        else:
+            # それ以外の型（int, double, string等）
+            pl_type = ICEBERG_TO_POLARS_TYPE.get(type_str, pl.Utf8)
+            exprs.append(pl.col(src_col).cast(pl_type, strict=False).alias(tgt_col))
+
+    return exprs
