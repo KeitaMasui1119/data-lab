@@ -4,7 +4,8 @@ import logging
 from pyiceberg.catalog import Catalog, load_catalog
 from pyiceberg.exceptions import NoSuchTableError
 from pyiceberg.schema import Schema
-from schema_builder import build_table_schema
+
+from catalog.schema_builder import build_table_schema
 
 # ログ設定
 logging.basicConfig(
