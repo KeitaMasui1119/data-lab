@@ -87,3 +87,12 @@ class RustFSClient:
         except Exception as e:
             logger.error(f"Error creating bucket: {e}")
             raise
+
+    def get_object(self, bucket_name, object_name):
+        try:
+            response = self.s3.get_object(Bucket=bucket_name, Key=object_name)
+            logger.info(f"Object {object_name} retrieved from {bucket_name}")
+            return response["Body"].read()
+        except Exception as e:
+            logger.error(f"Error getting object: {e}")
+            raise
