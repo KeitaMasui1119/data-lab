@@ -84,16 +84,23 @@ def view_namespace(catalog: Catalog, namespace: str):
 
 
 # --- Manage table ---
-def delete_table(catalog: Catalog, table_name: str):
+def delete_table(catalog: Catalog, table_name: str, purge: bool = False):
     """_summary_
 
     Args:
         catalog (Catalog): _description_
         table_name (str): _description_
+        purge (bool): _description_
     """
     try:
-        catalog.drop_table(table_name)
-        logger.info(f"Successed to drop table.: {table_name}")
+        if purge:
+            catalog.purge_table(table_name)
+            logger.info(
+                f"Successed to PURGE (drop & delete files) table.: {table_name}"
+            )
+        else:
+            catalog.drop_table(table_name)
+            logger.info(f"Successed to drop table.: {table_name}")
     except NoSuchTableError:
         logger.warning(f"Table doesn't exist.: {table_name}")
     except Exception as e:
