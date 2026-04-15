@@ -80,6 +80,46 @@ class RustFSClient:
             logger.error(f"Error deleting file: {e}")
             raise
 
+    def delete_folder(self, bucket_name: str, prefix: str):
+        """
+        指定したプレフィックス（フォルダパス）に一致する全てのファイルを一括削除する。
+        例: delete_folder("jepx-raw", "bronze.jepx_spot_price/")
+        """
+        try:
+            # 1. プレフィックスに一致するオブジェクトをリストアップ
+            response = self.s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+
+            if "Contents" not in response:
+                logger.info(
+                    f"No files found with prefix '{prefix}' in bucket '{bucket_name}'"
+                )
+                return
+
+            # 2. bto3 の delete_objects が要求する形式のリストを作成
+            objects_to_delete = [{"Key": obj["Key"]} for obj in response["Contents"]]
+
+            # 3. 一括削除を実行
+            delete_response = self.s3.delete_objects(
+                Bucket=bucket_name, Delete={"Objects": objects_to_delete}
+            )
+
+            deleted_count = len(delete_response.get("Deleted", []))
+            logger.info(
+                f"Successfully deleted {deleted_count} objects under prefix '{prefix}'"
+            )
+
+            # エラーがあった場合はログに出力
+            if "Errors" in delete_response:
+                logger.error(
+                    f"Errors occurred during batch delete: {delete_response['Errors']}"
+                )
+                raise Exception(
+                    f"Errors occurred during batch delete: {delete_response['Errors']}"
+                )
+        except Exception as e:
+            logger.error(f"Error deleting folder '{prefix}': {e}")
+            raise
+
     def create_bucket(self, bucket_name):
         try:
             self.s3.create_bucket(Bucket=bucket_name)
