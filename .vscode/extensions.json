@@ -3,6 +3,8 @@
         "charliermarsh.ruff",
         "codezombiech.gitignore",
         "exiasr.hadolint",
+        "github.copilot",
+        "github.copilot-chat",
         "kevinrose.vsc-python-indent",
         "mosapride.zenkaku",
         "ms-azuretools.vscode-docker",
@@ -18,5 +20,9 @@
         "tamasfe.even-better-toml",
         "usernamehw.errorlens",
         "yzhang.markdown-all-in-one"
+    ],
+    "unwantedRecommendations": [
+        "VisualStudioExptTeam.vscodeintellicode",
+        "VisualStudioExptTeam.intellicode-api-usage-examples"
     ]
 }
