@@ -1,7 +1,11 @@
 import io
 import logging
+import sys
+from pathlib import Path
 
 import polars as pl
+
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from catalog.manage_iceberg import get_catalog
 from core.storage_client import RustFSClient
@@ -13,47 +17,55 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-container = RustFSClient()
-logger.info("RustFSClient initialized successfully.")
+SCHEMA_PATH = "/workspace/data/schema/bronze/jepx_spot_price.csv"
 
-bucket_name = "jp-power-grid-dev"
-object_key = "raw/jepx/spot_summary/spot_summary_2026.csv"
 
-SCHEMA_PATH = r"/workspace/data/schema/bronze/jepx_spot_price.csv"
-
-try:
-    print(f"Fetching s3://{bucket_name}/{object_key}...")
-    response = container.get_object(bucket_name=bucket_name, object_name=object_key)
+def ingest_jepx_spot_summary(
+    client: RustFSClient,
+    bucket_name: str,
+    object_key: str,
+    source_file_name: str,
+    catalog_name: str = "dlh_dev",
+    table_identifier: str = "bronze.jepx_spot_price",
+    schema_path: str = SCHEMA_PATH,
+) -> int:
+    logger.info(f"Fetching s3://{bucket_name}/{object_key}...")
+    response = client.get_object(bucket_name=bucket_name, object_name=object_key)
 
     csv_string_io = io.StringIO(response.decode("cp932"))
     raw_df = pl.read_csv(csv_string_io, infer_schema_length=0)
 
-    print(f"Successfully loaded {len(raw_df)} rows as raw strings.")
-
-    select_exprs = build_schema_exprs(SCHEMA_PATH)
+    select_exprs = build_schema_exprs(schema_path)
     cast_df = raw_df.select(select_exprs)
 
     cast_df = cast_df.with_columns(
-        pl.lit("spot_summary_2026.csv").alias("source_data"),
+        pl.lit(source_file_name).alias("source_data"),
         pl.lit("new").alias("status"),
     )
-
     df_with_metadata = add_metadata(cast_df)
 
-    print(df_with_metadata.head())
-
-    catalog = get_catalog("dlh_dev")
-    table = catalog.load_table("bronze.jepx_spot_price")
-
+    catalog = get_catalog(catalog_name)
+    table = catalog.load_table(table_identifier)
     target_schema = table.schema().as_arrow()
 
     arrow_table = df_with_metadata.to_arrow()
     casted_arrow_table = arrow_table.cast(target_schema)
-
     table.append(casted_arrow_table)
 
-    print(f"Successfully ingested {len(df_with_metadata)} rows into the iceberg table.")
+    row_count = len(df_with_metadata)
+    logger.info(f"Successfully ingested {row_count} rows into {table_identifier}.")
+    return row_count
 
-except Exception as e:
-    logger.error(f"Error fetching object: {e}")
-    raise
+
+def main() -> None:
+    client = RustFSClient()
+    ingest_jepx_spot_summary(
+        client=client,
+        bucket_name="jp-power-grid-dev",
+        object_key="raw/jepx/spot_summary/spot_summary_2026.csv",
+        source_file_name="spot_summary_2026.csv",
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -13,6 +13,24 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def upload_raw_file(
+    client: RustFSClient,
+    file_path: str,
+    bucket_name: str,
+    object_key: str,
+) -> None:
+    if not Path(file_path).exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    logger.info(f"Uploading {file_path} to s3://{bucket_name}/{object_key}...")
+    client.upload_file(
+        bucket_name=bucket_name,
+        file_path=file_path,
+        object_name=object_key,
+    )
+    logger.info("Upload completed successfully.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Script to upload local CSV files to RustFS (raw layer)"
@@ -33,21 +51,14 @@ def main():
 
     args = parser.parse_args()
 
-    if not Path(args.file).exists():
-        logger.error(f"File not found: {args.file}")
-        sys.exit(1)
-
-    logger.info("Starting upload process...")
-
     try:
         client = RustFSClient()
-
-        logger.info(f"Uploading {args.file} to s3://{args.bucket}/{args.key}...")
-        client.upload_file(
-            bucket_name=args.bucket, file_path=args.file, object_name=args.key
+        upload_raw_file(
+            client=client,
+            file_path=args.file,
+            bucket_name=args.bucket,
+            object_key=args.key,
         )
-
-        logger.info("Upload completed successfully.")
     except Exception as e:
         logger.error(f"Upload failed: {e}")
         sys.exit(1)

@@ -1,11 +1,11 @@
 import logging
 import os
+from dataclasses import dataclass
 
 import boto3
+from botocore.client import BaseClient
 from botocore.config import Config
-from dotenv import load_dotenv
-
-load_dotenv()
+from botocore.exceptions import ClientError
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
@@ -13,35 +13,61 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class RustFSConfig:
+    endpoint_url: str
+    access_key: str
+    secret_key: str
+    region: str = "us-east-1"
+
+    @classmethod
+    def from_env(cls) -> "RustFSConfig":
+        endpoint_url = os.environ.get("AWS_ENDPOINT_URL", "").strip()
+        access_key = os.environ.get("AWS_ACCESS_KEY_ID", "").strip()
+        secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "").strip()
+        region = os.environ.get("AWS_REGION", "us-east-1").strip()
+
+        if not endpoint_url:
+            raise ValueError("AWS_ENDPOINT_URL is not set.")
+        if not access_key or not secret_key:
+            raise ValueError("AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY is not set.")
+
+        return cls(
+            endpoint_url=endpoint_url,
+            access_key=access_key,
+            secret_key=secret_key,
+            region=region,
+        )
+
+
 class RustFSClient:
-    def __init__(self):
-        self.endpoint_url = os.environ.get("AWS_ENDPOINT_URL")
-        self.access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-        self.secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-        self.region = os.environ.get("AWS_REGION")
-
-        if not self.access_key or not self.secret_key:
-            raise ValueError("RUSTFS_ACCESS_KEY or RUSTFS_SECRET_KEY is not set.")
-
-        self.s3 = boto3.client(
+    def __init__(
+        self,
+        config: RustFSConfig | None = None,
+        s3_client: BaseClient | None = None,
+    ):
+        self.config = config or RustFSConfig.from_env()
+        self.s3 = s3_client or boto3.client(
             "s3",
-            endpoint_url=self.endpoint_url,
-            aws_access_key_id=self.access_key,
-            aws_secret_access_key=self.secret_key,
+            endpoint_url=self.config.endpoint_url,
+            aws_access_key_id=self.config.access_key,
+            aws_secret_access_key=self.config.secret_key,
             config=Config(signature_version="s3v4"),
-            region_name=self.region,
+            region_name=self.config.region,
         )
 
     def get_storage_options(self):
         """外部ライブラリ(Polars等)に渡すためのS3接続設定を辞書で返す"""
         return {
-            "key": self.access_key,
-            "secret": self.secret_key,
-            "endpoint_url": self.endpoint_url,
-            "client_kwargs": {"region_name": self.region},
+            "key": self.config.access_key,
+            "secret": self.config.secret_key,
+            "endpoint_url": self.config.endpoint_url,
+            "client_kwargs": {"region_name": self.config.region},
         }
 
-    def upload_file(self, bucket_name, file_path, object_name=None):
+    def upload_file(
+        self, bucket_name: str, file_path: str, object_name: str | None = None
+    ) -> None:
         if object_name is None:
             object_name = os.path.basename(file_path)
 
@@ -52,7 +78,7 @@ class RustFSClient:
             logger.error(f"Error uploading file: {e}")
             raise
 
-    def download_file(self, bucket_name, object_name, file_path):
+    def download_file(self, bucket_name: str, object_name: str, file_path: str) -> None:
         try:
             self.s3.download_file(bucket_name, object_name, file_path)
             logger.info(
@@ -62,7 +88,7 @@ class RustFSClient:
             logger.error(f"Error downloading file: {e}")
             raise
 
-    def list_files(self, bucket_name, prefix=""):
+    def list_files(self, bucket_name: str, prefix: str = "") -> list[str]:
         try:
             response = self.s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
             files = [obj["Key"] for obj in response.get("Contents", [])]
@@ -72,7 +98,7 @@ class RustFSClient:
             logger.error(f"Error listing files: {e}")
             raise
 
-    def delete_file(self, bucket_name, object_name):
+    def delete_file(self, bucket_name: str, object_name: str) -> None:
         try:
             self.s3.delete_object(Bucket=bucket_name, Key=object_name)
             logger.info(f"File {object_name} deleted from {bucket_name}")
@@ -120,19 +146,122 @@ class RustFSClient:
             logger.error(f"Error deleting folder '{prefix}': {e}")
             raise
 
-    def create_bucket(self, bucket_name):
+    def create_bucket(
+        self, bucket_name: str, object_lock_enabled: bool = False
+    ) -> None:
         try:
-            self.s3.create_bucket(Bucket=bucket_name)
+            params: dict[str, str | bool] = {"Bucket": bucket_name}
+            if object_lock_enabled:
+                params["ObjectLockEnabledForBucket"] = True
+
+            self.s3.create_bucket(**params)
             logger.info(f"Bucket {bucket_name} created")
         except Exception as e:
             logger.error(f"Error creating bucket: {e}")
             raise
 
-    def get_object(self, bucket_name, object_name):
+    def bucket_exists(self, bucket_name: str) -> bool:
+        try:
+            self.s3.head_bucket(Bucket=bucket_name)
+            return True
+        except ClientError as error:
+            error_code = error.response.get("Error", {}).get("Code", "")
+            if error_code in {"404", "NoSuchBucket", "NotFound"}:
+                return False
+
+            logger.error(f"Error checking bucket existence: {error}")
+            raise
+
+    def ensure_bucket(
+        self, bucket_name: str, object_lock_enabled: bool = False
+    ) -> bool:
+        if self.bucket_exists(bucket_name):
+            logger.info(f"Bucket {bucket_name} already exists")
+            return False
+
+        self.create_bucket(bucket_name, object_lock_enabled=object_lock_enabled)
+        return True
+
+    def ensure_prefixes(self, bucket_name: str, prefixes: list[str]) -> None:
+        for prefix in prefixes:
+            normalized = prefix if prefix.endswith("/") else f"{prefix}/"
+            self.s3.put_object(Bucket=bucket_name, Key=normalized, Body=b"")
+            logger.info(f"Ensured prefix s3://{bucket_name}/{normalized}")
+
+    def set_default_object_lock_retention(
+        self, bucket_name: str, mode: str, days: int
+    ) -> None:
+        if mode not in {"COMPLIANCE", "GOVERNANCE"}:
+            raise ValueError("mode must be COMPLIANCE or GOVERNANCE")
+        if days <= 0:
+            raise ValueError("days must be greater than 0")
+
+        if not self.bucket_supports_object_lock(bucket_name):
+            raise RuntimeError(
+                "Bucket does not support Object Lock. "
+                "Create the bucket with ObjectLockEnabledForBucket=True first."
+            )
+
+        self.s3.put_object_lock_configuration(
+            Bucket=bucket_name,
+            ObjectLockConfiguration={
+                "ObjectLockEnabled": "Enabled",
+                "Rule": {
+                    "DefaultRetention": {
+                        "Mode": mode,
+                        "Days": days,
+                    }
+                },
+            },
+        )
+        logger.info(
+            "Set default object lock retention for %s: mode=%s, days=%s",
+            bucket_name,
+            mode,
+            days,
+        )
+
+    def bucket_supports_object_lock(self, bucket_name: str) -> bool:
+        try:
+            response = self.s3.get_object_lock_configuration(Bucket=bucket_name)
+            configuration = response.get("ObjectLockConfiguration", {})
+            return configuration.get("ObjectLockEnabled") == "Enabled"
+        except ClientError as error:
+            error_code = error.response.get("Error", {}).get("Code", "")
+            if error_code in {
+                "ObjectLockConfigurationNotFoundError",
+                "InvalidBucketState",
+                "InvalidRequest",
+            }:
+                return False
+            raise
+
+    def clear_default_object_lock_retention(self, bucket_name: str) -> bool:
+        if not self.bucket_supports_object_lock(bucket_name):
+            logger.info(
+                "Skip clearing object lock retention for %s because object lock is "
+                "disabled",
+                bucket_name,
+            )
+            return False
+
+        self.s3.put_object_lock_configuration(
+            Bucket=bucket_name,
+            ObjectLockConfiguration={"ObjectLockEnabled": "Enabled"},
+        )
+        logger.info("Cleared default object lock retention for %s", bucket_name)
+        return True
+
+    def get_object(self, bucket_name: str, object_name: str) -> bytes:
         try:
             response = self.s3.get_object(Bucket=bucket_name, Key=object_name)
             logger.info(f"Object {object_name} retrieved from {bucket_name}")
-            return response["Body"].read()
+            body = response.get("Body")
+            if body is None:
+                raise ValueError(
+                    f"Body is empty for object: {bucket_name}/{object_name}"
+                )
+            return body.read()
         except Exception as e:
             logger.error(f"Error getting object: {e}")
             raise
