@@ -4,6 +4,10 @@ from datetime import UTC, datetime
 
 from core.storage_client import RustFSClient
 from pipeline.bootstrap.rustfs_bootstrap import BucketPlan, apply_bucket_plans
+from pipeline.ingestion.ingest_jepx import (
+    ingest_jepx_spot_summary,
+    resolve_default_raw_object,
+)
 from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 
@@ -56,6 +60,49 @@ def main():
         "--timestamp-ms",
         type=int,
         help="Optional UNIX timestamp in milliseconds for the JEPX request",
+    )
+
+    bronze_parser = subparsers.add_parser(
+        "ingest-jepx-raw-to-bronze",
+        help="Ingest JEPX raw CSV from RustFS into bronze Iceberg table",
+    )
+    bronze_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Source bucket name (default: jp-power-grid-dev)",
+    )
+    bronze_parser.add_argument(
+        "--object-key",
+        help="Source object key in raw layer (default resolved from timestamp)",
+    )
+    bronze_parser.add_argument(
+        "--source-file-name",
+        help="Source file name stored in source_data (default from object key)",
+    )
+    bronze_parser.add_argument(
+        "--timestamp-ms",
+        type=int,
+        help="Optional UNIX timestamp (ms) to resolve default source file",
+    )
+    bronze_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    bronze_parser.add_argument(
+        "--table",
+        default="bronze.jepx_spot_price",
+        help="Target Iceberg table identifier",
+    )
+    bronze_parser.add_argument(
+        "--schema-path",
+        default="/workspace/data/schema/bronze/jepx_spot_price.csv",
+        help="Schema CSV path",
+    )
+    bronze_parser.add_argument(
+        "--allow-duplicate-source",
+        action="store_true",
+        help="Allow append even if source_data already exists",
     )
 
     args = parser.parse_args()
@@ -116,6 +163,36 @@ def main():
             )
         finally:
             scraper.close()
+
+    if args.command == "ingest-jepx-raw-to-bronze":
+        if args.timestamp_ms:
+            target_at = datetime.fromtimestamp(args.timestamp_ms / 1000, tz=UTC)
+        else:
+            target_at = datetime.now(UTC)
+
+        default_object_key, _ = resolve_default_raw_object(target_at)
+        object_key = args.object_key or default_object_key
+        source_file_name = (
+            args.source_file_name or object_key.rsplit("/", maxsplit=1)[-1]
+        )
+
+        rustfs = RustFSClient()
+        row_count = ingest_jepx_spot_summary(
+            client=rustfs,
+            bucket_name=args.bucket,
+            object_key=object_key,
+            source_file_name=source_file_name,
+            catalog_name=args.catalog,
+            table_identifier=args.table,
+            schema_path=args.schema_path,
+            skip_if_exists=not args.allow_duplicate_source,
+        )
+        logger.info(
+            "Ingestion completed: table=%s, source=%s, rows=%s",
+            args.table,
+            source_file_name,
+            row_count,
+        )
 
 
 if __name__ == "__main__":
