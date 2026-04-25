@@ -17,3 +17,5 @@ name: "Python Data Engineering Guidelines"
 - Strictly prefer `polars` over `pandas` for all dataframe operations.
 - When reading raw files for the Bronze layer using Polars, use `infer_schema_length=0` or explicit string schemas to prevent accidental type parsing.
 - Be aware of S3 Object Lock (COMPLIANCE mode) behavior. When destroying environments or tables in Iceberg during development, explicitly use `purge_table` instead of `drop_table` to ensure physical deletion of files.
+- Documentation: All new Python files, classes, and public functions MUST include descriptive docstrings in English.
+- Comments: All inline comments and explanations within the code must be written in English to maintain a global engineering standard.

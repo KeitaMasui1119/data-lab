@@ -25,8 +25,9 @@
 - Preserve existing project style and keep edits focused; do not refactor unrelated files opportunistically.
 - When handling tabular data, prefer explicit column names and clear transformation steps over implicit positional logic.
 - Call out assumptions about encoding, date granularity, and external data shape when they affect correctness.
+- Workflow: Always remind the user or ensure that work is performed on a new Git branch. Do not commit or suggest changes directly to the main branch.
 
 ## Data Architecture (Medallion)
-- **Bronze Layer (Raw)**: STRICT RULE. Always read source data (CSV/JSON) strictly as `String` (Utf8). Do NOT perform any type casting, date formatting, or business logic here. Only perform column renaming (Japanese to English) and append ETL metadata.
-- **Silver Layer (Conformed)**: Perform type casting (String to Date/Int), generate timestamps (e.g., converting JEPX time_code 1-48 to datetime), and handle deduplication logic here.
-- **Iceberg Namespaces**: Use hierarchical dot-notation for table identifiers to avoid S3 flat-structure clutter (e.g., use `bronze.jepx.spot_price` instead of `bronze.jepx_spot_price`).
+- Bronze Layer (Raw): STRICT RULE. Always read source data (CSV/JSON) strictly as `String` (Utf8). Do NOT perform any type casting, date formatting, or business logic here. Only perform column renaming (Japanese to English) and append ETL metadata.
+- Silver Layer (Conformed): Perform type casting (String to Date/Int), generate timestamps (e.g., converting JEPX time_code 1-48 to datetime), and handle deduplication logic here.
+- Iceberg Namespaces: Use hierarchical dot-notation for table identifiers to avoid S3 flat-structure clutter (e.g., use `bronze.jepx.spot_price` instead of `bronze.jepx_spot_price`).
