@@ -1,92 +1,152 @@
-# 🚀 Data Engineering Practice & Portfolio: Local Data Lakehouse
+# Data Platform Practice: RustFS + PyIceberg + Polars
 
-<div align="center">
+This repository is a local data engineering practice environment for building a
+medallion-style data platform focused on Japanese power market data.
 
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+Current implementation emphasizes:
 
-</div>
+- object storage on RustFS (S3-compatible)
+- table management and storage on PyIceberg
+- transformations with Polars
+- orchestrated execution from a thin `src/main.py`
 
-## 🎯 Project Overview & Portfolio Value
+## Overview
 
-This repository serves as a **training platform and portfolio** designed to acquire and demonstrate **versatile data engineering skills**.
+The project follows a medallion architecture.
 
-The project focuses on building a **local Data Lakehouse** infrastructure, simulating a cloud environment using **MinIO** (S3-compatible storage) and **DuckDB/dbt**. This approach allows for cost-effective, reproducible development of modern ELT pipelines.
+- Raw: source files stored as-is in object storage
+- Bronze: schema-conformed Iceberg tables with metadata columns
+- Silver/Gold: planned downstream layers
 
-### Key Portfolio Highlights
-1.  **Cloud Simulation**: Avoids vendor lock-in and costs by using **MinIO** to replicate core **S3/GCS API** functionality locally.
-2.  **Data Lakehouse Proficiency**: Implements the Lakehouse pattern by having **DuckDB** directly query **Parquet files** stored in MinIO, facilitating powerful, SQL-based ELT.
-3.  **Code Quality & Efficiency**: Enforces high standards using the **Rust-based ecosystem** (`uv` for ultra-fast package management and `Ruff` for strict, efficient linting).
+Current primary data flow:
 
-***
+1. Scrape JEPX spot summary CSV from the website
+2. Save file to `s3://jp-power-grid-dev/raw/jepx/spot_summary/`
+3. Ingest raw CSV into `bronze.jepx_spot_price`
 
-## ⚙️ Technical Stack & Rationale
+## Storage Layout
 
-| Category | Tool | Rationale (Why this tool was chosen) |
-| :--- | :--- | :--- |
-| **Development** | **Python** | The industry standard for data engineering. Focus on practicing advanced concepts like **Type Hinting** and robust exception handling. |
-| **Data Lake** | **MinIO** (Docker) | To master **cloud object storage concepts** (objects, buckets, S3 API) and **Parquet file storage** in a fully isolated, local environment. |
-| **Analytics Engine/DWH** | **DuckDB** | Used as the **analytical core** of the Lakehouse. Chosen for its extreme speed in **columnar processing** and ability to query external files directly. |
-| **Data Transformation (ELT)** | **dbt (Data Build Tool)** | To practice **Data as Code**. Ensures **data lineage** and **idempotency** by managing complex SQL transformations and dependencies. |
-| **Environment/Quality** | **uv, Ruff** | Focus on performance and quality control. **`uv`** provides instant dependency resolution; **`Ruff`** enforces Python best practices efficiently. |
+Primary bucket layout:
 
-***
+- `jp-power-grid-dev`
+	- `raw/`
+	- `bronze/`
+	- `silver/`
+	- `gold/`
+	- `sandbox/`
+- `jp-power-grid-prd`
+	- same folder layout as dev
+	- default object lock retention policy (COMPLIANCE, 7 days)
 
-## 🗺️ Training Roadmap & Progress
+## Tech Stack
 
-The project structure follows the core categories of a comprehensive data engineering curriculum.
+- Python 3.12+
+- RustFS (S3-compatible object storage)
+- PyIceberg
+- Polars
+- uv (dependency management)
+- Ruff (linting/format)
 
-| # | Category | Goal | Status | Relevant Modules/Files |
-| :-: | :--- | :--- | :--- | :--- |
-| 01 | **Data Scraping** | Learn various methods for data acquisition (requests, APIs, Scrapy). | ✅ Done | `scripts/ingestion.py` |
-| 02 | **ETL/ELT** | Master data loading, cleaning, and transformation logic. | 🔄 In Progress | `dbt/models/` |
-| 03 | **Data Pipeline** | Practice automation and orchestration techniques. | ⬜ To Do | |
-| 04 | **Data Lake** | Build a structured storage layer using MinIO and Parquet. | ✅ Done | `docker-compose.yml` |
-| 05 | **Data Warehouse** | Design and build normalized data marts. | ⬜ To Do | |
-| 06 | **Data Lakehouse** | Establish the MinIO + DuckDB seamless querying mechanism. | 🔄 In Progress | `scripts/duckdb_connector.py` |
-| 07 | **Streaming Data** | Fundamentals of real-time data processing. | ⬜ To Do | |
-| 08 | **Data Analytics & Visualization**| Automated reporting and dashboarding. | ⬜ To Do | |
-| 09 | **Data Governance/Security** | Data cataloging and access control basics. | ⬜ To Do | |
-| 10 | **Monitoring & Logging** | Implementing pipeline health checks and logging. | ⬜ To Do | |
+## Environment Setup
 
-***
+1. Start the dev container (or run services defined in `compose.yaml`)
+2. Install dependencies:
 
-## 🛠️ Environment Setup & Usage
+```bash
+uv sync --all-groups
+```
 
-The entire platform is defined in **Docker Compose** for a reproducible and isolated development environment.
+3. Ensure `.env` includes S3-compatible credentials and endpoint:
 
-### 1. Setup Instructions
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_REGION`
+- `AWS_ENDPOINT_URL`
 
-1.  Ensure **Docker Desktop** is running.
-2.  Open the repository in VS Code and select **Rebuild and Reopen in Container**. (This launches the `app` service and the `minio` service together).
+## Orchestrator Commands
 
-### 2. MinIO Access Details
+All operational commands are exposed from `src/main.py`.
 
-Use these credentials to connect DuckDB or Python S3 clients from within the Dev Container.
+### 1) Bootstrap storage
 
-| Item | Value | Note |
-| :--- | :--- | :--- |
-| **MinIO API Endpoint** | `minio:9000` | The service name within the Docker network. |
-| **MinIO Console (Web UI)** | `http://localhost:9001` | Access this URL from your host machine. |
-| **Access Key** | `minioadmin` | |
-| **Secret Key** | `minioadmin` | |
+```bash
+uv run python src/main.py bootstrap-storage
+```
 
-### 3. Execution Flow
+Optional (specific bucket):
 
-Use the terminal inside the Dev Container to run the pipeline steps.
+```bash
+uv run python src/main.py bootstrap-storage --bucket jp-power-grid-dev
+```
 
-```sh
-# 1. Synchronize Dependencies (using uv)
-uv sync
+### 2) Scrape JEPX to raw
 
-# 2. Extract & Load to MinIO (Raw Layer)
-# Runs the scraping script and uploads Parquet/CSV to MinIO (e.g., s3://datalake/raw/...)
-uv run python scripts/ingestion.py
+```bash
+uv run python src/main.py scrape-jepx --bucket jp-power-grid-dev
+```
 
-# 3. Transform (ELT with dbt)
-# Launches dbt, uses DuckDB to read raw data, and writes clean data to the Curated Layer.
-dbt run
+Optional timestamp (UNIX ms):
 
-# 4. Analytics / Query
-# DuckDB is used to query the Parquet files in the Curated Layer directly.
-uv run python scripts/analytics/query_data.py
+```bash
+uv run python src/main.py scrape-jepx --bucket jp-power-grid-dev --timestamp-ms 1711929600000
+```
+
+### 3) Ingest JEPX raw to bronze
+
+```bash
+uv run python src/main.py ingest-jepx-raw-to-bronze --bucket jp-power-grid-dev
+```
+
+Optional explicit source object:
+
+```bash
+uv run python src/main.py ingest-jepx-raw-to-bronze \
+	--bucket jp-power-grid-dev \
+	--object-key raw/jepx/spot_summary/spot_summary_2025.csv \
+	--source-file-name spot_summary_2025.csv
+```
+
+By default, ingestion skips append when the same `source_data` already exists.
+Use `--allow-duplicate-source` only when intentional re-append is required.
+
+## Bronze Table Schema
+
+JEPX spot price schema is managed from:
+
+- `data/schema/bronze/jepx_spot_price.csv`
+
+Iceberg table creation (if needed):
+
+```bash
+uv run python src/catalog/manage_iceberg.py \
+	--catalog dlh_dev table create \
+	--name bronze.jepx_spot_price \
+	--csv /workspace/data/schema/bronze/jepx_spot_price.csv
+```
+
+## Code Structure
+
+- `src/main.py`: thin orchestrator (execution flow only)
+- `src/core/`: infrastructure clients (RustFS client)
+- `src/pipeline/scraper/`: scraping modules (shared + source-specific)
+- `src/pipeline/ingestion/`: raw to Iceberg ingestion steps
+- `src/catalog/`: Iceberg catalog and table management
+- `src/utility/`: reusable transformation helpers
+
+## Development Rules
+
+- Use feature branches for each task; avoid direct work on `main`
+- Keep orchestration separated from reusable processing logic
+- Prefer dependency injection (pass clients/catalog to functions)
+- Validate touched files with narrow checks first:
+
+```bash
+uv run ruff check <changed paths>
+```
+
+## Current Status Snapshot
+
+- JEPX scraping to RustFS raw: implemented
+- Bronze table provisioning for JEPX spot price: implemented
+- Raw-to-bronze ingestion with duplicate guard: implemented
+- Silver/Gold pipeline steps: in progress
