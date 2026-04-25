@@ -1,6 +1,8 @@
+import argparse
 import io
 import logging
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -20,6 +22,25 @@ logger = logging.getLogger(__name__)
 SCHEMA_PATH = "/workspace/data/schema/bronze/jepx_spot_price.csv"
 
 
+def resolve_fiscal_year(target_at: datetime) -> int:
+    if target_at.month >= 4:
+        return target_at.year
+    return target_at.year - 1
+
+
+def resolve_default_raw_object(target_at: datetime) -> tuple[str, str]:
+    fiscal_year = resolve_fiscal_year(target_at)
+    file_name = f"spot_summary_{fiscal_year}.csv"
+    object_key = f"raw/jepx/spot_summary/{file_name}"
+    return object_key, file_name
+
+
+def source_data_exists(table, source_file_name: str) -> bool:
+    row_filter = f"source_data == '{source_file_name}'"
+    existing = table.scan(row_filter=row_filter).to_arrow()
+    return existing.num_rows > 0
+
+
 def ingest_jepx_spot_summary(
     client: RustFSClient,
     bucket_name: str,
@@ -28,11 +49,29 @@ def ingest_jepx_spot_summary(
     catalog_name: str = "dlh_dev",
     table_identifier: str = "bronze.jepx_spot_price",
     schema_path: str = SCHEMA_PATH,
+    skip_if_exists: bool = True,
 ) -> int:
-    logger.info(f"Fetching s3://{bucket_name}/{object_key}...")
+    logger.info("Starting raw-to-bronze ingestion: s3://%s/%s", bucket_name, object_key)
+
+    catalog = get_catalog(catalog_name)
+    table = catalog.load_table(table_identifier)
+    if skip_if_exists and source_data_exists(table, source_file_name):
+        logger.info(
+            "Skipped ingestion because source_data already exists: %s",
+            source_file_name,
+        )
+        return 0
+
     response = client.get_object(bucket_name=bucket_name, object_name=object_key)
 
-    csv_string_io = io.StringIO(response.decode("cp932"))
+    try:
+        decoded = response.decode("cp932")
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            f"Failed to decode object with cp932: s3://{bucket_name}/{object_key}"
+        ) from error
+
+    csv_string_io = io.StringIO(decoded)
     raw_df = pl.read_csv(csv_string_io, infer_schema_length=0)
 
     select_exprs = build_schema_exprs(schema_path)
@@ -44,8 +83,6 @@ def ingest_jepx_spot_summary(
     )
     df_with_metadata = add_metadata(cast_df)
 
-    catalog = get_catalog(catalog_name)
-    table = catalog.load_table(table_identifier)
     target_schema = table.schema().as_arrow()
 
     arrow_table = df_with_metadata.to_arrow()
@@ -53,17 +90,78 @@ def ingest_jepx_spot_summary(
     table.append(casted_arrow_table)
 
     row_count = len(df_with_metadata)
-    logger.info(f"Successfully ingested {row_count} rows into {table_identifier}.")
+    logger.info(
+        "Ingested %s rows into %s from source_data=%s",
+        row_count,
+        table_identifier,
+        source_file_name,
+    )
     return row_count
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Ingest JEPX spot summary raw CSV into bronze Iceberg table"
+    )
+    parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Source bucket name (default: jp-power-grid-dev)",
+    )
+    parser.add_argument(
+        "--object-key",
+        help="Source object key in raw layer (default resolved from timestamp)",
+    )
+    parser.add_argument(
+        "--source-file-name",
+        help="Source file name stored in source_data (default from object key)",
+    )
+    parser.add_argument(
+        "--timestamp-ms",
+        type=int,
+        help="Optional UNIX timestamp (ms) to resolve default source file",
+    )
+    parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    parser.add_argument(
+        "--table",
+        default="bronze.jepx_spot_price",
+        help="Target Iceberg table identifier",
+    )
+    parser.add_argument(
+        "--schema-path",
+        default=SCHEMA_PATH,
+        help="Schema CSV path",
+    )
+    parser.add_argument(
+        "--allow-duplicate-source",
+        action="store_true",
+        help="Allow append even if source_data already exists",
+    )
+    args = parser.parse_args()
+
+    if args.timestamp_ms:
+        target_at = datetime.fromtimestamp(args.timestamp_ms / 1000, tz=UTC)
+    else:
+        target_at = datetime.now(UTC)
+
+    default_object_key, default_file_name = resolve_default_raw_object(target_at)
+    object_key = args.object_key or default_object_key
+    source_file_name = args.source_file_name or Path(object_key).name
+
     client = RustFSClient()
     ingest_jepx_spot_summary(
         client=client,
-        bucket_name="jp-power-grid-dev",
-        object_key="raw/jepx/spot_summary/spot_summary_2026.csv",
-        source_file_name="spot_summary_2026.csv",
+        bucket_name=args.bucket,
+        object_key=object_key,
+        source_file_name=source_file_name,
+        catalog_name=args.catalog,
+        table_identifier=args.table,
+        schema_path=args.schema_path,
+        skip_if_exists=not args.allow_duplicate_source,
     )
 
 
