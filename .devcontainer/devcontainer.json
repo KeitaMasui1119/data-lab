@@ -17,6 +17,8 @@
     "customizations": {
         "vscode": {
             "extensions": [
+                "github.copilot",
+                "github.copilot-chat",
                 "charliermarsh.ruff",
                 "exiasr.hadolint",
                 "kevinrose.vsc-python-indent",
