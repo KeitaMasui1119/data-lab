@@ -78,6 +78,28 @@ class RustFSClient:
             logger.error(f"Error uploading file: {e}")
             raise
 
+    def upload_bytes(
+        self,
+        bucket_name: str,
+        object_name: str,
+        body: bytes,
+        content_type: str | None = None,
+    ) -> None:
+        params: dict[str, str | bytes] = {
+            "Bucket": bucket_name,
+            "Key": object_name,
+            "Body": body,
+        }
+        if content_type:
+            params["ContentType"] = content_type
+
+        try:
+            self.s3.put_object(**params)
+            logger.info(f"Uploaded bytes to {bucket_name}/{object_name}")
+        except Exception as e:
+            logger.error(f"Error uploading bytes: {e}")
+            raise
+
     def download_file(self, bucket_name: str, object_name: str, file_path: str) -> None:
         try:
             self.s3.download_file(bucket_name, object_name, file_path)
