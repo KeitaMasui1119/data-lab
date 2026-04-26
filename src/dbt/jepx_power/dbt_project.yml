@@ -1,0 +1,20 @@
+name: "jepx_power"
+version: "1.0.0"
+profile: "jepx_power"
+
+model-paths: [ "models" ]
+analysis-paths: [ "analyses" ]
+test-paths: [ "tests" ]
+seed-paths: [ "seeds" ]
+macro-paths: [ "macros" ]
+snapshot-paths: [ "snapshots" ]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  jepx_power:
+    staging:
+      +materialized: table
+      +schema: staging

@@ -1,5 +1,6 @@
 import argparse
 import logging
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -122,6 +123,21 @@ def main():
         help="Directory containing silver schema CSV files",
     )
 
+    dbt_staging_parser = subparsers.add_parser(
+        "run-jepx-staging-dbt",
+        help="Run dbt staging models for JEPX using DuckDB",
+    )
+    dbt_staging_parser.add_argument(
+        "--select",
+        default="tag:staging",
+        help="dbt select expression (default: tag:staging)",
+    )
+    dbt_staging_parser.add_argument(
+        "--full-refresh",
+        action="store_true",
+        help="Run dbt with --full-refresh",
+    )
+
     args = parser.parse_args()
 
     if args.command in {None, "bootstrap-storage"}:
@@ -228,6 +244,28 @@ def main():
             provisioned += 1
 
         logger.info("Provisioned silver tables: %s", provisioned)
+
+    if args.command == "run-jepx-staging-dbt":
+        project_dir = Path("/workspace/src/dbt/jepx_power")
+        profiles_dir = project_dir
+
+        dbt_command = [
+            "uv",
+            "run",
+            "dbt",
+            "run",
+            "--project-dir",
+            str(project_dir),
+            "--profiles-dir",
+            str(profiles_dir),
+            "--select",
+            args.select,
+        ]
+        if args.full_refresh:
+            dbt_command.append("--full-refresh")
+
+        logger.info("Executing dbt staging command: %s", " ".join(dbt_command))
+        subprocess.run(dbt_command, check=True)
 
 
 if __name__ == "__main__":
