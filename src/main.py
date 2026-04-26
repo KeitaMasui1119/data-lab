@@ -138,6 +138,21 @@ def main():
         help="Run dbt with --full-refresh",
     )
 
+    dbt_silver_parser = subparsers.add_parser(
+        "run-jepx-silver-dbt",
+        help="Run dbt silver models for JEPX using DuckDB",
+    )
+    dbt_silver_parser.add_argument(
+        "--select",
+        default="tag:silver",
+        help="dbt select expression (default: tag:silver)",
+    )
+    dbt_silver_parser.add_argument(
+        "--full-refresh",
+        action="store_true",
+        help="Run dbt with --full-refresh",
+    )
+
     args = parser.parse_args()
 
     if args.command in {None, "bootstrap-storage"}:
@@ -265,6 +280,28 @@ def main():
             dbt_command.append("--full-refresh")
 
         logger.info("Executing dbt staging command: %s", " ".join(dbt_command))
+        subprocess.run(dbt_command, check=True)
+
+    if args.command == "run-jepx-silver-dbt":
+        project_dir = Path("/workspace/src/dbt/jepx_power")
+        profiles_dir = project_dir
+
+        dbt_command = [
+            "uv",
+            "run",
+            "dbt",
+            "run",
+            "--project-dir",
+            str(project_dir),
+            "--profiles-dir",
+            str(profiles_dir),
+            "--select",
+            args.select,
+        ]
+        if args.full_refresh:
+            dbt_command.append("--full-refresh")
+
+        logger.info("Executing dbt silver command: %s", " ".join(dbt_command))
         subprocess.run(dbt_command, check=True)
 
 

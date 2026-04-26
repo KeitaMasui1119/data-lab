@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: silver_jepx_spot_price_base
+    description: "Silver base table for JEPX spot price."
+    columns:
+      - name: delivery_datetime
+        tests:
+          - not_null
+
+  - name: silver_jepx_spot_price_block
+    description: "Silver block volume table for JEPX spot price."
+    columns:
+      - name: delivery_datetime
+        tests:
+          - not_null
+
+  - name: silver_jepx_spot_price_area
+    description: "Silver area price table for JEPX spot price created by unpivoting
+      area columns."
+    columns:
+      - name: delivery_datetime
+        tests:
+          - not_null
+      - name: area_name
+        tests:
+          - not_null
+      - name: area_price
+        tests:
+          - not_null

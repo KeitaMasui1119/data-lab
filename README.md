@@ -137,6 +137,20 @@ Optional full refresh:
 uv run python src/main.py run-jepx-staging-dbt --full-refresh
 ```
 
+### 6) Build silver layer with DuckDB + dbt
+
+Run JEPX silver models (base, block, area):
+
+```bash
+uv run python src/main.py run-jepx-silver-dbt
+```
+
+Optional full refresh:
+
+```bash
+uv run python src/main.py run-jepx-silver-dbt --full-refresh
+```
+
 ## Bronze Table Schema
 
 JEPX spot price schema is managed from:
