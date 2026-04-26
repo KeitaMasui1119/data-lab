@@ -1,0 +1,19 @@
+jepx_power:
+  outputs:
+    dev:
+      type: duckdb
+      path: /workspace/src/dbt/jepx_power/jepx_power.duckdb
+      threads: 2
+      extensions:
+        - httpfs
+        - iceberg
+      settings:
+        s3_endpoint: "rustfs:9000"
+        s3_use_ssl: false
+        s3_url_style: path
+        s3_region: "{{ env_var('AWS_REGION', 'us-east-1') }}"
+        s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+        s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+        unsafe_enable_version_guessing: true
+
+  target: dev

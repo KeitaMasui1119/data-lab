@@ -123,6 +123,20 @@ uv run python src/main.py provision-silver-tables \
 	--schema-dir /workspace/data/schema/silver
 ```
 
+### 5) Build staging layer with DuckDB + dbt
+
+Run JEPX staging models (type casting + deduplication):
+
+```bash
+uv run python src/main.py run-jepx-staging-dbt
+```
+
+Optional full refresh:
+
+```bash
+uv run python src/main.py run-jepx-staging-dbt --full-refresh
+```
+
 ## Bronze Table Schema
 
 JEPX spot price schema is managed from:

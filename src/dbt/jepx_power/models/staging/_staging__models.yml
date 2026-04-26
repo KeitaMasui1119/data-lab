@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: stg_jepx_spot_price
+    description: "Typed and deduplicated JEPX spot price staging dataset sourced
+      from bronze Iceberg table."
+    columns:
+      - name: delivery_datetime
+        tests:
+          - not_null
+      - name: delivery_date
+        tests:
+          - not_null
+      - name: time_code
+        tests:
+          - not_null
+      - name: system_price
+        tests:
+          - not_null
