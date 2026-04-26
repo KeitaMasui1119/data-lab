@@ -1,7 +1,9 @@
 import argparse
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 
+from catalog.manage_iceberg import get_catalog, provision_table
 from core.storage_client import RustFSClient
 from pipeline.bootstrap.rustfs_bootstrap import BucketPlan, apply_bucket_plans
 from pipeline.ingestion.ingest_jepx import (
@@ -105,6 +107,21 @@ def main():
         help="Allow append even if source_data already exists",
     )
 
+    silver_parser = subparsers.add_parser(
+        "provision-silver-tables",
+        help="Provision silver Iceberg tables from schema CSV files",
+    )
+    silver_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    silver_parser.add_argument(
+        "--schema-dir",
+        default="/workspace/data/schema/silver",
+        help="Directory containing silver schema CSV files",
+    )
+
     args = parser.parse_args()
 
     if args.command in {None, "bootstrap-storage"}:
@@ -193,6 +210,24 @@ def main():
             source_file_name,
             row_count,
         )
+
+    if args.command == "provision-silver-tables":
+        schema_dir = Path(args.schema_dir)
+        if not schema_dir.exists():
+            parser.error(f"Schema directory does not exist: {schema_dir}")
+
+        schema_files = sorted(schema_dir.glob("*.csv"))
+        if not schema_files:
+            parser.error(f"No schema CSV files found in: {schema_dir}")
+
+        catalog = get_catalog(args.catalog)
+        provisioned = 0
+        for schema_file in schema_files:
+            table_identifier = f"silver.{schema_file.stem}"
+            provision_table(catalog, table_identifier, str(schema_file))
+            provisioned += 1
+
+        logger.info("Provisioned silver tables: %s", provisioned)
 
 
 if __name__ == "__main__":

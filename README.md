@@ -109,6 +109,20 @@ uv run python src/main.py ingest-jepx-raw-to-bronze \
 By default, ingestion skips append when the same `source_data` already exists.
 Use `--allow-duplicate-source` only when intentional re-append is required.
 
+### 4) Provision silver tables from schema CSV
+
+```bash
+uv run python src/main.py provision-silver-tables --catalog dlh_dev
+```
+
+Optional schema directory:
+
+```bash
+uv run python src/main.py provision-silver-tables \
+	--catalog dlh_dev \
+	--schema-dir /workspace/data/schema/silver
+```
+
 ## Bronze Table Schema
 
 JEPX spot price schema is managed from:
