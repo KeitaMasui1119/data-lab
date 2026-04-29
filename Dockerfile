@@ -15,7 +15,7 @@ ENV PYTHONDONTWRITEBYTECODE=True \
 
 # hadolint ignore=DL3008
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends sqlite3 \
+    && apt-get install -y --no-install-recommends sqlite3 zsh \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -23,7 +23,7 @@ RUN apt-get update \
 FROM base AS dev
 # DevContainerが要求する標準ユーザー(vscode)と必須ツールを追加
 # hadolint ignore=DL3008
-RUN useradd -m -s /bin/bash -u 1000 vscode \
+RUN useradd -m -s /bin/zsh -u 1000 vscode \
     && apt-get update \
     && apt-get install -y --no-install-recommends git curl ca-certificates \
     && apt-get clean \
@@ -40,7 +40,7 @@ RUN uv sync --frozen --no-install-project --no-dev
 
 # === 4. Prd Stage(本番稼働用) ===
 FROM base AS prd
-RUN useradd -m -s /bin/bash -u 1000 appuser
+RUN useradd -m -s /bin/zsh -u 1000 appuser
 # builderから完成したクリーンな仮想環境のみをコピー
 COPY --from=builder /app/.venv /app/.venv
 # ソースコードのコピー
