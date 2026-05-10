@@ -2,7 +2,7 @@ field_id,name,type,is_identifier,required,doc,partition_transform,source_name,co
 1,power_plant_code,string,TRUE,TRUE,Power plant code,,発電所コード,
 2,area,string,TRUE,TRUE,Power plant located area,,エリア,
 3,power_plant_name,string,TRUE,TRUE,Power plant name,,発電所名,
-4,unit_name,string,TRUE,TRUE,Power plant unit name,,ユニット名,
+4,unit_name,string,FALSE,FALSE,Power plant unit name,,ユニット名,
 5,power_generation_method_and_fuel_type,string,FALSE,FALSE,Power generation method and fuel type,,発電方式・燃種,
 6,target_date,string,TRUE,TRUE,Target date,,対象日,
 7,timeslot_00_30,string,FALSE,FALSE,Power generation actuals at 00:30[kWh],,00:30[kWh],

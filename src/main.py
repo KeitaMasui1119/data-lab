@@ -1,8 +1,10 @@
 import argparse
 import logging
+import os
 import subprocess
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from catalog.manage_iceberg import get_catalog, provision_table
 from core.storage_client import RustFSClient
@@ -15,6 +17,11 @@ from pipeline.ingestion.ingest_occto import ingest_occto_unit_generation
 from pipeline.ingestion.migrate_occto_data import migrate_occto_data
 from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
+from pipeline.scraper.module.occto import (
+    OCCTOUnitGenerationConfig,
+    OCCTOUnitGenerationScraper,
+)
+from pipeline.scraper.occto_to_rustfs import scrape_occto_to_rustfs
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
@@ -177,6 +184,41 @@ def main():
         help="Keep the local directory after upload",
     )
 
+    occto_scrape_parser = subparsers.add_parser(
+        "scrape-occto",
+        help="Download OCCTO unit generation CSV and upload to RustFS raw layer",
+    )
+    occto_scrape_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Target bucket name (default: jp-power-grid-dev)",
+    )
+    occto_scrape_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD (default: previous day in Asia/Tokyo)",
+    )
+    occto_scrape_parser.add_argument(
+        "--download-url",
+        help=(
+            "OCCTO CSV download endpoint URL "
+            "(default: OCCTO_DOWNLOAD_CSV_URL environment variable)"
+        ),
+    )
+    occto_scrape_parser.add_argument(
+        "--referer",
+        help="Optional Referer header value",
+    )
+    occto_scrape_parser.add_argument(
+        "--date-param-name",
+        default="targetDate",
+        help="Query parameter name used for target date (default: targetDate)",
+    )
+    occto_scrape_parser.add_argument(
+        "--date-format",
+        default="%Y-%m-%d",
+        help="Date format for query parameter and file name (default: %%Y-%%m-%%d)",
+    )
+
     silver_parser = subparsers.add_parser(
         "provision-silver-tables",
         help="Provision silver Iceberg tables from schema CSV files",
@@ -217,6 +259,21 @@ def main():
         help="dbt select expression (default: tag:silver)",
     )
     dbt_silver_parser.add_argument(
+        "--full-refresh",
+        action="store_true",
+        help="Run dbt with --full-refresh",
+    )
+
+    occto_dbt_parser = subparsers.add_parser(
+        "run-occto-silver-dbt",
+        help="Run dbt staging and silver models for OCCTO using DuckDB",
+    )
+    occto_dbt_parser.add_argument(
+        "--select",
+        default="tag:occto",
+        help="dbt select expression (default: tag:occto)",
+    )
+    occto_dbt_parser.add_argument(
         "--full-refresh",
         action="store_true",
         help="Run dbt with --full-refresh",
@@ -349,6 +406,47 @@ def main():
             migrated_count,
         )
 
+    if args.command == "scrape-occto":
+        download_url = args.download_url or os.getenv("OCCTO_DOWNLOAD_CSV_URL")
+        if not download_url:
+            parser.error(
+                "OCCTO download URL is required. "
+                "Provide --download-url or set OCCTO_DOWNLOAD_CSV_URL."
+            )
+
+        if args.target_date:
+            try:
+                target_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+        else:
+            jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
+            target_date = (jst_now - timedelta(days=1)).date()
+
+        rustfs = RustFSClient()
+        scraper_config = OCCTOUnitGenerationConfig(
+            base_url=download_url,
+            referer=args.referer,
+            date_param_name=args.date_param_name,
+            date_format=args.date_format,
+        )
+        scraper = OCCTOUnitGenerationScraper(config=scraper_config)
+        try:
+            result = scrape_occto_to_rustfs(
+                storage_client=rustfs,
+                scraper=scraper,
+                bucket_name=args.bucket,
+                target_at=target_date,
+            )
+            logger.info(
+                "Uploaded OCCTO raw file to s3://%s/%s (%s bytes)",
+                result.bucket_name,
+                result.object_key,
+                result.size_bytes,
+            )
+        finally:
+            scraper.close()
+
     if args.command == "provision-silver-tables":
         schema_dir = Path(args.schema_dir)
         if not schema_dir.exists():
@@ -409,6 +507,28 @@ def main():
             dbt_command.append("--full-refresh")
 
         logger.info("Executing dbt silver command: %s", " ".join(dbt_command))
+        subprocess.run(dbt_command, check=True)
+
+    if args.command == "run-occto-silver-dbt":
+        project_dir = Path("/workspace/src/dbt/jepx_power")
+        profiles_dir = project_dir
+
+        dbt_command = [
+            "uv",
+            "run",
+            "dbt",
+            "run",
+            "--project-dir",
+            str(project_dir),
+            "--profiles-dir",
+            str(profiles_dir),
+            "--select",
+            args.select,
+        ]
+        if args.full_refresh:
+            dbt_command.append("--full-refresh")
+
+        logger.info("Executing dbt OCCTO command: %s", " ".join(dbt_command))
         subprocess.run(dbt_command, check=True)
 
 
