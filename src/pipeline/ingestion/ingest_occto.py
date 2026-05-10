@@ -17,7 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = "/workspace/data/schema/bronze/occto_unit_generation_actuals.csv"
-DEFAULT_TABLE = "bronze.occto.unit_generation_actuals"
+DEFAULT_TABLE = "bronze.occto_unit_generation_actuals"
 
 
 def source_data_exists(table, source_file_name: str) -> bool:

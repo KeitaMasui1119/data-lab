@@ -136,9 +136,9 @@ def main():
     )
     occto_bronze_parser.add_argument(
         "--table",
-        default="bronze.occto.unit_generation_actuals",
+        default="bronze.occto_unit_generation_actuals",
         help="Target Iceberg table identifier"
-        " (default: bronze.occto.unit_generation_actuals)",
+        " (default: bronze.occto_unit_generation_actuals)",
     )
     occto_bronze_parser.add_argument(
         "--schema-path",
