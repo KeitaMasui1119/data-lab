@@ -136,12 +136,13 @@ def main():
     )
     occto_bronze_parser.add_argument(
         "--table",
-        default="bronze.occto.unit_generation",
-        help="Target Iceberg table identifier (default: bronze.occto.unit_generation)",
+        default="bronze.occto.unit_generation_actuals",
+        help="Target Iceberg table identifier"
+        " (default: bronze.occto.unit_generation_actuals)",
     )
     occto_bronze_parser.add_argument(
         "--schema-path",
-        default="/workspace/data/schema/bronze/occto_unit_generation.csv",
+        default="/workspace/data/schema/bronze/occto_unit_generation_actuals.csv",
         help="Schema CSV path",
     )
     occto_bronze_parser.add_argument(
