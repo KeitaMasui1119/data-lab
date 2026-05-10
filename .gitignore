@@ -3,5 +3,7 @@ src/stg/data_lake/*
 src/prd/data_lake/*
 .secrets/
 data/*
+!data/schema/
+!data/schema/**
 .env
 ./pipeline.log

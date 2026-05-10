@@ -115,11 +115,13 @@ def provision_table(catalog: Catalog, identifier: str, schema_csv_path: str):
         identifier (str): _description_
         schema_csv_path (str): _description_
     """
-    # identifierからnamespaceを抽出
-    namespace = identifier.split(".")[0]
-
-    # Namespaceの作成
-    build_namespace(catalog, namespace)
+    # identifierから全階層のnamespaceを抽出して順番に作成
+    # 例: "bronze.occto.unit_generation" → ["bronze", "bronze.occto"] を両方作成
+    parts = identifier.split(".")
+    namespace_parts = parts[:-1]
+    for i in range(1, len(namespace_parts) + 1):
+        ns = ".".join(namespace_parts[:i])
+        build_namespace(catalog, ns)
 
     # CSVから最新のスキーマ定義を読み込む
     # build_table_schema が Schema と PartitionSpec の dict 等を返す想定
@@ -213,9 +215,7 @@ def main():
         if args.action == "create":
             build_namespace(catalog, args.name)
         elif args.action == "drop":
-            logger.warning(
-                f"ネームスペースの削除は安全のため現在スキップされます: {args.name}"
-            )
+            delete_namespace(catalog, args.name)
         elif args.action == "view":
             view_namespace(catalog, args.name)
 

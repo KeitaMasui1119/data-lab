@@ -151,6 +151,24 @@ Optional full refresh:
 uv run python src/main.py run-jepx-silver-dbt --full-refresh
 ```
 
+### 7) Build OCCTO silver layer with DuckDB + dbt
+
+Run OCCTO staging and silver models from the OCCTO bronze table:
+
+```bash
+uv run python src/main.py run-occto-silver-dbt
+```
+
+Optional full refresh:
+
+```bash
+uv run python src/main.py run-occto-silver-dbt --full-refresh
+```
+
+This command reads `bronze.occto_unit_generation_actuals`, materializes
+`main_staging.stg_occto_unit_generation_actuals`, and then writes
+`main_silver.silver_occto_unit_generation_actuals` in DuckDB.
+
 ## Bronze Table Schema
 
 JEPX spot price schema is managed from:
@@ -191,4 +209,5 @@ uv run ruff check <changed paths>
 - JEPX scraping to RustFS raw: implemented
 - Bronze table provisioning for JEPX spot price: implemented
 - Raw-to-bronze ingestion with duplicate guard: implemented
+- OCCTO raw-to-bronze ingestion and bronze-to-silver dbt pipeline: implemented
 - Silver/Gold pipeline steps: in progress

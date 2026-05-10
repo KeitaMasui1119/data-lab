@@ -16,7 +16,8 @@ models:
           - not_null
 
   - name: silver_jepx_spot_price_area
-    description: "Silver area price table for JEPX spot price created by unpivoting
+    description:
+      "Silver area price table for JEPX spot price created by unpivoting
       area columns."
     columns:
       - name: delivery_datetime
@@ -26,5 +27,25 @@ models:
         tests:
           - not_null
       - name: area_price
+        tests:
+          - not_null
+
+  - name: silver_occto_unit_generation_actuals
+    description: "Silver table for OCCTO unit generation actuals mirroring the
+      bronze schema."
+    columns:
+      - name: power_plant_code
+        tests:
+          - not_null
+      - name: area
+        tests:
+          - not_null
+      - name: power_plant_name
+        tests:
+          - not_null
+      - name: target_date
+        tests:
+          - not_null
+      - name: updated_datetime
         tests:
           - not_null
