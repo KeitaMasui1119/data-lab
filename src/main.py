@@ -12,6 +12,7 @@ from pipeline.ingestion.ingest_jepx import (
     resolve_default_raw_object,
 )
 from pipeline.ingestion.ingest_occto import ingest_occto_unit_generation
+from pipeline.ingestion.migrate_occto_data import migrate_occto_data
 from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 
@@ -149,6 +150,31 @@ def main():
         "--allow-duplicate-source",
         action="store_true",
         help="Allow append even if source_data already exists",
+    )
+
+    occto_migrate_parser = subparsers.add_parser(
+        "migrate-occto-to-rustfs",
+        help="Migrate OCCTO source CSV files from local data to RustFS raw/occto",
+    )
+    occto_migrate_parser.add_argument(
+        "--local-dir",
+        default="/workspace/data/occto",
+        help="Local directory containing OCCTO CSV files",
+    )
+    occto_migrate_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Destination bucket name (default: jp-power-grid-dev)",
+    )
+    occto_migrate_parser.add_argument(
+        "--s3-prefix",
+        default="raw/occto",
+        help="Destination S3 prefix (default: raw/occto)",
+    )
+    occto_migrate_parser.add_argument(
+        "--keep-local",
+        action="store_true",
+        help="Keep the local directory after upload",
     )
 
     silver_parser = subparsers.add_parser(
@@ -307,6 +333,20 @@ def main():
             args.table,
             source_file_name,
             row_count,
+        )
+
+    if args.command == "migrate-occto-to-rustfs":
+        migrated_count = migrate_occto_data(
+            local_dir=args.local_dir,
+            bucket_name=args.bucket,
+            s3_prefix=args.s3_prefix,
+            delete_after=not args.keep_local,
+        )
+        logger.info(
+            "OCCTO migration completed: bucket=%s, prefix=%s, files=%s",
+            args.bucket,
+            args.s3_prefix,
+            migrated_count,
         )
 
     if args.command == "provision-silver-tables":
