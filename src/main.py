@@ -11,6 +11,7 @@ from pipeline.ingestion.ingest_jepx import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
 )
+from pipeline.ingestion.ingest_occto import ingest_occto_unit_generation
 from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 
@@ -103,6 +104,47 @@ def main():
         help="Schema CSV path",
     )
     bronze_parser.add_argument(
+        "--allow-duplicate-source",
+        action="store_true",
+        help="Allow append even if source_data already exists",
+    )
+
+    occto_bronze_parser = subparsers.add_parser(
+        "ingest-occto-raw-to-bronze",
+        help="Ingest OCCTO unit generation raw CSV into bronze Iceberg table",
+    )
+    occto_bronze_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Source bucket name (default: jp-power-grid-dev)",
+    )
+    occto_bronze_parser.add_argument(
+        "--object-key",
+        required=True,
+        help="Source object key in raw layer"
+        " (e.g. raw/occto/unit_generation/ユニット別発電実績_xxx.csv)",
+    )
+    occto_bronze_parser.add_argument(
+        "--source-file-name",
+        help="Source file name stored in source_data"
+        " (default: last segment of object-key)",
+    )
+    occto_bronze_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    occto_bronze_parser.add_argument(
+        "--table",
+        default="bronze.occto.unit_generation",
+        help="Target Iceberg table identifier (default: bronze.occto.unit_generation)",
+    )
+    occto_bronze_parser.add_argument(
+        "--schema-path",
+        default="/workspace/data/schema/bronze/occto_unit_generation.csv",
+        help="Schema CSV path",
+    )
+    occto_bronze_parser.add_argument(
         "--allow-duplicate-source",
         action="store_true",
         help="Allow append even if source_data already exists",
@@ -226,6 +268,30 @@ def main():
 
         rustfs = RustFSClient()
         row_count = ingest_jepx_spot_summary(
+            client=rustfs,
+            bucket_name=args.bucket,
+            object_key=object_key,
+            source_file_name=source_file_name,
+            catalog_name=args.catalog,
+            table_identifier=args.table,
+            schema_path=args.schema_path,
+            skip_if_exists=not args.allow_duplicate_source,
+        )
+        logger.info(
+            "Ingestion completed: table=%s, source=%s, rows=%s",
+            args.table,
+            source_file_name,
+            row_count,
+        )
+
+    if args.command == "ingest-occto-raw-to-bronze":
+        object_key = args.object_key
+        source_file_name = (
+            args.source_file_name or object_key.rsplit("/", maxsplit=1)[-1]
+        )
+
+        rustfs = RustFSClient()
+        row_count = ingest_occto_unit_generation(
             client=rustfs,
             bucket_name=args.bucket,
             object_key=object_key,
