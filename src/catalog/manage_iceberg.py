@@ -215,9 +215,7 @@ def main():
         if args.action == "create":
             build_namespace(catalog, args.name)
         elif args.action == "drop":
-            logger.warning(
-                f"ネームスペースの削除は安全のため現在スキップされます: {args.name}"
-            )
+            delete_namespace(catalog, args.name)
         elif args.action == "view":
             view_namespace(catalog, args.name)
 
