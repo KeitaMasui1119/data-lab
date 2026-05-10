@@ -1,0 +1,11 @@
+field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
+1,power_plant_code,string,TRUE,TRUE,Power plant code,,発電所コード,
+2,area,string,TRUE,TRUE,Power plant located area,,エリア,
+3,power_plant_name,string,TRUE,TRUE,Power plant name,,発電所名,
+4,unit_name,string,TRUE,TRUE,Power plant unit name,,ユニット名,
+5,power_generation_method_and_fuel_type,string,FALSE,FALSE,Power generation method and fuel type,,発電方式・燃種,
+6,target_date,date,TRUE,TRUE,Target date,,対象日,
+7,time_slot,string,TRUE,TRUE,Time slot,,時間区分,
+8,target_datetime,timestamp,TRUE,TRUE,Target datetime,,対象日時,
+9,actuals,double,FALSE,FALSE,Power generation actuals,,発電実績,
+10,updated_datetime,timestamp,TRUE,TRUE,Updated datetime,,更新日時,
