@@ -16,6 +16,7 @@ from pipeline.ingestion.ingest_jepx import (
 from pipeline.ingestion.ingest_occto import ingest_occto_unit_generation
 from pipeline.ingestion.migrate_occto_data import migrate_occto_data
 from pipeline.jepx.common import resolve_target_at
+from pipeline.orchestrator.jepx_pipeline import run_jepx_orchestrated_pipeline
 from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 from pipeline.scraper.module.occto import (
@@ -151,6 +152,75 @@ def main():
         "--allow-duplicate-source",
         action="store_true",
         help="Allow append even if source_data already exists",
+    )
+
+    jepx_orchestrator_parser = subparsers.add_parser(
+        "run-jepx-orchestrator",
+        help="Run ADF-like JEPX end-to-end orchestrator",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Source/target bucket name (default: jp-power-grid-dev)",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--timestamp-ms",
+        type=int,
+        help="Optional UNIX timestamp in milliseconds for the JEPX run",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--bronze-table",
+        default="bronze.jepx_spot_price",
+        help="Target bronze Iceberg table identifier",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--bronze-schema-path",
+        default="/workspace/data/schema/bronze/jepx_spot_price.csv",
+        help="Bronze schema CSV path",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--allow-duplicate-source",
+        action="store_true",
+        help="Allow append even if source_data already exists",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--dbt-project-dir",
+        default="/workspace/src/dbt/jepx_power",
+        help="dbt project directory",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--dbt-profiles-dir",
+        help="dbt profiles directory (default: same as dbt project dir)",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--staging-select",
+        default="tag:staging",
+        help="dbt select expression for staging step",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--silver-select",
+        default="tag:silver",
+        help="dbt select expression for silver step",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--run-gold-step",
+        action="store_true",
+        help="Enable gold step execution",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--gold-select",
+        default="tag:gold",
+        help="dbt select expression for gold step",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--dbt-full-refresh",
+        action="store_true",
+        help="Run dbt steps with --full-refresh",
     )
 
     occto_bronze_parser = subparsers.add_parser(
@@ -426,6 +496,40 @@ def main():
             args.table,
             row_count,
         )
+
+    if args.command == "run-jepx-orchestrator":
+        dbt_project_dir = Path(args.dbt_project_dir)
+        if not dbt_project_dir.exists():
+            parser.error(f"dbt project directory does not exist: {dbt_project_dir}")
+
+        dbt_profiles_dir = (
+            Path(args.dbt_profiles_dir) if args.dbt_profiles_dir else dbt_project_dir
+        )
+        if not dbt_profiles_dir.exists():
+            parser.error(f"dbt profiles directory does not exist: {dbt_profiles_dir}")
+
+        results = run_jepx_orchestrated_pipeline(
+            bucket_name=args.bucket,
+            timestamp_ms=args.timestamp_ms,
+            catalog_name=args.catalog,
+            bronze_table_identifier=args.bronze_table,
+            bronze_schema_path=args.bronze_schema_path,
+            allow_duplicate_source=args.allow_duplicate_source,
+            dbt_project_dir=dbt_project_dir,
+            dbt_profiles_dir=dbt_profiles_dir,
+            staging_select=args.staging_select,
+            silver_select=args.silver_select,
+            run_gold_step=args.run_gold_step,
+            gold_select=args.gold_select,
+            dbt_full_refresh=args.dbt_full_refresh,
+        )
+        for result in results:
+            logger.info(
+                "Orchestrator step result: step=%s, status=%s, detail=%s",
+                result.name,
+                result.status,
+                result.detail,
+            )
 
     if args.command == "ingest-occto-raw-to-bronze":
         object_key = args.object_key
