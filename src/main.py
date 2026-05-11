@@ -222,6 +222,16 @@ def main():
         action="store_true",
         help="Run dbt steps with --full-refresh",
     )
+    jepx_orchestrator_parser.add_argument(
+        "--export-silver-to-iceberg",
+        action="store_true",
+        help="Export dbt silver tables into PyIceberg silver tables",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--dbt-duckdb-path",
+        default="/workspace/src/dbt/jepx_power/jepx_power.duckdb",
+        help="Path to dbt DuckDB file used as silver export source",
+    )
 
     occto_bronze_parser = subparsers.add_parser(
         "ingest-occto-raw-to-bronze",
@@ -508,6 +518,10 @@ def main():
         if not dbt_profiles_dir.exists():
             parser.error(f"dbt profiles directory does not exist: {dbt_profiles_dir}")
 
+        dbt_duckdb_path = Path(args.dbt_duckdb_path)
+        if args.export_silver_to_iceberg and not dbt_duckdb_path.exists():
+            parser.error(f"dbt DuckDB file does not exist: {dbt_duckdb_path}")
+
         results = run_jepx_orchestrated_pipeline(
             bucket_name=args.bucket,
             timestamp_ms=args.timestamp_ms,
@@ -522,6 +536,8 @@ def main():
             run_gold_step=args.run_gold_step,
             gold_select=args.gold_select,
             dbt_full_refresh=args.dbt_full_refresh,
+            export_silver_to_iceberg=args.export_silver_to_iceberg,
+            dbt_duckdb_path=dbt_duckdb_path,
         )
         for result in results:
             logger.info(

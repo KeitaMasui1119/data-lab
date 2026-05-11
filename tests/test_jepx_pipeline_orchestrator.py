@@ -105,6 +105,15 @@ def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
 
     monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", fake_ingest)
     monkeypatch.setattr(jepx_pipeline, "run_dbt_step", fake_run_dbt_step)
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "export_jepx_silver_to_iceberg",
+        lambda **_: jepx_pipeline.PipelineStepResult(
+            name="silver_to_iceberg",
+            status="success",
+            detail="ok",
+        ),
+    )
 
     results = jepx_pipeline.run_jepx_orchestrated_pipeline(
         bucket_name="jp-power-grid-dev",
@@ -120,6 +129,8 @@ def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
         run_gold_step=False,
         gold_select="tag:gold",
         dbt_full_refresh=False,
+        export_silver_to_iceberg=False,
+        dbt_duckdb_path=Path("/workspace/src/dbt/jepx_power/jepx_power.duckdb"),
     )
 
     assert scraper_instance.closed is True
@@ -137,8 +148,10 @@ def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
         "raw_to_bronze",
         "bronze_to_silver_staging",
         "silver_build",
+        "silver_to_iceberg",
         "silver_to_gold",
     ]
+    assert results[-2].status == "skipped"
     assert results[-1].status == "skipped"
 
 
@@ -180,6 +193,15 @@ def test_run_jepx_orchestrated_pipeline_runs_gold_step(monkeypatch) -> None:
 
     monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", fake_ingest)
     monkeypatch.setattr(jepx_pipeline, "run_dbt_step", fake_run_dbt_step)
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "export_jepx_silver_to_iceberg",
+        lambda **_: jepx_pipeline.PipelineStepResult(
+            name="silver_to_iceberg",
+            status="success",
+            detail="ok",
+        ),
+    )
 
     results = jepx_pipeline.run_jepx_orchestrated_pipeline(
         bucket_name="jp-power-grid-dev",
@@ -195,6 +217,8 @@ def test_run_jepx_orchestrated_pipeline_runs_gold_step(monkeypatch) -> None:
         run_gold_step=True,
         gold_select="tag:gold",
         dbt_full_refresh=True,
+        export_silver_to_iceberg=True,
+        dbt_duckdb_path=Path("/workspace/src/dbt/jepx_power/jepx_power.duckdb"),
     )
 
     assert len(ingest_calls) == 1
@@ -213,6 +237,8 @@ def test_run_jepx_orchestrated_pipeline_runs_gold_step(monkeypatch) -> None:
         "raw_to_bronze",
         "bronze_to_silver_staging",
         "silver_build",
+        "silver_to_iceberg",
         "silver_to_gold",
     ]
+    assert results[-2].status == "success"
     assert results[-1].status == "success"

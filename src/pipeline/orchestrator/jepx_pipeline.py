@@ -16,6 +16,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+import duckdb
+import polars as pl
+
+from catalog.manage_iceberg import get_catalog, provision_table
 from core.storage_client import RustFSClient
 from pipeline.ingestion.ingest_jepx import ingest_jepx_spot_summary
 from pipeline.jepx.common import resolve_target_at
@@ -25,7 +29,25 @@ from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 logger = logging.getLogger(__name__)
 
 DEFAULT_DBT_PROJECT_DIR = Path("/workspace/src/dbt/jepx_power")
+DEFAULT_DBT_DUCKDB_PATH = Path("/workspace/src/dbt/jepx_power/jepx_power.duckdb")
 DEFAULT_SCHEMA_PATH = "/workspace/data/schema/bronze/jepx_spot_price.csv"
+DEFAULT_SILVER_EXPORT_MAPPINGS = (
+    (
+        "main_silver.silver_jepx_spot_price_base",
+        "silver.jepx_spot_price_base",
+        "/workspace/data/schema/silver/jepx_spot_price_base.csv",
+    ),
+    (
+        "main_silver.silver_jepx_spot_price_block",
+        "silver.jepx_spot_price_block",
+        "/workspace/data/schema/silver/jepx_spot_price_block.csv",
+    ),
+    (
+        "main_silver.silver_jepx_spot_price_area",
+        "silver.jepx_spot_price_area",
+        "/workspace/data/schema/silver/jepx_spot_price_area.csv",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -70,6 +92,69 @@ def run_dbt_step(
     )
 
 
+def export_jepx_silver_to_iceberg(
+    *,
+    catalog_name: str,
+    duckdb_path: Path,
+) -> PipelineStepResult:
+    """Export dbt silver tables from DuckDB into PyIceberg silver tables."""
+    if not duckdb_path.exists():
+        raise FileNotFoundError(f"dbt DuckDB file does not exist: {duckdb_path}")
+
+    catalog = get_catalog(catalog_name)
+    exported_rows = 0
+
+    conn = duckdb.connect(str(duckdb_path), read_only=True)
+    try:
+        for (
+            source_table,
+            target_identifier,
+            schema_path,
+        ) in DEFAULT_SILVER_EXPORT_MAPPINGS:
+            provision_table(catalog, target_identifier, schema_path)
+
+            source_df = conn.execute(f"SELECT * FROM {source_table};").pl()
+            if source_df.is_empty():
+                logger.info(
+                    "Skipped silver export for %s because source table is empty",
+                    source_table,
+                )
+                continue
+
+            target_table = catalog.load_table(target_identifier)
+            target_schema = target_table.schema().as_arrow()
+            target_field_names = [field.name for field in target_schema]
+
+            aligned_df = source_df
+            for target_field_name in target_field_names:
+                if target_field_name not in aligned_df.columns:
+                    aligned_df = aligned_df.with_columns(
+                        pl.lit(None).alias(target_field_name)
+                    )
+
+            aligned_df = aligned_df.select(target_field_names)
+
+            arrow_table = aligned_df.to_arrow()
+            casted_arrow_table = arrow_table.cast(target_schema)
+            target_table.append(casted_arrow_table)
+
+            exported_rows += len(aligned_df)
+            logger.info(
+                "Exported %s rows from %s to %s",
+                len(aligned_df),
+                source_table,
+                target_identifier,
+            )
+    finally:
+        conn.close()
+
+    return PipelineStepResult(
+        name="silver_to_iceberg",
+        status="success",
+        detail=f"duckdb={duckdb_path}, exported_rows={exported_rows}",
+    )
+
+
 def run_jepx_orchestrated_pipeline(
     *,
     bucket_name: str,
@@ -85,6 +170,8 @@ def run_jepx_orchestrated_pipeline(
     run_gold_step: bool,
     gold_select: str,
     dbt_full_refresh: bool,
+    export_silver_to_iceberg: bool,
+    dbt_duckdb_path: Path,
 ) -> list[PipelineStepResult]:
     """Run the JEPX workflow in dependency order."""
     results: list[PipelineStepResult] = []
@@ -150,6 +237,22 @@ def run_jepx_orchestrated_pipeline(
             full_refresh=dbt_full_refresh,
         )
     )
+
+    if export_silver_to_iceberg:
+        results.append(
+            export_jepx_silver_to_iceberg(
+                catalog_name=catalog_name,
+                duckdb_path=dbt_duckdb_path,
+            )
+        )
+    else:
+        results.append(
+            PipelineStepResult(
+                name="silver_to_iceberg",
+                status="skipped",
+                detail="Silver export is disabled. Use --export-silver-to-iceberg.",
+            )
+        )
 
     if run_gold_step:
         results.append(
@@ -242,6 +345,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run dbt steps with --full-refresh",
     )
+    parser.add_argument(
+        "--export-silver-to-iceberg",
+        action="store_true",
+        help="Export dbt silver tables into PyIceberg silver tables",
+    )
+    parser.add_argument(
+        "--dbt-duckdb-path",
+        default=str(DEFAULT_DBT_DUCKDB_PATH),
+        help="Path to dbt DuckDB file used as silver export source",
+    )
     return parser
 
 
@@ -265,6 +378,10 @@ def main() -> None:
     if not dbt_profiles_dir.exists():
         parser.error(f"dbt profiles directory does not exist: {dbt_profiles_dir}")
 
+    dbt_duckdb_path = Path(args.dbt_duckdb_path)
+    if args.export_silver_to_iceberg and not dbt_duckdb_path.exists():
+        parser.error(f"dbt DuckDB file does not exist: {dbt_duckdb_path}")
+
     results = run_jepx_orchestrated_pipeline(
         bucket_name=args.bucket,
         timestamp_ms=args.timestamp_ms,
@@ -279,6 +396,8 @@ def main() -> None:
         run_gold_step=args.run_gold_step,
         gold_select=args.gold_select,
         dbt_full_refresh=args.dbt_full_refresh,
+        export_silver_to_iceberg=args.export_silver_to_iceberg,
+        dbt_duckdb_path=dbt_duckdb_path,
     )
 
     logger.info("JEPX orchestrated pipeline summary:")
