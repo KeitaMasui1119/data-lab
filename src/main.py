@@ -2,7 +2,7 @@ import argparse
 import logging
 import os
 import subprocess
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -15,6 +15,7 @@ from pipeline.ingestion.ingest_jepx import (
 )
 from pipeline.ingestion.ingest_occto import ingest_occto_unit_generation
 from pipeline.ingestion.migrate_occto_data import migrate_occto_data
+from pipeline.jepx.common import resolve_target_at
 from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 from pipeline.scraper.module.occto import (
@@ -112,6 +113,41 @@ def main():
         help="Schema CSV path",
     )
     bronze_parser.add_argument(
+        "--allow-duplicate-source",
+        action="store_true",
+        help="Allow append even if source_data already exists",
+    )
+
+    jepx_pipeline_parser = subparsers.add_parser(
+        "run-jepx-raw-pipeline",
+        help="Scrape JEPX raw CSV and ingest it into bronze Iceberg table",
+    )
+    jepx_pipeline_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Source/target bucket name (default: jp-power-grid-dev)",
+    )
+    jepx_pipeline_parser.add_argument(
+        "--timestamp-ms",
+        type=int,
+        help="Optional UNIX timestamp (ms) to resolve target source file",
+    )
+    jepx_pipeline_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    jepx_pipeline_parser.add_argument(
+        "--table",
+        default="bronze.jepx_spot_price",
+        help="Target Iceberg table identifier",
+    )
+    jepx_pipeline_parser.add_argument(
+        "--schema-path",
+        default="/workspace/data/schema/bronze/jepx_spot_price.csv",
+        help="Schema CSV path",
+    )
+    jepx_pipeline_parser.add_argument(
         "--allow-duplicate-source",
         action="store_true",
         help="Allow append even if source_data already exists",
@@ -313,14 +349,7 @@ def main():
     if args.command == "scrape-jepx":
         rustfs = RustFSClient()
         scraper = JEPXSpotSummaryScraper()
-
-        if args.timestamp_ms:
-            target_at = datetime.fromtimestamp(
-                args.timestamp_ms / 1000,
-                tz=UTC,
-            )
-        else:
-            target_at = datetime.now(UTC)
+        target_at = resolve_target_at(args.timestamp_ms)
 
         try:
             result = scrape_jepx_to_rustfs(
@@ -339,10 +368,7 @@ def main():
             scraper.close()
 
     if args.command == "ingest-jepx-raw-to-bronze":
-        if args.timestamp_ms:
-            target_at = datetime.fromtimestamp(args.timestamp_ms / 1000, tz=UTC)
-        else:
-            target_at = datetime.now(UTC)
+        target_at = resolve_target_at(args.timestamp_ms)
 
         default_object_key, _ = resolve_default_raw_object(target_at)
         object_key = args.object_key or default_object_key
@@ -365,6 +391,39 @@ def main():
             "Ingestion completed: table=%s, source=%s, rows=%s",
             args.table,
             source_file_name,
+            row_count,
+        )
+
+    if args.command == "run-jepx-raw-pipeline":
+        target_at = resolve_target_at(args.timestamp_ms)
+
+        rustfs = RustFSClient()
+        scraper = JEPXSpotSummaryScraper()
+        try:
+            scrape_result = scrape_jepx_to_rustfs(
+                storage_client=rustfs,
+                scraper=scraper,
+                bucket_name=args.bucket,
+                target_at=target_at,
+            )
+        finally:
+            scraper.close()
+
+        row_count = ingest_jepx_spot_summary(
+            client=rustfs,
+            bucket_name=args.bucket,
+            object_key=scrape_result.object_key,
+            source_file_name=scrape_result.file_name,
+            catalog_name=args.catalog,
+            table_identifier=args.table,
+            schema_path=args.schema_path,
+            skip_if_exists=not args.allow_duplicate_source,
+        )
+        logger.info(
+            "JEPX raw pipeline completed: source=s3://%s/%s, table=%s, rows=%s",
+            scrape_result.bucket_name,
+            scrape_result.object_key,
+            args.table,
             row_count,
         )
 
