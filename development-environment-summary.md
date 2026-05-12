@@ -15,7 +15,7 @@
 ## 3. 主要ツール/バージョン
 - uv: 0.11.8
 - git: 2.47.3
-- Python 要件: 3.12 以上 (pyproject.toml)
+- Python 要件: 3.13 以上 (pyproject.toml)
 
 補足:
 - 現在の環境では rg (ripgrep) は未インストールです。
