@@ -1,8 +1,8 @@
 import argparse
 import logging
-from datetime import UTC, datetime
 
 from core.storage_client import RustFSClient
+from pipeline.jepx.common import resolve_target_at
 from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 
@@ -28,13 +28,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.timestamp_ms:
-        target_at = datetime.fromtimestamp(
-            args.timestamp_ms / 1000,
-            tz=UTC,
-        )
-    else:
-        target_at = datetime.now(UTC)
+    target_at = resolve_target_at(args.timestamp_ms)
 
     rustfs = RustFSClient()
     scraper = JEPXSpotSummaryScraper()

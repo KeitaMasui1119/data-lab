@@ -2,7 +2,7 @@ import argparse
 import io
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import polars as pl
@@ -11,6 +11,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from catalog.manage_iceberg import get_catalog
 from core.storage_client import RustFSClient
+from pipeline.jepx.common import (
+    resolve_spot_summary_file_name,
+    resolve_spot_summary_object_key,
+    resolve_target_at,
+)
 from utility.pipeline_utilities import add_metadata, build_schema_exprs
 
 # ログ設定
@@ -22,16 +27,9 @@ logger = logging.getLogger(__name__)
 SCHEMA_PATH = "/workspace/data/schema/bronze/jepx_spot_price.csv"
 
 
-def resolve_fiscal_year(target_at: datetime) -> int:
-    if target_at.month >= 4:
-        return target_at.year
-    return target_at.year - 1
-
-
 def resolve_default_raw_object(target_at: datetime) -> tuple[str, str]:
-    fiscal_year = resolve_fiscal_year(target_at)
-    file_name = f"spot_summary_{fiscal_year}.csv"
-    object_key = f"raw/jepx/spot_summary/{file_name}"
+    file_name = resolve_spot_summary_file_name(target_at)
+    object_key = resolve_spot_summary_object_key(target_at)
     return object_key, file_name
 
 
@@ -143,10 +141,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.timestamp_ms:
-        target_at = datetime.fromtimestamp(args.timestamp_ms / 1000, tz=UTC)
-    else:
-        target_at = datetime.now(UTC)
+    target_at = resolve_target_at(args.timestamp_ms)
 
     default_object_key, default_file_name = resolve_default_raw_object(target_at)
     object_key = args.object_key or default_object_key

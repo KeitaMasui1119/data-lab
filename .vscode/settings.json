@@ -6,7 +6,7 @@
         "notebook.source.organizeImports": "explicit"
     },
     "notebook.formatOnSave.enabled": true,
-    "python.defaultInterpreterPath": "/home/vscode/.venv/bin/python",
+    "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
     "python.testing.autoTestDiscoverOnSaveEnabled": false,
     "python.testing.pytestEnabled": true,
     "python.testing.pytestArgs": [
@@ -18,6 +18,9 @@
         "zsh": {
             "path": "/bin/zsh"
         }
+    },
+    "terminal.integrated.env.linux": {
+        "UV_PROJECT_ENVIRONMENT": ".venv"
     },
     "[dockercompose]": {
         "editor.autoIndent": "advanced",

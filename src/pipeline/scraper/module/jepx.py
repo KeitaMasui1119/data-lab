@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
+from pipeline.jepx.common import (
+    resolve_fiscal_year,
+    resolve_spot_summary_file_name,
+    resolve_spot_summary_object_key,
+)
 from pipeline.scraper.module.base import BaseHttpScraper, RequestSpec
 
 
@@ -33,21 +38,9 @@ class JEPXSpotSummaryScraper(BaseHttpScraper):
             session=session,
         )
 
-    @staticmethod
-    def get_fiscal_year(target_at: datetime) -> int:
-        if target_at.month >= 4:
-            return target_at.year
-        return target_at.year - 1
-
-    @staticmethod
-    def to_timestamp_millis(target_at: datetime) -> int:
-        if target_at.tzinfo is None:
-            target_at = target_at.replace(tzinfo=UTC)
-        return int(target_at.timestamp() * 1000)
-
     def build_request(self, target_at: datetime) -> RequestSpec:
-        fiscal_year = self.get_fiscal_year(target_at)
-        timestamp_millis = self.to_timestamp_millis(target_at)
+        fiscal_year = resolve_fiscal_year(target_at)
+        timestamp_millis = int(target_at.timestamp() * 1000)
 
         return RequestSpec(
             method="POST",
@@ -64,9 +57,8 @@ class JEPXSpotSummaryScraper(BaseHttpScraper):
         )
 
     def scrape(self, target_at: datetime) -> ScrapedRawObject:
-        fiscal_year = self.get_fiscal_year(target_at)
-        file_name = f"spot_summary_{fiscal_year}.csv"
-        object_key = f"raw/jepx/spot_summary/{file_name}"
+        file_name = resolve_spot_summary_file_name(target_at)
+        object_key = resolve_spot_summary_object_key(target_at)
         body = self.fetch(target_at)
 
         return ScrapedRawObject(
