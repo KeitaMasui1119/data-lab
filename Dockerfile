@@ -1,5 +1,5 @@
 ARG UV_VERSION=latest
-ARG VARIANT=3.12
+ARG VARIANT=3.13
 
 # uvのバイナリを取得するステージ
 FROM ghcr.io/astral-sh/uv:$UV_VERSION AS uv
