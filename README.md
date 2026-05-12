@@ -40,7 +40,7 @@ Primary bucket layout:
 
 ## Tech Stack
 
-- Python 3.12+
+- Python 3.13+
 - RustFS (S3-compatible object storage)
 - PyIceberg
 - Polars
