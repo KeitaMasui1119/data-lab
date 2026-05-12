@@ -193,6 +193,45 @@ uv run python src/catalog/manage_iceberg.py \
 - `src/catalog/`: Iceberg catalog and table management
 - `src/utility/`: reusable transformation helpers
 
+## Development Environment Snapshot
+
+This workspace is a local data lakehouse practice environment focused on Japanese power-market data.
+
+Current environment facts:
+
+- OS: Debian GNU/Linux 13 (trixie)
+- Kernel: Linux 6.6.87.2-microsoft-standard-WSL2
+- Shell: zsh
+- Python requirement: 3.13+
+- uv: 0.11.8
+- git: 2.47.3
+
+Notes:
+
+- `rg` is not installed in this environment; use `grep` as a fallback.
+- Validate touched files with narrow checks first, such as `uv run ruff check <changed paths>`.
+
+## Pipeline Design Notes
+
+The project uses a Python module + CLI orchestration model instead of notebook-first orchestration.
+
+Mapping from the notebook-based model to this repository:
+
+| Practice | Repository pattern |
+|---|---|
+| Databricks Notebook | Python module / function |
+| Azure Data Factory Pipeline | CLI orchestration layer |
+| Pipeline parameters | CLI args / config |
+| Secrets / Linked Services | `.env` + config |
+
+Implementation guidance:
+
+- Keep each task as a reusable Python module or function.
+- Keep orchestration thin and push business logic into testable modules.
+- Use the Bronze layer for string-preserving ingestion only.
+- Use the Silver layer for casting, timestamp derivation, and deduplication.
+- Prefer hierarchical Iceberg namespaces such as `bronze.jepx.spot_price`.
+
 ## Development Rules
 
 - Use feature branches for each task; avoid direct work on `main`
