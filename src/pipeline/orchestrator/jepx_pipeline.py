@@ -23,7 +23,7 @@ from catalog.manage_iceberg import get_catalog, provision_table
 from core.storage_client import RustFSClient
 from pipeline.ingestion.ingest_jepx import ingest_jepx_spot_summary
 from pipeline.jepx.common import resolve_target_at
-from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
+from pipeline.raw.jepx_to_rustfs import scrape_jepx_to_rustfs
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 
 logger = logging.getLogger(__name__)

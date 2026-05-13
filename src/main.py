@@ -17,7 +17,7 @@ from pipeline.ingestion.ingest_occto import ingest_occto_unit_generation
 from pipeline.ingestion.migrate_occto_data import migrate_occto_data
 from pipeline.jepx.common import resolve_target_at
 from pipeline.orchestrator.jepx_pipeline import run_jepx_orchestrated_pipeline
-from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
+from pipeline.raw.jepx_to_rustfs import scrape_jepx_to_rustfs
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 from pipeline.scraper.module.occto import (
     OCCTOUnitGenerationConfig,
