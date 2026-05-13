@@ -6,24 +6,26 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from catalog.manage_iceberg import get_catalog, provision_table
-from core.storage_client import RustFSClient
-from pipeline.bootstrap.rustfs_bootstrap import BucketPlan, apply_bucket_plans
-from pipeline.ingestion.ingest_jepx import (
+from common.iceberg import get_catalog, provision_table
+from common.jepx_common import resolve_target_at
+from common.storage_client import RustFSClient
+from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
+from pipeline.bronze.ingest_jepx import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
 )
-from pipeline.ingestion.ingest_occto import ingest_occto_unit_generation
-from pipeline.ingestion.migrate_occto_data import migrate_occto_data
-from pipeline.jepx.common import resolve_target_at
-from pipeline.orchestrator.jepx_pipeline import run_jepx_orchestrated_pipeline
-from pipeline.scraper.jepx_to_rustfs import scrape_jepx_to_rustfs
-from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
-from pipeline.scraper.module.occto import (
+from pipeline.bronze.ingest_occto import ingest_occto_unit_generation
+from pipeline.bronze.migrate_occto_data import migrate_occto_data
+from pipeline.raw.source_to_raw_jepx import (
+    JEPXSpotSummaryScraper,
+    scrape_jepx_to_rustfs,
+)
+from pipeline.raw.source_to_raw_occto import (
     OCCTOUnitGenerationConfig,
     OCCTOUnitGenerationScraper,
+    scrape_occto_to_rustfs,
 )
-from pipeline.scraper.occto_to_rustfs import scrape_occto_to_rustfs
+from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
@@ -110,7 +112,7 @@ def main():
     )
     bronze_parser.add_argument(
         "--schema-path",
-        default="/workspace/data/schema/bronze/jepx_spot_price.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
         help="Schema CSV path",
     )
     bronze_parser.add_argument(
@@ -145,7 +147,7 @@ def main():
     )
     jepx_pipeline_parser.add_argument(
         "--schema-path",
-        default="/workspace/data/schema/bronze/jepx_spot_price.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
         help="Schema CSV path",
     )
     jepx_pipeline_parser.add_argument(
@@ -180,7 +182,7 @@ def main():
     )
     jepx_orchestrator_parser.add_argument(
         "--bronze-schema-path",
-        default="/workspace/data/schema/bronze/jepx_spot_price.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
         help="Bronze schema CSV path",
     )
     jepx_orchestrator_parser.add_argument(
@@ -266,7 +268,7 @@ def main():
     )
     occto_bronze_parser.add_argument(
         "--schema-path",
-        default="/workspace/data/schema/bronze/occto_unit_generation_actuals.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv",
         help="Schema CSV path",
     )
     occto_bronze_parser.add_argument(
@@ -346,7 +348,7 @@ def main():
     )
     silver_parser.add_argument(
         "--schema-dir",
-        default="/workspace/data/schema/silver",
+        default="/workspace/configuration/iceberg/schema/silver",
         help="Directory containing silver schema CSV files",
     )
 

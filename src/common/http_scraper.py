@@ -1,3 +1,5 @@
+"""Shared HTTP scraper primitives for pipeline modules."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -10,6 +12,8 @@ import requests
 
 @dataclass(frozen=True)
 class RequestSpec:
+    """HTTP request definition for a scraper run."""
+
     method: str
     url: str
     headers: dict[str, str] | None = None
@@ -18,6 +22,8 @@ class RequestSpec:
 
 
 class BaseHttpScraper(ABC):
+    """Abstract base class for HTTP-based scrapers."""
+
     def __init__(
         self,
         *,
@@ -32,6 +38,7 @@ class BaseHttpScraper(ABC):
         """Build an HTTP request specification for the target time."""
 
     def fetch(self, target_at: datetime) -> bytes:
+        """Execute request and return response bytes."""
         spec = self.build_request(target_at)
         response = self.session.request(
             method=spec.method,
@@ -45,10 +52,13 @@ class BaseHttpScraper(ABC):
         return response.content
 
     def close(self) -> None:
+        """Close the underlying HTTP session."""
         self.session.close()
 
     def __enter__(self) -> BaseHttpScraper:
+        """Enable context manager usage."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Close session when exiting context manager."""
         self.close()

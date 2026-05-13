@@ -9,14 +9,14 @@ import polars as pl
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
-from catalog.manage_iceberg import get_catalog
-from core.storage_client import RustFSClient
-from pipeline.jepx.common import (
+from common.iceberg import get_catalog
+from common.jepx_common import (
     resolve_spot_summary_file_name,
     resolve_spot_summary_object_key,
     resolve_target_at,
 )
-from utility.pipeline_utilities import add_metadata, build_schema_exprs
+from common.pipeline_utilities import add_metadata, build_schema_exprs
+from common.storage_client import RustFSClient
 
 # ログ設定
 logging.basicConfig(
@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SCHEMA_PATH = "/workspace/data/schema/bronze/jepx_spot_price.csv"
+SCHEMA_PATH = "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv"
 
 
 def resolve_default_raw_object(target_at: datetime) -> tuple[str, str]:

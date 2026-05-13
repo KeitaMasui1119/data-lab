@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
-from core.storage_client import RustFSClient
+from common.storage_client import RustFSClient
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"

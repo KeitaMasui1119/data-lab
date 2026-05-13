@@ -3,7 +3,8 @@ from pathlib import Path
 
 from pyiceberg.catalog import load_catalog
 from pyiceberg.exceptions import NamespaceAlreadyExistsError, NoSuchTableError
-from schema_builder import build_table_schema
+
+from common.schema_builder import build_table_schema
 
 # ログの中央集権設定(ここで出力形式を固定する)
 logging.basicConfig(
@@ -82,7 +83,7 @@ def provision_table(
 if __name__ == "__main__":
     CATALOG_NAME = "dlh_dev"
 
-    SCHEMA_BASE_DIR = Path("/workspace/data/schema")
+    SCHEMA_BASE_DIR = Path("/workspace/configuration/iceberg/schema")
     logger.info("=== Provisioning began ===")
     for csv_file in SCHEMA_BASE_DIR.rglob("*.csv"):
         namespace = csv_file.parent.name
