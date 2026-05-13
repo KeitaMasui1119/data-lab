@@ -56,7 +56,21 @@ Primary bucket layout:
 uv sync --all-groups
 ```
 
-3. Ensure `.env` includes S3-compatible credentials and endpoint:
+1. Authenticate GitHub CLI and enable Copilot CLI:
+
+```bash
+gh auth login
+gh auth refresh -h github.com -s copilot
+```
+
+Validation examples:
+
+```bash
+gh copilot -- --help
+gh copilot -p "explain this command" --allow-tool 'shell(uv)'
+```
+
+1. Ensure `.env` includes S3-compatible credentials and endpoint:
 
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`

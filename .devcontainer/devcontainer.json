@@ -11,8 +11,7 @@
     ],
     "workspaceFolder": "/workspace",
     "features": {
-        "ghcr.io/dhoeric/features/hadolint:1": {},
-        "ghcr.io/devcontainers/features/github-cli:1": {}
+        "ghcr.io/dhoeric/features/hadolint:1": {}
     },
     "customizations": {
         "vscode": {
@@ -41,7 +40,7 @@
         "GOOGLE_APPLICATION_CREDENTIALS": "/workspace/.secrets/keita-masui-firstproject-46adeb7731b9.json",
         "EDITOR": "code --wait"
     },
-    "postCreateCommand": "uv lock || true && uv sync --frozen $(for g in $UV_GROUPS; do printf ' --group %s' \"$g\"; done) && git config --global user.name 'Keita Masui' && git config --global user.email 'rfrnndam.tennis365@gmail.com'",
+    "postCreateCommand": "uv lock || true && uv sync --frozen $(for g in $UV_GROUPS; do printf ' --group %s' \"$g\"; done) && git config --global user.name 'Keita Masui' && git config --global user.email 'rfrnndam.tennis365@gmail.com' && (gh copilot -- --help >/dev/null 2>&1 || true)",
     "postStartCommand": "uv run pre-commit install || true",
     "remoteUser": "vscode"
 }
