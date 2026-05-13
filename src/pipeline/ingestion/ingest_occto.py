@@ -16,7 +16,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SCHEMA_PATH = "/workspace/data/schema/bronze/occto_unit_generation_actuals.csv"
+SCHEMA_PATH = (
+    "/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv"
+)
 DEFAULT_TABLE = "bronze.occto_unit_generation_actuals"
 
 

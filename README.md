@@ -70,6 +70,15 @@ gh copilot -- --help
 gh copilot -p "explain this command" --allow-tool 'shell(uv)'
 ```
 
+### PyIceberg Catalog Config
+
+- PyIceberg catalog settings are managed in `configuration/iceberg/.pyiceberg.yaml`.
+- For SQL catalog metadata DB files, prefer naming aligned to catalog names.
+	- Example: `dlh_dev` -> `/workspace/configuration/iceberg/catalog/dlh_dev.db`
+	- Example: `dlh_prd` -> `/workspace/configuration/iceberg/catalog/dlh_prd.db`
+- Updating `uri` in `.pyiceberg.yaml` switches the referenced metadata DB.
+	It does not automatically migrate or rename existing DB files.
+
 1. Ensure `.env` includes S3-compatible credentials and endpoint:
 
 - `AWS_ACCESS_KEY_ID`
@@ -134,7 +143,7 @@ Optional schema directory:
 ```bash
 uv run python src/main.py provision-silver-tables \
 	--catalog dlh_dev \
-	--schema-dir /workspace/data/schema/silver
+	--schema-dir /workspace/configuration/iceberg/schema/silver
 ```
 
 ### 5) Build staging layer with DuckDB + dbt
@@ -187,7 +196,7 @@ This command reads `bronze.occto_unit_generation_actuals`, materializes
 
 JEPX spot price schema is managed from:
 
-- `data/schema/bronze/jepx_spot_price.csv`
+- `configuration/iceberg/schema/bronze/jepx_spot_price.csv`
 
 Iceberg table creation (if needed):
 
@@ -195,7 +204,7 @@ Iceberg table creation (if needed):
 uv run python src/catalog/manage_iceberg.py \
 	--catalog dlh_dev table create \
 	--name bronze.jepx_spot_price \
-	--csv /workspace/data/schema/bronze/jepx_spot_price.csv
+	--csv /workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv
 ```
 
 ## Code Structure

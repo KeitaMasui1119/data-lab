@@ -82,7 +82,7 @@ def provision_table(
 if __name__ == "__main__":
     CATALOG_NAME = "dlh_dev"
 
-    SCHEMA_BASE_DIR = Path("/workspace/data/schema")
+    SCHEMA_BASE_DIR = Path("/workspace/configuration/iceberg/schema")
     logger.info("=== Provisioning began ===")
     for csv_file in SCHEMA_BASE_DIR.rglob("*.csv"):
         namespace = csv_file.parent.name

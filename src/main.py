@@ -110,7 +110,7 @@ def main():
     )
     bronze_parser.add_argument(
         "--schema-path",
-        default="/workspace/data/schema/bronze/jepx_spot_price.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
         help="Schema CSV path",
     )
     bronze_parser.add_argument(
@@ -145,7 +145,7 @@ def main():
     )
     jepx_pipeline_parser.add_argument(
         "--schema-path",
-        default="/workspace/data/schema/bronze/jepx_spot_price.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
         help="Schema CSV path",
     )
     jepx_pipeline_parser.add_argument(
@@ -180,7 +180,7 @@ def main():
     )
     jepx_orchestrator_parser.add_argument(
         "--bronze-schema-path",
-        default="/workspace/data/schema/bronze/jepx_spot_price.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
         help="Bronze schema CSV path",
     )
     jepx_orchestrator_parser.add_argument(
@@ -266,7 +266,7 @@ def main():
     )
     occto_bronze_parser.add_argument(
         "--schema-path",
-        default="/workspace/data/schema/bronze/occto_unit_generation_actuals.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv",
         help="Schema CSV path",
     )
     occto_bronze_parser.add_argument(
@@ -346,7 +346,7 @@ def main():
     )
     silver_parser.add_argument(
         "--schema-dir",
-        default="/workspace/data/schema/silver",
+        default="/workspace/configuration/iceberg/schema/silver",
         help="Directory containing silver schema CSV files",
     )
 

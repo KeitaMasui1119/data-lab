@@ -51,7 +51,7 @@
 
 ### 4. Silver プロビジョニング
 
-- `data/schema/silver/*.csv` を走査し、`silver.<schema_file_stem>` を作成/更新
+- `configuration/iceberg/schema/silver/*.csv` を走査し、`silver.<schema_file_stem>` を作成/更新
 
 ### 5. dbt 変換（DuckDB）
 
@@ -93,7 +93,7 @@ uv run python src/main.py run-occto-silver-dbt
 
 - 新しい処理は `pipeline/` か `core/` に関数として実装し、副作用は呼び出し境界に閉じ込める
 - `main.py` はオーケストレーション専用に保つ
-- スキーマは `data/schema` を正本として、テーブル定義と整合させる
+- スキーマは `configuration/iceberg/schema` を正本として、テーブル定義と整合させる
 
 ## 現在の到達点
 

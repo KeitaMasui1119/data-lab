@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-JEPX_BRONZE_SCHEMA = ROOT / "data/schema/bronze/jepx_spot_price.csv"
+JEPX_BRONZE_SCHEMA = ROOT / "configuration/iceberg/schema/bronze/jepx_spot_price.csv"
 JEPX_STAGING_SQL = ROOT / "src/dbt/jepx_power/models/staging/stg_jepx_spot_price.sql"
 JEPX_SILVER_BASE_SQL = (
     ROOT / "src/dbt/jepx_power/models/silver/silver_jepx_spot_price_base.sql"
@@ -17,8 +17,12 @@ JEPX_SILVER_AREA_SQL = (
     ROOT / "src/dbt/jepx_power/models/silver/silver_jepx_spot_price_area.sql"
 )
 
-BRONZE_SCHEMA = ROOT / "data/schema/bronze/occto_unit_generation_actuals.csv"
-SILVER_SCHEMA = ROOT / "data/schema/silver/occto_unit_generation_actuals.csv"
+BRONZE_SCHEMA = (
+    ROOT / "configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv"
+)
+SILVER_SCHEMA = (
+    ROOT / "configuration/iceberg/schema/silver/occto_unit_generation_actuals.csv"
+)
 STAGING_SQL = (
     ROOT / "src/dbt/jepx_power/models/staging/stg_occto_unit_generation_actuals.sql"
 )

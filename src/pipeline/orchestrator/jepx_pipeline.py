@@ -30,22 +30,24 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DBT_PROJECT_DIR = Path("/workspace/src/dbt/jepx_power")
 DEFAULT_DBT_DUCKDB_PATH = Path("/workspace/src/dbt/jepx_power/jepx_power.duckdb")
-DEFAULT_SCHEMA_PATH = "/workspace/data/schema/bronze/jepx_spot_price.csv"
+DEFAULT_SCHEMA_PATH = (
+    "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv"
+)
 DEFAULT_SILVER_EXPORT_MAPPINGS = (
     (
         "main_silver.silver_jepx_spot_price_base",
         "silver.jepx_spot_price_base",
-        "/workspace/data/schema/silver/jepx_spot_price_base.csv",
+        "/workspace/configuration/iceberg/schema/silver/jepx_spot_price_base.csv",
     ),
     (
         "main_silver.silver_jepx_spot_price_block",
         "silver.jepx_spot_price_block",
-        "/workspace/data/schema/silver/jepx_spot_price_block.csv",
+        "/workspace/configuration/iceberg/schema/silver/jepx_spot_price_block.csv",
     ),
     (
         "main_silver.silver_jepx_spot_price_area",
         "silver.jepx_spot_price_area",
-        "/workspace/data/schema/silver/jepx_spot_price_area.csv",
+        "/workspace/configuration/iceberg/schema/silver/jepx_spot_price_area.csv",
     ),
 )
 

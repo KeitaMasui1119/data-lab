@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SCHEMA_PATH = "/workspace/data/schema/bronze/jepx_spot_price.csv"
+SCHEMA_PATH = "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv"
 
 
 def resolve_default_raw_object(target_at: datetime) -> tuple[str, str]:
