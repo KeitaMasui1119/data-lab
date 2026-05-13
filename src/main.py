@@ -7,7 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from catalog.manage_iceberg import get_catalog, provision_table
-from core.storage_client import RustFSClient
+from common.storage_client import RustFSClient
 from pipeline.ingestion.ingest_jepx import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,

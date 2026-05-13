@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from core.storage_client import RustFSClient
+from common.storage_client import RustFSClient
 from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
 
 
