@@ -1,10 +1,5 @@
 {
   "features": {
-    "ghcr.io/devcontainers/features/github-cli:1": {
-      "version": "1.1.0",
-      "resolved": "ghcr.io/devcontainers/features/github-cli@sha256:d22f50b70ed75339b4eed1ba9ecde3a1791f90e88d37936517e3bace0bbad671",
-      "integrity": "sha256:d22f50b70ed75339b4eed1ba9ecde3a1791f90e88d37936517e3bace0bbad671"
-    },
     "ghcr.io/dhoeric/features/hadolint:1": {
       "version": "1.0.0",
       "resolved": "ghcr.io/dhoeric/features/hadolint@sha256:993e7e6f14b7f53aafefb081eb8396ea08f3d48aebb23c91fbaa10651ca0a835",
