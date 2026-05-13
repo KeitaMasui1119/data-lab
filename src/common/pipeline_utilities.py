@@ -1,6 +1,6 @@
 import polars as pl
 
-from utility.utilities import gen_uuid, get_now_utc
+from common.utilities import gen_uuid, get_now_utc
 
 # Iceberg（メタデータCSV）の型からPolarsの型へのマッピング
 ICEBERG_TO_POLARS_TYPE = {
