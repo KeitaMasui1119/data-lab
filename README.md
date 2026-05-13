@@ -210,11 +210,34 @@ uv run python src/catalog/manage_iceberg.py \
 ## Code Structure
 
 - `src/main.py`: thin orchestrator (execution flow only)
-- `src/core/`: infrastructure clients (RustFS client)
+- `src/orchestration/`: pipeline-level orchestration entrypoints (planned)
 - `src/pipeline/scraper/`: scraping modules (shared + source-specific)
 - `src/pipeline/ingestion/`: raw to Iceberg ingestion steps
 - `src/catalog/`: Iceberg catalog and table management
 - `src/utility/`: reusable transformation helpers
+
+## Target Source Layout (Current Design)
+
+The project is being standardized around medallion-aware module boundaries.
+
+- `src/common/`
+	- Shared reusable components used across pipelines.
+	- The extra `module` directory is not required in the target layout.
+- `src/pipeline/`
+	- `raw/`: `source_to_raw_<pipeline>.py`
+	- `bronze/`: `raw_to_bronze_<pipeline>.py`, `source_to_bronze_<pipeline>.py`
+	- `silver/`: `bronze_to_silver_<pipeline>.py`
+	- `gold/`: `silver_to_gold_<pipeline>.py`, `vw_silver_to_gold_<pipeline>.py`
+- `src/orchestration/`
+	- End-to-end orchestration files named `pl_<pipeline>.py`.
+	- Example: `pl_jepx.py` calls each layer in order
+		(`source/raw -> bronze -> silver -> gold`).
+
+Execution model:
+
+- `src/main.py` remains the single CLI entrypoint.
+- `src/main.py` calls `src/orchestration/pl_<pipeline>.py` to run full ingestion
+	pipelines end-to-end.
 
 ## Development Environment Snapshot
 

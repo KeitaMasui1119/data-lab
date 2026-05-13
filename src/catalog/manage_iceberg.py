@@ -1,6 +1,6 @@
 import argparse
 
-from common.module.iceberg import (
+from common.iceberg import (
     build_namespace,
     delete_namespace,
     delete_table,
@@ -8,7 +8,7 @@ from common.module.iceberg import (
     provision_table,
     view_namespace,
 )
-from common.module.logging_utils import configure_logging, get_logger
+from common.logging_utils import configure_logging, get_logger
 
 configure_logging()
 logger = get_logger(__name__)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from common.module.http_scraper import BaseHttpScraper, RequestSpec
+from common.http_scraper import BaseHttpScraper, RequestSpec
 from pipeline.jepx.common import (
     resolve_fiscal_year,
     resolve_spot_summary_file_name,

@@ -10,7 +10,7 @@ from botocore.client import BaseClient
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from common.module.logging_utils import get_logger
+from common.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
