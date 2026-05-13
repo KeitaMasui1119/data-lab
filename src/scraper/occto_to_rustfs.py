@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 
 from common.storage_client import RustFSClient
-from pipeline.scraper.module.occto import OCCTOUnitGenerationScraper
+from scraper.module.occto import OCCTOUnitGenerationScraper
 
 
 @dataclass(frozen=True)

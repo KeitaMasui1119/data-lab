@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from common.storage_client import RustFSClient
-from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
+from scraper.module.jepx import JEPXSpotSummaryScraper
 
 
 @dataclass(frozen=True)

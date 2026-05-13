@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from pipeline.scraper.module.base import BaseHttpScraper, RequestSpec
+from scraper.module.base import BaseHttpScraper, RequestSpec
 
 
 @dataclass(frozen=True)

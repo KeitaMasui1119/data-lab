@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from common.http_scraper import BaseHttpScraper, RequestSpec
-from pipeline.jepx.common import (
+from jepx.common import (
     resolve_fiscal_year,
     resolve_spot_summary_file_name,
     resolve_spot_summary_object_key,

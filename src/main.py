@@ -8,21 +8,21 @@ from zoneinfo import ZoneInfo
 
 from catalog.manage_iceberg import get_catalog, provision_table
 from common.storage_client import RustFSClient
-from pipeline.ingestion.ingest_jepx import (
+from jepx.common import resolve_target_at
+from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
+from pipeline.bronze.ingest_jepx import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
 )
-from pipeline.ingestion.ingest_occto import ingest_occto_unit_generation
-from pipeline.ingestion.migrate_occto_data import migrate_occto_data
-from pipeline.jepx.common import resolve_target_at
-from pipeline.orchestrator.jepx_pipeline import run_jepx_orchestrated_pipeline
+from pipeline.bronze.ingest_occto import ingest_occto_unit_generation
+from pipeline.bronze.migrate_occto_data import migrate_occto_data
 from pipeline.raw.jepx_to_rustfs import scrape_jepx_to_rustfs
-from pipeline.scraper.module.jepx import JEPXSpotSummaryScraper
-from pipeline.scraper.module.occto import (
+from scraper.module.jepx import JEPXSpotSummaryScraper
+from scraper.module.occto import (
     OCCTOUnitGenerationConfig,
     OCCTOUnitGenerationScraper,
 )
-from pipeline.scraper.occto_to_rustfs import scrape_occto_to_rustfs
+from scraper.occto_to_rustfs import scrape_occto_to_rustfs
 from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
 logging.basicConfig(
