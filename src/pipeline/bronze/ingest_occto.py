@@ -7,7 +7,7 @@ import polars as pl
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
-from catalog.manage_iceberg import get_catalog
+from common.iceberg import get_catalog
 from common.pipeline_utilities import add_metadata, build_schema_exprs
 from common.storage_client import RustFSClient
 

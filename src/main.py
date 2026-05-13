@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from catalog.manage_iceberg import get_catalog, provision_table
+from common.iceberg import get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline

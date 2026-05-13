@@ -6,8 +6,8 @@ from pyiceberg.catalog import Catalog, load_catalog
 from pyiceberg.exceptions import NoSuchTableError
 from pyiceberg.schema import Schema
 
-from catalog.schema_builder import build_table_schema
 from common.logging_utils import get_logger
+from common.schema_builder import build_table_schema
 
 logger = get_logger(__name__)
 

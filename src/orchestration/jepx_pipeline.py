@@ -19,7 +19,7 @@ from pathlib import Path
 import duckdb
 import polars as pl
 
-from catalog.manage_iceberg import get_catalog, provision_table
+from common.iceberg import get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from pipeline.bronze.ingest_jepx import ingest_jepx_spot_summary

@@ -1,7 +1,7 @@
 # src 実装サマリー
 
 このディレクトリは、オーケストレーター中心の構成で実装されています。
-実行入口は `main.py` に集約し、処理本体は `pipeline/` `core/` `catalog/` `utility/` に分離しています。
+実行入口は `main.py` に集約し、処理本体は `pipeline/` `common/` `setup/` `orchestration/` に分離しています。
 
 ## ディレクトリ構成
 
@@ -11,9 +11,8 @@
 - `core/`
   - RustFS (S3互換) クライアント
   - バケット作成、プレフィックス作成、アップロード/ダウンロード、Object Lock 設定
-- `catalog/`
-  - PyIceberg カタログ操作
-  - Namespace/Table の作成・削除、スキーマCSVからのテーブルプロビジョニング
+- `setup/`
+  - 環境初期化・運用向けCLI（バケット作成、Iceberg管理コマンド）
 - `pipeline/bootstrap/`
   - 開発/本番バケットの初期化計画を適用
 - `pipeline/scraper/`
