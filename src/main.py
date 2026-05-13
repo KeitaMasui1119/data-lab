@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 
 from catalog.manage_iceberg import get_catalog, provision_table
 from core.storage_client import RustFSClient
-from pipeline.bootstrap.rustfs_bootstrap import BucketPlan, apply_bucket_plans
 from pipeline.ingestion.ingest_jepx import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
@@ -24,6 +23,7 @@ from pipeline.scraper.module.occto import (
     OCCTOUnitGenerationScraper,
 )
 from pipeline.scraper.occto_to_rustfs import scrape_occto_to_rustfs
+from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"

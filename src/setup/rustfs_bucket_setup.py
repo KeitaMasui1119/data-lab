@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from core.storage_client import RustFSClient
+from common.storage_client import RustFSClient
 
 
 @dataclass(frozen=True)
