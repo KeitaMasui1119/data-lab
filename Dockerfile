@@ -1,5 +1,6 @@
 ARG UV_VERSION=latest
 ARG VARIANT=3.13
+ARG CLAUDE_CODE_VERSION=2.1.141
 
 # uvのバイナリを取得するステージ
 FROM ghcr.io/astral-sh/uv:$UV_VERSION AS uv
@@ -21,6 +22,7 @@ RUN apt-get update \
 
 # === 2. Dev Stage(DevContainer用) ===
 FROM base AS dev
+ARG CLAUDE_CODE_VERSION
 # DevContainerが要求する標準ユーザー(vscode)と必須ツールを追加
 # hadolint ignore=DL3008
 RUN useradd -m -s /bin/zsh -u 1000 vscode \
@@ -33,8 +35,13 @@ RUN useradd -m -s /bin/zsh -u 1000 vscode \
         > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends gh \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/setup_node.sh \
+    && bash /tmp/setup_node.sh \
+    && rm /tmp/setup_node.sh \
+    && apt-get install -y --no-install-recommends nodejs \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 ENV PATH="/home/vscode/.local/bin:${PATH}"
 USER vscode
 WORKDIR /workspace
