@@ -1,0 +1,39 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json,sys; f=json.load(sys.stdin).get('tool_input',{}).get('file_path',''); print(f) if f.endswith('.py') else None\" | { read -r f; [ -n \"$f\" ] && VIRTUAL_ENV= uv run ruff format \"$f\" && VIRTUAL_ENV= uv run ruff check --fix \"$f\"; } 2>/dev/null || true",
+            "statusMessage": "ruff format & check --fix..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json,sys,datetime; d=json.load(sys.stdin); cmd=d.get('tool_input',{}).get('command',''); ts=datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%S'); open('/home/vscode/.claude/bash-log.txt','a').write(f'[{ts}] {cmd}\\n')\" 2>/dev/null || true",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Claude が作業を完了しました\"}'",
+            "statusMessage": "通知送信中..."
+          }
+        ]
+      }
+    ]
+  }
+}

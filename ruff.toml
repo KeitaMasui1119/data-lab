@@ -1,5 +1,7 @@
 # Exclude a variety of commonly ignored directories.
+force-exclude = true
 exclude = [
+    ".mcp.json",
     ".bzr",
     ".direnv",
     ".eggs",

@@ -1,0 +1,79 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+```bash
+# Lint and format
+uv run ruff check src/
+uv run ruff format src/
+
+# Type checking
+uv run pyright
+
+# Run all tests
+uv run pytest tests/
+
+# Run a single test
+uv run pytest tests/test_jepx_pipeline_orchestrator.py::test_run_dbt_step_executes_expected_command
+
+# Pipeline execution (all commands go through src/main.py)
+uv run python src/main.py bootstrap-storage
+uv run python src/main.py scrape-jepx
+uv run python src/main.py ingest-jepx-raw-to-bronze
+uv run python src/main.py run-jepx-orchestrator
+uv run python src/main.py scrape-occto --target-date YYYY-MM-DD --download-url <url>
+uv run python src/main.py ingest-occto-raw-to-bronze --object-key raw/occto/unit_generation/<file>.csv
+uv run python src/main.py provision-silver-tables
+uv run python src/main.py run-jepx-staging-dbt
+uv run python src/main.py run-jepx-silver-dbt
+uv run python src/main.py run-occto-silver-dbt
+```
+
+## Architecture
+
+This is a medallion data platform for Japanese power market data. Storage is RustFS (S3-compatible), tables are PyIceberg, transforms use Polars, and downstream modeling uses dbt with DuckDB.
+
+### Data layers
+
+```
+Source → Raw (RustFS s3://jp-power-grid-dev/raw/)
+       → Bronze (PyIceberg, Polars cast + metadata)
+       → Silver (dbt/DuckDB models → optionally exported back to PyIceberg)
+       → Gold (dbt, optional)
+```
+
+### Module responsibilities
+
+- **`src/main.py`** — sole CLI entry point; routes all commands via argparse subparsers. Keep this as thin orchestration only.
+- **`src/orchestration/jepx_pipeline.py`** — ADF-like end-to-end orchestrator for JEPX; returns `list[PipelineStepResult]` per step for structured result tracking.
+- **`src/pipeline/raw/`** — HTTP scraping and raw upload. `JEPXSpotSummaryScraper` and `OCCTOUnitGenerationScraper` both extend `BaseHttpScraper`; only `build_request()` needs to be implemented.
+- **`src/pipeline/bronze/`** — Raw CSV → Iceberg table ingestion. Decodes cp932, casts via schema CSV, appends metadata columns (`source_data`, `status`, `ingestion_time`, `ingestion_date`, `execution_id`).
+- **`src/common/`** — Shared primitives: `BaseHttpScraper`, `RustFSClient` (boto3 wrapper), `get_catalog` / `provision_table` (PyIceberg helpers), `build_schema_exprs` / `add_metadata` (Polars pipeline utilities).
+- **`src/setup/`** — Infra provisioning: bucket creation with Object Lock, prefix initialization.
+- **`src/dbt/jepx_power/`** — dbt project using DuckDB adapter. profiles.yml lives in the same directory. Tags `staging`, `silver`, `gold` control what `--select` targets.
+- **`configuration/iceberg/schema/`** — **Source of truth for all table schemas.** CSV format has columns `source_name`, `name`, `type`. `provision_table()` creates or evolves tables from these files.
+- **`configuration/iceberg/.pyiceberg.yaml`** — Catalog config. The `dlh_dev` catalog is SQLite-backed (`catalog/dlh_dev.db`), warehoused on RustFS at `http://rustfs:9000`.
+
+### Key design patterns
+
+**Deduplication**: `ingest_jepx_spot_summary` and `ingest_occto_unit_generation` check `source_data` column before appending. Pass `--allow-duplicate-source` to override.
+
+**Schema evolution**: `provision_table()` diffs the schema CSV against the existing Iceberg table and adds new columns. It does not drop columns — removals only log a warning.
+
+**Scraper lifecycle**: All scrapers hold an HTTP session. Always call `scraper.close()` or use as a context manager; `main.py` uses `try/finally` for this.
+
+**Fiscal year logic**: JEPX files are keyed by fiscal year (April start). The function `resolve_fiscal_year()` in `common/jepx_common.py` handles the April boundary.
+
+### Environment variables required at runtime
+
+```
+AWS_ENDPOINT_URL       # e.g. http://rustfs:9000
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+AWS_REGION             # defaults to us-east-1
+OCCTO_DOWNLOAD_CSV_URL # required for scrape-occto (or pass --download-url)
+```
+
+RustFS runs as the `rustfs` Docker Compose service. The PyIceberg catalog config is read automatically from `configuration/iceberg/.pyiceberg.yaml` when the working directory is `/workspace`.
