@@ -37,8 +37,8 @@ class BaseHttpScraper(ABC):
     def build_request(self, target_at: datetime) -> RequestSpec:
         """Build an HTTP request specification for the target time."""
 
-    def fetch(self, target_at: datetime) -> bytes:
-        """Execute request and return response bytes."""
+    def fetch_response(self, target_at: datetime) -> requests.Response:
+        """Execute request and return the raw response."""
         spec = self.build_request(target_at)
         response = self.session.request(
             method=spec.method,
@@ -49,7 +49,11 @@ class BaseHttpScraper(ABC):
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
-        return response.content
+        return response
+
+    def fetch(self, target_at: datetime) -> bytes:
+        """Execute request and return response bytes."""
+        return self.fetch_response(target_at).content
 
     def close(self) -> None:
         """Close the underlying HTTP session."""

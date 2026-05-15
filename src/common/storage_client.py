@@ -306,3 +306,19 @@ class RustFSClient:
                 "Error getting object %s from %s: %s", object_name, bucket_name, error
             )
             raise
+
+    def get_object_or_none(self, bucket_name: str, object_name: str) -> bytes | None:
+        """Get object bytes from storage; returns None if the object does not exist."""
+        try:
+            response = self.s3.get_object(Bucket=bucket_name, Key=object_name)
+            logger.info("Object %s retrieved from %s", object_name, bucket_name)
+            return response["Body"].read()
+        except ClientError as error:
+            error_code = error.response.get("Error", {}).get("Code", "")
+            if error_code in {"404", "NoSuchKey"}:
+                logger.info("Object %s not found in %s", object_name, bucket_name)
+                return None
+            logger.error(
+                "Error getting object %s from %s: %s", object_name, bucket_name, error
+            )
+            raise

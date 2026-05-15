@@ -16,8 +16,9 @@ from pipeline.bronze.ingest_jepx import (
 )
 from pipeline.bronze.ingest_occto import ingest_occto_unit_generation
 from pipeline.bronze.migrate_occto_data import migrate_occto_data
-from pipeline.raw.source_to_raw_jepx import (
+from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
+    scrape_jepx_spot_price_raw,
     scrape_jepx_to_rustfs,
 )
 from pipeline.raw.source_to_raw_occto import (
@@ -76,6 +77,12 @@ def main():
         "--timestamp-ms",
         type=int,
         help="Optional UNIX timestamp in milliseconds for the JEPX request",
+    )
+    jepx_parser.add_argument(
+        "--fiscal-year",
+        type=int,
+        help="Fiscal year to scrape (e.g. 2024). Overrides --timestamp-ms."
+        " Use for backfilling past years.",
     )
 
     bronze_parser = subparsers.add_parser(
@@ -431,21 +438,31 @@ def main():
     if args.command == "scrape-jepx":
         rustfs = RustFSClient()
         scraper = JEPXSpotSummaryScraper()
-        target_at = resolve_target_at(args.timestamp_ms)
+        if args.fiscal_year is not None:
+            target_at = datetime(args.fiscal_year, 4, 1, tzinfo=ZoneInfo("UTC"))
+        else:
+            target_at = resolve_target_at(args.timestamp_ms)
 
         try:
-            result = scrape_jepx_to_rustfs(
+            result = scrape_jepx_spot_price_raw(
                 storage_client=rustfs,
                 scraper=scraper,
                 bucket_name=args.bucket,
                 target_at=target_at,
             )
-            logger.info(
-                "Uploaded JEPX raw file to s3://%s/%s (%s bytes)",
-                result.bucket_name,
-                result.object_key,
-                result.size_bytes,
-            )
+            if result.skipped:
+                logger.info(
+                    "JEPX scrape skipped (no change): year=%s, sha256=%.8s",
+                    result.year,
+                    result.sha256,
+                )
+            else:
+                logger.info(
+                    "JEPX snapshot saved: year=%s, sha256=%.8s, prefix=%s",
+                    result.year,
+                    result.sha256,
+                    result.snapshot_prefix,
+                )
         finally:
             scraper.close()
 
