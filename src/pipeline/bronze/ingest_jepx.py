@@ -2,7 +2,7 @@ import argparse
 import io
 import logging
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -25,6 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv"
+INGESTION_LOG_KEY = "metadata/raw_ingestion_log.parquet"
 
 
 def resolve_default_raw_object(target_at: datetime) -> tuple[str, str]:
@@ -39,16 +40,144 @@ def source_data_exists(table, source_file_name: str) -> bool:
     return existing.num_rows > 0
 
 
-def ingest_jepx_spot_summary(
+def _load_ingestion_log(client: RustFSClient, bucket_name: str) -> pl.DataFrame:
+    payload = client.get_object_or_none(bucket_name, INGESTION_LOG_KEY)
+    if payload is None:
+        return pl.DataFrame()
+
+    return pl.read_parquet(io.BytesIO(payload))
+
+
+def resolve_raw_object_from_ingestion_log(
+    client: RustFSClient,
+    bucket_name: str,
+    fiscal_year: int,
+    require_unprocessed: bool = True,
+) -> tuple[str, str]:
+    """Resolve latest raw snapshot object key from ingestion log metadata."""
+    ingestion_log = _load_ingestion_log(client, bucket_name)
+    if ingestion_log.is_empty():
+        raise ValueError(
+            f"Ingestion log not found or empty: s3://{bucket_name}/{INGESTION_LOG_KEY}"
+        )
+
+    filtered = ingestion_log.filter(
+        (pl.col("dataset") == "jepx.spot_price")
+        & (pl.col("fiscal_year") == fiscal_year)
+        & pl.col("is_latest")
+    )
+
+    if require_unprocessed:
+        filtered = filtered.filter(pl.col("bronze_status") != "processed")
+
+    if filtered.is_empty():
+        state_label = "unprocessed latest" if require_unprocessed else "latest"
+        raise ValueError(
+            f"No {state_label} snapshot found in ingestion log "
+            f"for fiscal_year={fiscal_year}"
+        )
+
+    latest = filtered.sort("ingested_at", descending=True).head(1)
+
+    object_key = latest.item(0, "file_path")
+    if not isinstance(object_key, str) or not object_key:
+        raise ValueError("Invalid file_path in ingestion log")
+
+    source_file_name = resolve_spot_summary_file_name(
+        datetime(fiscal_year, 4, 1, tzinfo=UTC)
+    )
+
+    return object_key, source_file_name
+
+
+def mark_ingestion_log_processed(
     client: RustFSClient,
     bucket_name: str,
     object_key: str,
-    source_file_name: str,
+    processed_at: datetime | None = None,
+) -> bool:
+    """Mark one raw snapshot as processed in the ingestion log."""
+    ingestion_log = _load_ingestion_log(client, bucket_name)
+    if ingestion_log.is_empty():
+        logger.warning(
+            "Skipping ingestion-log update because log is missing: s3://%s/%s",
+            bucket_name,
+            INGESTION_LOG_KEY,
+        )
+        return False
+
+    if "file_path" not in ingestion_log.columns:
+        logger.warning(
+            "Skipping ingestion-log update because file_path column is missing"
+        )
+        return False
+
+    target_rows = ingestion_log.filter(pl.col("file_path") == object_key)
+    if target_rows.is_empty():
+        logger.warning(
+            "Skipping ingestion-log update because object_key was not found: %s",
+            object_key,
+        )
+        return False
+
+    processed_at = processed_at or datetime.now(UTC)
+    processed_at_iso = processed_at.isoformat()
+
+    updated_log = ingestion_log.with_columns(
+        pl.when(pl.col("file_path") == object_key)
+        .then(pl.lit("processed"))
+        .otherwise(pl.col("bronze_status"))
+        .alias("bronze_status"),
+        pl.when(pl.col("file_path") == object_key)
+        .then(pl.lit(processed_at_iso))
+        .otherwise(pl.col("bronze_processed_at"))
+        .alias("bronze_processed_at"),
+    )
+
+    buffer = io.BytesIO()
+    updated_log.write_parquet(buffer)
+    client.upload_bytes(
+        bucket_name=bucket_name,
+        object_name=INGESTION_LOG_KEY,
+        body=buffer.getvalue(),
+        content_type="application/x-parquet",
+    )
+    logger.info("Updated ingestion log status to processed for %s", object_key)
+    return True
+
+
+def ingest_jepx_spot_summary(
+    client: RustFSClient,
+    bucket_name: str,
+    object_key: str | None,
+    source_file_name: str | None,
     catalog_name: str = "dlh_dev",
     table_identifier: str = "bronze.jepx_spot_price",
     schema_path: str = SCHEMA_PATH,
     skip_if_exists: bool = True,
+    fiscal_year: int | None = None,
+    use_ingestion_log: bool = False,
+    require_unprocessed: bool = True,
+    update_ingestion_log_status: bool = True,
 ) -> int:
+    if use_ingestion_log and object_key is None:
+        if fiscal_year is None:
+            raise ValueError(
+                "fiscal_year is required when use_ingestion_log is enabled"
+            )
+        object_key, source_file_name = resolve_raw_object_from_ingestion_log(
+            client=client,
+            bucket_name=bucket_name,
+            fiscal_year=fiscal_year,
+            require_unprocessed=require_unprocessed,
+        )
+
+    if object_key is None:
+        raise ValueError("object_key is required")
+
+    if source_file_name is None:
+        source_file_name = Path(object_key).name
+
     logger.info("Starting raw-to-bronze ingestion: s3://%s/%s", bucket_name, object_key)
 
     catalog = get_catalog(catalog_name)
@@ -94,6 +223,14 @@ def ingest_jepx_spot_summary(
         table_identifier,
         source_file_name,
     )
+
+    if use_ingestion_log and update_ingestion_log_status:
+        mark_ingestion_log_processed(
+            client=client,
+            bucket_name=bucket_name,
+            object_key=object_key,
+        )
+
     return row_count
 
 
@@ -139,13 +276,28 @@ def main() -> None:
         action="store_true",
         help="Allow append even if source_data already exists",
     )
+    parser.add_argument(
+        "--use-ingestion-log",
+        action="store_true",
+        help="Resolve latest raw snapshot from metadata ingestion log",
+    )
+    parser.add_argument(
+        "--require-unprocessed",
+        action="store_true",
+        help="When using ingestion log, select only unprocessed latest snapshot",
+    )
     args = parser.parse_args()
 
     target_at = resolve_target_at(args.timestamp_ms)
+    fiscal_year = target_at.year if target_at.month >= 4 else target_at.year - 1
 
     default_object_key, default_file_name = resolve_default_raw_object(target_at)
     object_key = args.object_key or default_object_key
     source_file_name = args.source_file_name or Path(object_key).name
+
+    if args.use_ingestion_log and args.object_key is None:
+        object_key = None
+        source_file_name = None
 
     client = RustFSClient()
     ingest_jepx_spot_summary(
@@ -157,6 +309,10 @@ def main() -> None:
         table_identifier=args.table,
         schema_path=args.schema_path,
         skip_if_exists=not args.allow_duplicate_source,
+        fiscal_year=fiscal_year,
+        use_ingestion_log=args.use_ingestion_log,
+        require_unprocessed=args.require_unprocessed,
+        update_ingestion_log_status=args.use_ingestion_log,
     )
 
 
