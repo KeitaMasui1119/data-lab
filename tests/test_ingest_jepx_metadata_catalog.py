@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import polars as pl
 import pytest
 
-from pipeline.bronze.ingest_jepx import (
+from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     INGESTION_LOG_KEY,
     mark_ingestion_log_processed,
     resolve_raw_object_from_ingestion_log,

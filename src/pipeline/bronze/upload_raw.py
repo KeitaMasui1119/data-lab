@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
+from common.raw_object_io import upload_local_file
 from common.storage_client import RustFSClient
 
 logging.basicConfig(
@@ -19,14 +20,12 @@ def upload_raw_file(
     bucket_name: str,
     object_key: str,
 ) -> None:
-    if not Path(file_path).exists():
-        raise FileNotFoundError(f"File not found: {file_path}")
-
     logger.info(f"Uploading {file_path} to s3://{bucket_name}/{object_key}...")
-    client.upload_file(
-        bucket_name=bucket_name,
+    upload_local_file(
+        client=client,
         file_path=file_path,
-        object_name=object_key,
+        bucket_name=bucket_name,
+        object_key=object_key,
     )
     logger.info("Upload completed successfully.")
 

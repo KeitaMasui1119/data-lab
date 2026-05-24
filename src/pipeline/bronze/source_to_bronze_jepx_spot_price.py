@@ -1,9 +1,8 @@
 import argparse
-import gzip
 import io
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import polars as pl
@@ -12,11 +11,16 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from common.iceberg import get_catalog
 from common.jepx_common import (
-    resolve_spot_summary_file_name,
     resolve_spot_summary_object_key,
     resolve_target_at,
 )
 from common.pipeline_utilities import add_metadata, build_schema_exprs
+from common.raw_ingestion_log import (
+    DEFAULT_INGESTION_LOG_KEY,
+    mark_raw_object_processed,
+    resolve_latest_raw_object,
+)
+from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
 
 # ログ設定
@@ -26,11 +30,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv"
-INGESTION_LOG_KEY = "metadata/raw_ingestion_log.parquet"
+INGESTION_LOG_KEY = DEFAULT_INGESTION_LOG_KEY
 
 
 def resolve_default_raw_object(target_at: datetime) -> tuple[str, str]:
-    file_name = resolve_spot_summary_file_name(target_at)
+    fiscal_year = target_at.year if target_at.month >= 4 else target_at.year - 1
+    file_name = f"spot_summary_{fiscal_year}.csv"
     object_key = resolve_spot_summary_object_key(target_at)
     return object_key, file_name
 
@@ -41,14 +46,6 @@ def source_data_exists(table, source_file_name: str) -> bool:
     return existing.num_rows > 0
 
 
-def _load_ingestion_log(client: RustFSClient, bucket_name: str) -> pl.DataFrame:
-    payload = client.get_object_or_none(bucket_name, INGESTION_LOG_KEY)
-    if payload is None:
-        return pl.DataFrame()
-
-    return pl.read_parquet(io.BytesIO(payload))
-
-
 def resolve_raw_object_from_ingestion_log(
     client: RustFSClient,
     bucket_name: str,
@@ -56,33 +53,14 @@ def resolve_raw_object_from_ingestion_log(
     require_unprocessed: bool = True,
 ) -> tuple[str, str]:
     """Resolve latest raw snapshot object key from ingestion log metadata."""
-    ingestion_log = _load_ingestion_log(client, bucket_name)
-    if ingestion_log.is_empty():
-        raise ValueError(
-            f"Ingestion log not found or empty: s3://{bucket_name}/{INGESTION_LOG_KEY}"
-        )
-
-    filtered = ingestion_log.filter(
-        (pl.col("dataset") == "jepx.spot_price")
-        & (pl.col("fiscal_year") == fiscal_year)
-        & pl.col("is_latest")
+    object_key = resolve_latest_raw_object(
+        client=client,
+        bucket_name=bucket_name,
+        dataset="jepx.spot_price",
+        fiscal_year=fiscal_year,
+        require_unprocessed=require_unprocessed,
+        log_key=INGESTION_LOG_KEY,
     )
-
-    if require_unprocessed:
-        filtered = filtered.filter(pl.col("bronze_status") != "processed")
-
-    if filtered.is_empty():
-        state_label = "unprocessed latest" if require_unprocessed else "latest"
-        raise ValueError(
-            f"No {state_label} snapshot found in ingestion log "
-            f"for fiscal_year={fiscal_year}"
-        )
-
-    latest = filtered.sort("ingested_at", descending=True).head(1)
-
-    object_key = latest.item(0, "file_path")
-    if not isinstance(object_key, str) or not object_key:
-        raise ValueError("Invalid file_path in ingestion log")
 
     source_file_name = object_key
 
@@ -96,53 +74,21 @@ def mark_ingestion_log_processed(
     processed_at: datetime | None = None,
 ) -> bool:
     """Mark one raw snapshot as processed in the ingestion log."""
-    ingestion_log = _load_ingestion_log(client, bucket_name)
-    if ingestion_log.is_empty():
+    updated = mark_raw_object_processed(
+        client=client,
+        bucket_name=bucket_name,
+        object_key=object_key,
+        processed_at=processed_at,
+        log_key=INGESTION_LOG_KEY,
+    )
+    if updated:
+        logger.info("Updated ingestion log status to processed for %s", object_key)
+    else:
         logger.warning(
-            "Skipping ingestion-log update because log is missing: s3://%s/%s",
-            bucket_name,
-            INGESTION_LOG_KEY,
-        )
-        return False
-
-    if "file_path" not in ingestion_log.columns:
-        logger.warning(
-            "Skipping ingestion-log update because file_path column is missing"
-        )
-        return False
-
-    target_rows = ingestion_log.filter(pl.col("file_path") == object_key)
-    if target_rows.is_empty():
-        logger.warning(
-            "Skipping ingestion-log update because object_key was not found: %s",
+            "Skipping ingestion-log update because target row was not found: %s",
             object_key,
         )
-        return False
-
-    processed_at = processed_at or datetime.now(UTC)
-    processed_at_iso = processed_at.isoformat()
-
-    updated_log = ingestion_log.with_columns(
-        pl.when(pl.col("file_path") == object_key)
-        .then(pl.lit("processed"))
-        .otherwise(pl.col("bronze_status"))
-        .alias("bronze_status"),
-        pl.when(pl.col("file_path") == object_key)
-        .then(pl.lit(processed_at_iso))
-        .otherwise(pl.col("bronze_processed_at"))
-        .alias("bronze_processed_at"),
-    )
-
-    buffer = io.BytesIO()
-    updated_log.write_parquet(buffer)
-    client.upload_bytes(
-        bucket_name=bucket_name,
-        object_name=INGESTION_LOG_KEY,
-        body=buffer.getvalue(),
-        content_type="application/x-parquet",
-    )
-    logger.info("Updated ingestion log status to processed for %s", object_key)
-    return True
+    return updated
 
 
 def ingest_jepx_spot_summary(
@@ -194,11 +140,13 @@ def ingest_jepx_spot_summary(
             )
         return 0
 
-    response = client.get_object(bucket_name=bucket_name, object_name=object_key)
-    raw_bytes = gzip.decompress(response) if object_key.endswith(".gz") else response
-
     try:
-        decoded = raw_bytes.decode("cp932")
+        decoded = read_object_text(
+            client=client,
+            bucket_name=bucket_name,
+            object_key=object_key,
+            encoding="cp932",
+        )
     except UnicodeDecodeError as error:
         raise ValueError(
             f"Failed to decode object with cp932: s3://{bucket_name}/{object_key}"

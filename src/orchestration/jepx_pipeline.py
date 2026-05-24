@@ -22,7 +22,7 @@ import polars as pl
 from common.iceberg import get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
-from pipeline.bronze.ingest_jepx import ingest_jepx_spot_summary
+from pipeline.bronze.source_to_bronze_jepx_spot_price import ingest_jepx_spot_summary
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
     scrape_jepx_spot_price_raw,

@@ -10,12 +10,12 @@ from common.iceberg import get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
-from pipeline.bronze.ingest_jepx import (
+from pipeline.bronze.migrate_occto_data import migrate_occto_data
+from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
 )
-from pipeline.bronze.ingest_occto import ingest_occto_unit_generation
-from pipeline.bronze.migrate_occto_data import migrate_occto_data
+from pipeline.bronze.source_to_bronze_occto import ingest_occto_unit_generation
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
     scrape_jepx_spot_price_raw,
