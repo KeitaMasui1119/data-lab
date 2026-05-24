@@ -83,9 +83,7 @@ def resolve_raw_object_from_ingestion_log(
     if not isinstance(object_key, str) or not object_key:
         raise ValueError("Invalid file_path in ingestion log")
 
-    source_file_name = resolve_spot_summary_file_name(
-        datetime(fiscal_year, 4, 1, tzinfo=UTC)
-    )
+    source_file_name = object_key
 
     return object_key, source_file_name
 
@@ -187,6 +185,12 @@ def ingest_jepx_spot_summary(
             "Skipped ingestion because source_data already exists: %s",
             source_file_name,
         )
+        if use_ingestion_log and update_ingestion_log_status:
+            mark_ingestion_log_processed(
+                client=client,
+                bucket_name=bucket_name,
+                object_key=object_key,
+            )
         return 0
 
     response = client.get_object(bucket_name=bucket_name, object_name=object_key)

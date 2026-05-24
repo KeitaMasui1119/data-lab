@@ -54,7 +54,7 @@ def test_resolve_raw_object_from_ingestion_log_returns_latest_unprocessed() -> N
         object_key
         == "raw/jepx/spot_price/year=2026/ingested_at=20260524T000000/spot.csv.gz"
     )
-    assert source_file_name == "spot_summary_2026.csv"
+    assert source_file_name == object_key
 
 
 def test_resolve_raw_object_from_ingestion_log_raises_when_no_target() -> None:
