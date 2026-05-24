@@ -22,10 +22,10 @@ import polars as pl
 from common.iceberg import get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
-from pipeline.bronze.ingest_jepx import ingest_jepx_spot_summary
+from pipeline.bronze.source_to_bronze_jepx_spot_price import ingest_jepx_spot_summary
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
-    scrape_jepx_to_rustfs,
+    scrape_jepx_spot_price_raw,
 )
 
 logger = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ def run_jepx_orchestrated_pipeline(
 
     scraper = JEPXSpotSummaryScraper()
     try:
-        scraped = scrape_jepx_to_rustfs(
+        snapshot_result = scrape_jepx_spot_price_raw(
             storage_client=rustfs,
             scraper=scraper,
             bucket_name=bucket_name,
@@ -194,34 +194,60 @@ def run_jepx_orchestrated_pipeline(
     finally:
         scraper.close()
 
-    results.append(
-        PipelineStepResult(
-            name="source_to_raw",
-            status="success",
-            detail=(
-                f"s3://{scraped.bucket_name}/{scraped.object_key} "
-                f"({scraped.size_bytes} bytes)"
-            ),
+    if snapshot_result.skipped:
+        results.append(
+            PipelineStepResult(
+                name="source_to_raw",
+                status="skipped",
+                detail=(
+                    "No snapshot change detected. "
+                    f"year={snapshot_result.year}, sha256={snapshot_result.sha256[:8]}"
+                ),
+            )
         )
-    )
+    else:
+        results.append(
+            PipelineStepResult(
+                name="source_to_raw",
+                status="success",
+                detail=(
+                    "Saved snapshot and updated metadata catalog. "
+                    f"year={snapshot_result.year}, "
+                    f"prefix={snapshot_result.snapshot_prefix}"
+                ),
+            )
+        )
 
-    row_count = ingest_jepx_spot_summary(
-        client=rustfs,
-        bucket_name=bucket_name,
-        object_key=scraped.object_key,
-        source_file_name=scraped.file_name,
-        catalog_name=catalog_name,
-        table_identifier=bronze_table_identifier,
-        schema_path=bronze_schema_path,
-        skip_if_exists=not allow_duplicate_source,
-    )
-    results.append(
-        PipelineStepResult(
-            name="raw_to_bronze",
-            status="success",
-            detail=f"table={bronze_table_identifier}, rows={row_count}",
+    try:
+        row_count = ingest_jepx_spot_summary(
+            client=rustfs,
+            bucket_name=bucket_name,
+            object_key=None,
+            source_file_name=None,
+            catalog_name=catalog_name,
+            table_identifier=bronze_table_identifier,
+            schema_path=bronze_schema_path,
+            skip_if_exists=not allow_duplicate_source,
+            fiscal_year=snapshot_result.year,
+            use_ingestion_log=True,
+            require_unprocessed=True,
+            update_ingestion_log_status=True,
         )
-    )
+        results.append(
+            PipelineStepResult(
+                name="raw_to_bronze",
+                status="success",
+                detail=f"table={bronze_table_identifier}, rows={row_count}",
+            )
+        )
+    except ValueError as error:
+        results.append(
+            PipelineStepResult(
+                name="raw_to_bronze",
+                status="skipped",
+                detail=str(error),
+            )
+        )
 
     results.append(
         run_dbt_step(

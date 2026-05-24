@@ -10,12 +10,12 @@ from common.iceberg import get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
-from pipeline.bronze.ingest_jepx import (
+from pipeline.bronze.migrate_occto_data import migrate_occto_data
+from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
 )
-from pipeline.bronze.ingest_occto import ingest_occto_unit_generation
-from pipeline.bronze.migrate_occto_data import migrate_occto_data
+from pipeline.bronze.source_to_bronze_occto import ingest_occto_unit_generation
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
     scrape_jepx_spot_price_raw,
@@ -126,6 +126,16 @@ def main():
         "--allow-duplicate-source",
         action="store_true",
         help="Allow append even if source_data already exists",
+    )
+    bronze_parser.add_argument(
+        "--use-ingestion-log",
+        action="store_true",
+        help="Resolve latest raw snapshot from metadata ingestion log",
+    )
+    bronze_parser.add_argument(
+        "--require-unprocessed",
+        action="store_true",
+        help="When using ingestion log, select only unprocessed latest snapshot",
     )
 
     jepx_pipeline_parser = subparsers.add_parser(
@@ -468,12 +478,17 @@ def main():
 
     if args.command == "ingest-jepx-raw-to-bronze":
         target_at = resolve_target_at(args.timestamp_ms)
+        fiscal_year = target_at.year if target_at.month >= 4 else target_at.year - 1
 
         default_object_key, _ = resolve_default_raw_object(target_at)
         object_key = args.object_key or default_object_key
         source_file_name = (
             args.source_file_name or object_key.rsplit("/", maxsplit=1)[-1]
         )
+
+        if args.use_ingestion_log and args.object_key is None:
+            object_key = None
+            source_file_name = None
 
         rustfs = RustFSClient()
         row_count = ingest_jepx_spot_summary(
@@ -485,6 +500,10 @@ def main():
             table_identifier=args.table,
             schema_path=args.schema_path,
             skip_if_exists=not args.allow_duplicate_source,
+            fiscal_year=fiscal_year,
+            use_ingestion_log=args.use_ingestion_log,
+            require_unprocessed=args.require_unprocessed,
+            update_ingestion_log_status=args.use_ingestion_log,
         )
         logger.info(
             "Ingestion completed: table=%s, source=%s, rows=%s",

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
+import polars as pl
+
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXScrapedRawObject,
+    _resolve_ingestion_log_key,
     _resolve_manifest_key,
     _resolve_snapshot_prefix,
     scrape_jepx_spot_price_raw,
@@ -36,14 +40,31 @@ def _make_scraper(
     return scraper
 
 
-def _make_storage(manifest_body: bytes | None = None) -> MagicMock:
+def _make_storage(
+    manifest_body: bytes | None = None,
+    ingestion_log_body: bytes | None = None,
+) -> MagicMock:
     client = MagicMock()
-    client.get_object_or_none.return_value = manifest_body
+
+    def _get_object_or_none(bucket_name: str, object_name: str) -> bytes | None:
+        if object_name == _resolve_manifest_key(FISCAL_YEAR):
+            return manifest_body
+        if object_name == _resolve_ingestion_log_key():
+            return ingestion_log_body
+        return None
+
+    client.get_object_or_none.side_effect = _get_object_or_none
     return client
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _to_parquet_bytes(df: pl.DataFrame) -> bytes:
+    buffer = io.BytesIO()
+    df.write_parquet(buffer)
+    return buffer.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +112,7 @@ def test_first_run_saves_snapshot():
 
 
 def test_first_run_uploads_three_objects():
-    """初回実行は spot.csv.gz / metadata.json / latest.json の 3 つをアップロード。"""
+    """初回実行は4オブジェクトをアップロードする。"""
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
@@ -102,13 +123,14 @@ def test_first_run_uploads_three_objects():
         target_at=TARGET_AT,
     )
 
-    assert storage.upload_bytes.call_count == 3
+    assert storage.upload_bytes.call_count == 4
     uploaded_keys = [
         c.kwargs["object_name"] for c in storage.upload_bytes.call_args_list
     ]
     assert any(k.endswith("/spot.csv.gz") for k in uploaded_keys)
     assert any(k.endswith("/metadata.json") for k in uploaded_keys)
-    assert uploaded_keys[-1] == result.manifest_key
+    assert _resolve_ingestion_log_key() in uploaded_keys
+    assert result.manifest_key in uploaded_keys
 
 
 def test_first_run_compresses_csv():
@@ -203,4 +225,50 @@ def test_changed_content_saves_new_snapshot():
 
     assert result.skipped is False
     assert result.sha256 == _sha256(CSV_BODY)
-    assert storage.upload_bytes.call_count == 3
+    assert storage.upload_bytes.call_count == 4
+
+
+def test_ingestion_log_marks_old_latest_false_when_new_snapshot_saved():
+    old_log = pl.DataFrame(
+        {
+            "dataset": ["jepx.spot_price"],
+            "fiscal_year": [FISCAL_YEAR],
+            "snapshot_date": ["2026-05-13"],
+            "ingested_at": ["2026-05-13T09:00:00+00:00"],
+            "file_hash": ["old_hash_value"],
+            "file_path": [
+                "raw/jepx/spot_price/year=2026/ingested_at=20260513T090000/spot.csv.gz"
+            ],
+            "content_length": [10],
+            "etag": [None],
+            "last_modified": [None],
+            "is_latest": [True],
+            "bronze_status": ["pending"],
+            "bronze_processed_at": [None],
+        }
+    )
+    old_manifest = json.dumps({"sha256": "old_hash_value"}).encode()
+    scraper = _make_scraper()
+    storage = _make_storage(
+        manifest_body=old_manifest,
+        ingestion_log_body=_to_parquet_bytes(old_log),
+    )
+
+    scrape_jepx_spot_price_raw(
+        storage_client=storage,
+        scraper=scraper,
+        bucket_name="test-bucket",
+        target_at=TARGET_AT,
+    )
+
+    parquet_call = next(
+        c
+        for c in storage.upload_bytes.call_args_list
+        if c.kwargs["object_name"] == _resolve_ingestion_log_key()
+    )
+    updated = pl.read_parquet(io.BytesIO(parquet_call.kwargs["body"]))
+
+    target_year = updated.filter(pl.col("fiscal_year") == FISCAL_YEAR)
+    latest_count = target_year.filter(pl.col("is_latest")).height
+    assert target_year.height == 2
+    assert latest_count == 1
