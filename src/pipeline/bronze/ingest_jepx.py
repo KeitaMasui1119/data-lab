@@ -1,4 +1,5 @@
 import argparse
+import gzip
 import io
 import logging
 import sys
@@ -194,9 +195,10 @@ def ingest_jepx_spot_summary(
         return 0
 
     response = client.get_object(bucket_name=bucket_name, object_name=object_key)
+    raw_bytes = gzip.decompress(response) if object_key.endswith(".gz") else response
 
     try:
-        decoded = response.decode("cp932")
+        decoded = raw_bytes.decode("cp932")
     except UnicodeDecodeError as error:
         raise ValueError(
             f"Failed to decode object with cp932: s3://{bucket_name}/{object_key}"
