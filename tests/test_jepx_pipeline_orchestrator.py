@@ -97,7 +97,7 @@ def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
         ingest_calls.append(kwargs)
         return 12
 
-    def fake_run_dbt_step(**kwargs: object) -> jepx_pipeline.PipelineStepResult:
+    def fake_run_dbt_step(**kwargs: object) -> object:
         dbt_calls.append(kwargs)
         return jepx_pipeline.PipelineStepResult(
             name=str(kwargs["step_name"]),
@@ -188,7 +188,7 @@ def test_run_jepx_orchestrated_pipeline_runs_gold_step(monkeypatch) -> None:
         ingest_calls.append(kwargs)
         return 34
 
-    def fake_run_dbt_step(**kwargs: object) -> jepx_pipeline.PipelineStepResult:
+    def fake_run_dbt_step(**kwargs: object) -> object:
         dbt_calls.append(kwargs)
         return jepx_pipeline.PipelineStepResult(
             name=str(kwargs["step_name"]),
@@ -277,7 +277,7 @@ def test_run_jepx_orchestrated_pipeline_skips_raw_to_bronze_when_no_unprocessed(
     def fake_ingest(**_: object) -> int:
         raise ValueError("No unprocessed latest snapshot found in ingestion log")
 
-    def fake_run_dbt_step(**kwargs: object) -> jepx_pipeline.PipelineStepResult:
+    def fake_run_dbt_step(**kwargs: object) -> object:
         dbt_calls.append(kwargs)
         return jepx_pipeline.PipelineStepResult(
             name=str(kwargs["step_name"]),
