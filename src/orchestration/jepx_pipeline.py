@@ -106,7 +106,8 @@ def export_jepx_silver_to_iceberg(
         raise FileNotFoundError(f"dbt DuckDB file does not exist: {duckdb_path}")
 
     catalog = get_catalog(catalog_name)
-    exported_rows = 0
+    total_updated = 0
+    total_inserted = 0
 
     conn = duckdb.connect(str(duckdb_path), read_only=True)
     try:
@@ -140,14 +141,16 @@ def export_jepx_silver_to_iceberg(
 
             arrow_table = aligned_df.to_arrow()
             casted_arrow_table = arrow_table.cast(target_schema)
-            target_table.append(casted_arrow_table)
+            upsert_result = target_table.upsert(casted_arrow_table)
 
-            exported_rows += len(aligned_df)
+            total_updated += upsert_result.rows_updated
+            total_inserted += upsert_result.rows_inserted
             logger.info(
-                "Exported %s rows from %s to %s",
-                len(aligned_df),
+                "Upserted %s -> %s: updated=%s, inserted=%s",
                 source_table,
                 target_identifier,
+                upsert_result.rows_updated,
+                upsert_result.rows_inserted,
             )
     finally:
         conn.close()
@@ -155,7 +158,9 @@ def export_jepx_silver_to_iceberg(
     return PipelineStepResult(
         name="silver_to_iceberg",
         status="success",
-        detail=f"duckdb={duckdb_path}, exported_rows={exported_rows}",
+        detail=(
+            f"duckdb={duckdb_path}, updated={total_updated}, inserted={total_inserted}"
+        ),
     )
 
 
