@@ -433,10 +433,10 @@ result = target_table.upsert(casted_arrow_table, join_cols=join_cols)
 `@pytest.mark.integration` を付けたテストは RustFS / Iceberg を要するため CI では skip される方針（`docs/tasks/plan_jepx_pipeline_and_ci.md` Phase A に準拠）。
 
 ## Phase 2 の完了条件
-- [ ] 上記テスト 1–9 が green（10 はローカル環境で確認）
-- [ ] `uv run ruff check src/ tests/` / `uv run ruff format --check src/ tests/` が通る
-- [ ] `uv run pyright` が通る
-- [ ] 除外行が発生した場合に件数が WARNING でログ出力される
+- [x] 上記テストが green（計画の 9 件を 14 件に拡充。日付書式・千桁区切り・fiscal_year・source_data 引き継ぎを追加）
+- [x] `uv run ruff check src/ tests/` / `uv run ruff format --check src/ tests/` が通る
+- [x] `uv run pyright` が通る
+- [x] 除外行が発生した場合に件数と理由別内訳が WARNING でログ出力される
 
 ---
 
@@ -484,10 +484,18 @@ Phase 1 で保留した drop → provision → 初回フル実行をここで実
 - `CLAUDE.md` の Commands セクションから `run-jepx-staging-dbt` / `run-jepx-silver-dbt` を削除し、`ingest-jepx-bronze-to-silver` を追加
 
 ## Phase 3 の完了条件
-- [ ] `uv run pytest tests/` が全て green
-- [ ] `uv run python src/main.py run-jepx-orchestrator` が Raw → Bronze → Silver まで通る
-- [ ] silver 3 テーブルの `source_data` / `status` / `ingestion_time` / `execution_id` が NULL でない
-- [ ] 同じ実行を 2 回流しても silver の行数が増えない（upsert の冪等性）
+- [x] `uv run pytest tests/` が全て green（70 passed）
+- [x] silver 3 テーブルを新スキーマで再作成し、bronze から全量復元（base 5,856 / block 5,856 / area 52,704 行、削除前と一致）
+- [x] silver 3 テーブルの `source_data` / `status` / `ingestion_time` / `execution_id` が NULL でない
+- [x] 同じ実行を 2 回流しても silver の行数が増えない（2 回目は `inserted=0`）
+
+### 2 回目の実行で `updated` が全行になる件（既知・Phase C 向けの申し送り）
+
+`add_metadata()` が実行ごとに新しい `ingestion_time` / `execution_id` を採番するため、
+値が変わらない行でも upsert が「更新あり」と判定し、毎回全行が書き直される。行数は
+増えないので冪等性は保たれているが、`plan_jepx_pipeline_and_ci.md` Phase C の
+`record_ingestion_time` / `record_updated_time` を導入する際に、
+「実データに変化がない行は更新しない」形へ整理するのが望ましい。
 
 ---
 

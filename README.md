@@ -146,35 +146,23 @@ uv run python src/main.py provision-silver-tables \
 	--schema-dir /workspace/configuration/iceberg/schema/silver
 ```
 
-### 5) Build staging layer with DuckDB + dbt
+### 5) Build the JEPX silver layer
 
-Run JEPX staging models (type casting + deduplication):
-
-```bash
-uv run python src/main.py run-jepx-staging-dbt
-```
-
-Optional full refresh:
+Transform the JEPX bronze table into the base, block and area silver tables.
+DuckDB casts and deduplicates the rows and PyIceberg upserts the result, so
+re-running the command is safe:
 
 ```bash
-uv run python src/main.py run-jepx-staging-dbt --full-refresh
+uv run python src/main.py ingest-jepx-bronze-to-silver
 ```
 
-### 6) Build silver layer with DuckDB + dbt
-
-Run JEPX silver models (base, block, area):
+Every fiscal year is upserted by default. Narrow the run to one year with:
 
 ```bash
-uv run python src/main.py run-jepx-silver-dbt
+uv run python src/main.py ingest-jepx-bronze-to-silver --fiscal-year 2026
 ```
 
-Optional full refresh:
-
-```bash
-uv run python src/main.py run-jepx-silver-dbt --full-refresh
-```
-
-### 7) Build OCCTO silver layer with DuckDB + dbt
+### 6) Build OCCTO silver layer with DuckDB + dbt
 
 Run OCCTO staging and silver models from the OCCTO bronze table:
 

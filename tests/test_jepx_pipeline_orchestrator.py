@@ -20,6 +20,54 @@ jepx_pipeline = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = jepx_pipeline
 SPEC.loader.exec_module(jepx_pipeline)
 
+BRONZE_SCHEMA_PATH = (
+    "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv"
+)
+DBT_DIR = Path("/workspace/src/dbt/jepx_power")
+
+
+def _pipeline_kwargs(**overrides: object) -> dict[str, object]:
+    """Build the orchestrator arguments with per-test overrides."""
+    kwargs: dict[str, object] = {
+        "bucket_name": "jp-power-grid-dev",
+        "timestamp_ms": 123,
+        "catalog_name": "dlh_dev",
+        "bronze_table_identifier": "bronze.jepx_spot_price",
+        "bronze_schema_path": BRONZE_SCHEMA_PATH,
+        "allow_duplicate_source": False,
+        "dbt_project_dir": DBT_DIR,
+        "dbt_profiles_dir": DBT_DIR,
+        "bronze_location": "s3://jp-power-grid-dev/bronze/jepx_spot_price",
+        "silver_schema_dir": "/workspace/configuration/iceberg/schema/silver",
+        "silver_fiscal_year": None,
+        "run_gold_step": False,
+        "gold_select": "tag:gold",
+        "dbt_full_refresh": False,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+def _patch_raw_step(monkeypatch, scraper: object, *, skipped: bool = False) -> None:
+    """Stub out everything the source-to-raw step touches."""
+    monkeypatch.setattr(jepx_pipeline, "resolve_target_at", lambda _: "target-datetime")
+    monkeypatch.setattr(jepx_pipeline, "RustFSClient", lambda: "rustfs-client")
+    monkeypatch.setattr(jepx_pipeline, "JEPXSpotSummaryScraper", lambda: scraper)
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "scrape_jepx_spot_price_raw",
+        lambda **_: SimpleNamespace(
+            skipped=skipped,
+            year=2026,
+            sha256="abc12345",
+            snapshot_prefix=(
+                None
+                if skipped
+                else "raw/jepx/spot_price/year=2026/ingested_at=20260524T010203"
+            ),
+        ),
+    )
+
 
 def test_run_dbt_step_executes_expected_command(monkeypatch) -> None:
     """run_dbt_step should call subprocess with a dbt run command."""
@@ -31,8 +79,8 @@ def test_run_dbt_step_executes_expected_command(monkeypatch) -> None:
     monkeypatch.setattr(jepx_pipeline.subprocess, "run", fake_run)
 
     result = jepx_pipeline.run_dbt_step(
-        step_name="silver_build",
-        select_expr="tag:silver",
+        step_name="silver_to_gold",
+        select_expr="tag:gold",
         project_dir=Path("/tmp/project"),
         profiles_dir=Path("/tmp/profiles"),
         full_refresh=True,
@@ -50,22 +98,58 @@ def test_run_dbt_step_executes_expected_command(monkeypatch) -> None:
                 "--profiles-dir",
                 "/tmp/profiles",
                 "--select",
-                "tag:silver",
+                "tag:gold",
                 "--full-refresh",
             ],
             True,
         )
     ]
     assert result == jepx_pipeline.PipelineStepResult(
-        name="silver_build",
+        name="silver_to_gold",
         status="success",
-        detail="dbt select=tag:silver",
+        detail="dbt select=tag:gold",
     )
+
+
+def test_run_bronze_to_silver_step_summarizes_upserts(monkeypatch) -> None:
+    """The silver step should total the per-table upsert counts."""
+    # Arrange
+    captured: dict[str, object] = {}
+
+    def fake_run(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return SimpleNamespace(
+            execution_id="exec-1",
+            dropped_row_count=2,
+            upserts=[
+                SimpleNamespace(rows_updated=1, rows_inserted=10),
+                SimpleNamespace(rows_updated=3, rows_inserted=20),
+            ],
+        )
+
+    monkeypatch.setattr(jepx_pipeline, "run_bronze_to_silver_jepx_spot_price", fake_run)
+
+    # Act
+    result = jepx_pipeline.run_bronze_to_silver_step(
+        catalog_name="dlh_dev",
+        bronze_location="s3://bucket/bronze/jepx_spot_price",
+        silver_schema_dir="/workspace/configuration/iceberg/schema/silver",
+        fiscal_year=2026,
+    )
+
+    # Assert
+    assert captured["fiscal_year"] == 2026
+    assert result.name == "bronze_to_silver"
+    assert result.status == "success"
+    assert "updated=4" in result.detail
+    assert "inserted=30" in result.detail
+    assert "dropped=2" in result.detail
 
 
 def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
     """Pipeline should execute source/raw/bronze/silver and skip gold by default."""
 
+    # Arrange
     class DummyScraper:
         def __init__(self) -> None:
             self.closed = False
@@ -76,22 +160,9 @@ def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
     scraper_instance = DummyScraper()
     dbt_calls: list[dict[str, object]] = []
     ingest_calls: list[dict[str, object]] = []
+    silver_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(jepx_pipeline, "resolve_target_at", lambda _: "target-datetime")
-    monkeypatch.setattr(jepx_pipeline, "RustFSClient", lambda: "rustfs-client")
-    monkeypatch.setattr(
-        jepx_pipeline, "JEPXSpotSummaryScraper", lambda: scraper_instance
-    )
-    monkeypatch.setattr(
-        jepx_pipeline,
-        "scrape_jepx_spot_price_raw",
-        lambda **_: SimpleNamespace(
-            skipped=False,
-            year=2026,
-            sha256="abc12345",
-            snapshot_prefix="raw/jepx/spot_price/year=2026/ingested_at=20260524T010203",
-        ),
-    )
+    _patch_raw_step(monkeypatch, scraper_instance)
 
     def fake_ingest(**kwargs: object) -> int:
         ingest_calls.append(kwargs)
@@ -105,36 +176,22 @@ def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
             detail="ok",
         )
 
-    monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", fake_ingest)
-    monkeypatch.setattr(jepx_pipeline, "run_dbt_step", fake_run_dbt_step)
-    monkeypatch.setattr(
-        jepx_pipeline,
-        "export_jepx_silver_to_iceberg",
-        lambda **_: jepx_pipeline.PipelineStepResult(
-            name="silver_to_iceberg",
+    def fake_silver_step(**kwargs: object) -> object:
+        silver_calls.append(kwargs)
+        return jepx_pipeline.PipelineStepResult(
+            name="bronze_to_silver",
             status="success",
             detail="ok",
-        ),
-    )
+        )
 
-    results = jepx_pipeline.run_jepx_orchestrated_pipeline(
-        bucket_name="jp-power-grid-dev",
-        timestamp_ms=123,
-        catalog_name="dlh_dev",
-        bronze_table_identifier="bronze.jepx_spot_price",
-        bronze_schema_path="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
-        allow_duplicate_source=False,
-        dbt_project_dir=Path("/workspace/src/dbt/jepx_power"),
-        dbt_profiles_dir=Path("/workspace/src/dbt/jepx_power"),
-        staging_select="tag:staging",
-        silver_select="tag:silver",
-        run_gold_step=False,
-        gold_select="tag:gold",
-        dbt_full_refresh=False,
-        export_silver_to_iceberg=False,
-        dbt_duckdb_path=Path("/workspace/src/dbt/jepx_power/jepx_power.duckdb"),
-    )
+    monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", fake_ingest)
+    monkeypatch.setattr(jepx_pipeline, "run_dbt_step", fake_run_dbt_step)
+    monkeypatch.setattr(jepx_pipeline, "run_bronze_to_silver_step", fake_silver_step)
 
+    # Act
+    results = jepx_pipeline.run_jepx_orchestrated_pipeline(**_pipeline_kwargs())
+
+    # Assert
     assert scraper_instance.closed is True
     assert len(ingest_calls) == 1
     assert ingest_calls[0]["skip_if_exists"] is True
@@ -142,27 +199,23 @@ def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
     assert ingest_calls[0]["require_unprocessed"] is True
     assert ingest_calls[0]["fiscal_year"] == 2026
 
-    assert len(dbt_calls) == 2
-    assert [call["step_name"] for call in dbt_calls] == [
-        "bronze_to_silver_staging",
-        "silver_build",
-    ]
+    assert len(silver_calls) == 1
+    assert silver_calls[0]["fiscal_year"] is None
+    assert dbt_calls == []
 
     assert [result.name for result in results] == [
         "source_to_raw",
         "raw_to_bronze",
-        "bronze_to_silver_staging",
-        "silver_build",
-        "silver_to_iceberg",
+        "bronze_to_silver",
         "silver_to_gold",
     ]
-    assert results[-2].status == "skipped"
     assert results[-1].status == "skipped"
 
 
 def test_run_jepx_orchestrated_pipeline_runs_gold_step(monkeypatch) -> None:
     """Pipeline should execute the gold step when explicitly enabled."""
 
+    # Arrange
     class DummyScraper:
         def close(self) -> None:
             return None
@@ -170,19 +223,7 @@ def test_run_jepx_orchestrated_pipeline_runs_gold_step(monkeypatch) -> None:
     dbt_calls: list[dict[str, object]] = []
     ingest_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(jepx_pipeline, "resolve_target_at", lambda _: "target-datetime")
-    monkeypatch.setattr(jepx_pipeline, "RustFSClient", lambda: "rustfs-client")
-    monkeypatch.setattr(jepx_pipeline, "JEPXSpotSummaryScraper", lambda: DummyScraper())
-    monkeypatch.setattr(
-        jepx_pipeline,
-        "scrape_jepx_spot_price_raw",
-        lambda **_: SimpleNamespace(
-            skipped=False,
-            year=2026,
-            sha256="abc12345",
-            snapshot_prefix="raw/jepx/spot_price/year=2026/ingested_at=20260524T010203",
-        ),
-    )
+    _patch_raw_step(monkeypatch, DummyScraper())
 
     def fake_ingest(**kwargs: object) -> int:
         ingest_calls.append(kwargs)
@@ -200,52 +241,38 @@ def test_run_jepx_orchestrated_pipeline_runs_gold_step(monkeypatch) -> None:
     monkeypatch.setattr(jepx_pipeline, "run_dbt_step", fake_run_dbt_step)
     monkeypatch.setattr(
         jepx_pipeline,
-        "export_jepx_silver_to_iceberg",
+        "run_bronze_to_silver_step",
         lambda **_: jepx_pipeline.PipelineStepResult(
-            name="silver_to_iceberg",
+            name="bronze_to_silver",
             status="success",
             detail="ok",
         ),
     )
 
+    # Act
     results = jepx_pipeline.run_jepx_orchestrated_pipeline(
-        bucket_name="jp-power-grid-dev",
-        timestamp_ms=123,
-        catalog_name="dlh_dev",
-        bronze_table_identifier="bronze.jepx_spot_price",
-        bronze_schema_path="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
-        allow_duplicate_source=True,
-        dbt_project_dir=Path("/workspace/src/dbt/jepx_power"),
-        dbt_profiles_dir=Path("/workspace/src/dbt/jepx_power"),
-        staging_select="tag:staging",
-        silver_select="tag:silver",
-        run_gold_step=True,
-        gold_select="tag:gold",
-        dbt_full_refresh=True,
-        export_silver_to_iceberg=True,
-        dbt_duckdb_path=Path("/workspace/src/dbt/jepx_power/jepx_power.duckdb"),
+        **_pipeline_kwargs(
+            allow_duplicate_source=True,
+            run_gold_step=True,
+            dbt_full_refresh=True,
+            silver_fiscal_year=2026,
+        )
     )
 
+    # Assert
     assert len(ingest_calls) == 1
     assert ingest_calls[0]["skip_if_exists"] is False
 
-    assert len(dbt_calls) == 3
-    assert [call["step_name"] for call in dbt_calls] == [
-        "bronze_to_silver_staging",
-        "silver_build",
-        "silver_to_gold",
-    ]
-    assert [call["full_refresh"] for call in dbt_calls] == [True, True, True]
+    assert len(dbt_calls) == 1
+    assert dbt_calls[0]["step_name"] == "silver_to_gold"
+    assert dbt_calls[0]["full_refresh"] is True
 
     assert [result.name for result in results] == [
         "source_to_raw",
         "raw_to_bronze",
-        "bronze_to_silver_staging",
-        "silver_build",
-        "silver_to_iceberg",
+        "bronze_to_silver",
         "silver_to_gold",
     ]
-    assert results[-2].status == "success"
     assert results[-1].status == "success"
 
 
@@ -254,69 +281,35 @@ def test_run_jepx_orchestrated_pipeline_skips_raw_to_bronze_when_no_unprocessed(
 ) -> None:
     """Pipeline should continue when bronze step has no unprocessed latest snapshot."""
 
+    # Arrange
     class DummyScraper:
         def close(self) -> None:
             return None
 
-    dbt_calls: list[dict[str, object]] = []
+    silver_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(jepx_pipeline, "resolve_target_at", lambda _: "target-datetime")
-    monkeypatch.setattr(jepx_pipeline, "RustFSClient", lambda: "rustfs-client")
-    monkeypatch.setattr(jepx_pipeline, "JEPXSpotSummaryScraper", lambda: DummyScraper())
-    monkeypatch.setattr(
-        jepx_pipeline,
-        "scrape_jepx_spot_price_raw",
-        lambda **_: SimpleNamespace(
-            skipped=True,
-            year=2026,
-            sha256="abc12345",
-            snapshot_prefix=None,
-        ),
-    )
+    _patch_raw_step(monkeypatch, DummyScraper(), skipped=True)
 
     def fake_ingest(**_: object) -> int:
         raise ValueError("No unprocessed latest snapshot found in ingestion log")
 
-    def fake_run_dbt_step(**kwargs: object) -> object:
-        dbt_calls.append(kwargs)
+    def fake_silver_step(**kwargs: object) -> object:
+        silver_calls.append(kwargs)
         return jepx_pipeline.PipelineStepResult(
-            name=str(kwargs["step_name"]),
+            name="bronze_to_silver",
             status="success",
             detail="ok",
         )
 
     monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", fake_ingest)
-    monkeypatch.setattr(jepx_pipeline, "run_dbt_step", fake_run_dbt_step)
-    monkeypatch.setattr(
-        jepx_pipeline,
-        "export_jepx_silver_to_iceberg",
-        lambda **_: jepx_pipeline.PipelineStepResult(
-            name="silver_to_iceberg",
-            status="success",
-            detail="ok",
-        ),
-    )
+    monkeypatch.setattr(jepx_pipeline, "run_bronze_to_silver_step", fake_silver_step)
 
-    results = jepx_pipeline.run_jepx_orchestrated_pipeline(
-        bucket_name="jp-power-grid-dev",
-        timestamp_ms=123,
-        catalog_name="dlh_dev",
-        bronze_table_identifier="bronze.jepx_spot_price",
-        bronze_schema_path="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
-        allow_duplicate_source=False,
-        dbt_project_dir=Path("/workspace/src/dbt/jepx_power"),
-        dbt_profiles_dir=Path("/workspace/src/dbt/jepx_power"),
-        staging_select="tag:staging",
-        silver_select="tag:silver",
-        run_gold_step=False,
-        gold_select="tag:gold",
-        dbt_full_refresh=False,
-        export_silver_to_iceberg=False,
-        dbt_duckdb_path=Path("/workspace/src/dbt/jepx_power/jepx_power.duckdb"),
-    )
+    # Act
+    results = jepx_pipeline.run_jepx_orchestrated_pipeline(**_pipeline_kwargs())
 
+    # Assert
     assert results[0].name == "source_to_raw"
     assert results[0].status == "skipped"
     assert results[1].name == "raw_to_bronze"
     assert results[1].status == "skipped"
-    assert len(dbt_calls) == 2
+    assert len(silver_calls) == 1
