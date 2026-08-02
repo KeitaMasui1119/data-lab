@@ -1,6 +1,8 @@
 field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
-1,delivery_datetime,timestamptz,TRUE,TRUE,Delivery date,hour,受渡日時,
+1,delivery_datetime,timestamptz,FALSE,TRUE,Delivery timestamp in UTC derived from delivery_date and time_code,,受渡日時,
 2,block_selling_bid_volume,long,FALSE,FALSE,Block selling bid volume (kWh),,売りブロック入札総量(kWh),
 3,block_selling_contracted_volume,long,FALSE,FALSE,Block selling contracted volume (kWh),,売りブロック約定総量(kWh),
 4,block_purchase_bid_volume,long,FALSE,FALSE,Block purchase bid volume (kWh),,買いブロック入札総量(kWh),
 5,block_purchase_contracted_volume,long,FALSE,FALSE,Block purchase contracted volume (kWh),,買いブロック約定総量(kWh),
+6,delivery_date,date,TRUE,TRUE,Business delivery date in JST calendar,year,受渡日,
+7,time_code,int,TRUE,TRUE,Business time code (1-48),,時刻コード,

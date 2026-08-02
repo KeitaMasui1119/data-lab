@@ -43,13 +43,27 @@ DuckDB で bronze Iceberg テーブルを直接 `iceberg_scan` し、変換後�
 5. **異常行が理由なく捨てられている**
    `stg_jepx_spot_price.sql:69-70` の `where` で除外するのみ。件数も理由も残らない。
 
+6. **価格が整数に丸められている（Phase 1 で発見・修正済み）**
+   スキーマ CSV が `system_price` / `area_price` を `long` と定義しており、staging SQL も `TRY_CAST(... AS BIGINT)` していた。
+   **DuckDB の `TRY_CAST('17.75' AS BIGINT)` は NULL ではなく `18` を返す**ため、エラーにも NULL にもならず静かに精度が失われていた。
+
+   | | bronze（生値） | 現行 silver |
+   |---|---|---|
+   | `system_price` | `'17.75'`, `'14.83'`, `'12.70'` | `15`, `26`, `35` |
+   | `area_price` | 同様に小数2桁 | `17`, `19`, `19` |
+
+   doc §9 の通り `decimal` が正しい。スキーマ CSV は Phase 1 で修正済み（`decimal` → `DecimalType(32, 3)`）。
+   **Phase 2 の staging SQL でも価格列は `DECIMAL` にキャストすること**（後述 2-3 を参照）。
+   入札量・約定量・ブロック量は kWh の整数なので `long` のままでよい。
+
 ---
 
-## ⚠️ 実装着手前に確定が必要な前提
+## 確定した前提
 
-**コマ番号と時刻の対応が「開始時刻」であること**（doc §12-3 で未確定と明記）。
+**コマ番号は「開始時刻」を指す**（ユーザー確認済み / 2026-08-02）。
 
-本プランは全体を通じて **コマ1 = 00:00〜00:30 の開始時刻 00:00** を前提としている。もし終了時刻定義なら全レコードが 30 分ずれるため、**Phase 2 のテストを書く前にユーザーへ確認すること。**
+コマ1 = 00:00〜00:30 の区間で、`delivery_datetime` にはその **開始時刻 00:00 (JST)** を格納する。
+JEPX の生 CSV ヘッダーは `受渡日,時刻コード,...` のみで定義の記載がないため、この前提はコード上の定数とコメントで明示すること。もし将来「終了時刻」と判明した場合は全レコードが一律 30 分ずれるだけなので、オフセット定数の一箇所修正で是正できる構造にしておく。
 
 ---
 
@@ -76,7 +90,7 @@ field_id,name,type,is_identifier,required,doc,partition_transform,source_name,co
 2,selling_bid_volume,long,FALSE,FALSE,Selling bid volume (kWh),,売り入札量(kWh),
 3,purchase_bid_volume,long,FALSE,FALSE,Purchase bid volume (kWh),,買い入札量(kWh),
 4,contracted_volume,long,FALSE,FALSE,Total contracted volume (kWh),,約定総量(kWh),
-5,system_price,long,FALSE,FALSE,System price (Yen/kWh),,システムプライス(円/kWh),
+5,system_price,decimal,FALSE,FALSE,System price (Yen/kWh),,システムプライス(円/kWh),
 6,delivery_date,date,TRUE,TRUE,Business delivery date in JST calendar,year,受渡日,
 7,time_code,int,TRUE,TRUE,Business time code (1-48),,時刻コード,
 ```
@@ -87,7 +101,7 @@ field_id,name,type,is_identifier,required,doc,partition_transform,source_name,co
 field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
 1,delivery_datetime,timestamptz,FALSE,TRUE,Delivery timestamp in UTC derived from delivery_date and time_code,,受渡日時,
 2,area_name,string,TRUE,TRUE,"Area name(Hokkaido, Tohoku, Tokyo, Chubu, Hokuriku, Kansai, Chugoku, Shikoku, Kyushu)",,エリア名,
-3,area_price,long,FALSE,FALSE,Area price(Yen/kWh),,エリア価格(円/kWh),
+3,area_price,decimal,FALSE,FALSE,Area price(Yen/kWh),,エリア価格(円/kWh),
 4,delivery_date,date,TRUE,TRUE,Business delivery date in JST calendar,year,受渡日,
 5,time_code,int,TRUE,TRUE,Business time code (1-48),,時刻コード,
 ```
@@ -105,25 +119,41 @@ field_id,name,type,is_identifier,required,doc,partition_transform,source_name,co
 7,time_code,int,TRUE,TRUE,Business time code (1-48),,時刻コード,
 ```
 
-## 1-2. テーブル再作成
+## 1-2. テーブル再作成 → **Phase 3 の切り替え時に実行する（決定済み）**
 
-**`provision_table()` では今回の変更を反映できない。** `src/common/iceberg.py:104-113` は `add_column` しか行わず、identifier / required の変更は無視される。
+**`provision_table()` では今回の変更を反映できない。** `src/common/iceberg.py:104-113` は `add_column` しか行わず、identifier / required の変更は無視される。したがって silver テーブルの drop → 再 provision が必要になる。
 
-silver は bronze から全期間 upsert で復元できる派生データなので、drop → 再 provision で対応する。
+> **⚠️ ただし Phase 1 の時点では実行しないこと（ユーザー判断で決定済み）。**
+> 新スキーマでは `delivery_date` / `time_code` が `required=TRUE` だが、既存の dbt silver モデルはこの2列を出力しない。そのため Phase 1 でテーブルを作り直すと、Phase 2 が完成するまで **silver が空のまま既存 dbt 経路も動かなくなる**。
+> drop → provision → 初回フル実行は **Phase 3 の切り替えと同時に、一連の作業として実行する**。
+
+実行する際の手順:
 
 ```bash
-# 1. 既存 silver テーブルを削除（src/setup/drop_table.py を使用）
-# 2. 新スキーマで再作成
+# 1. 既存 silver テーブルを削除
+#    src/setup/drop_table.py は bronze.jepx_spot_price がハードコードされているので使わないこと。
+#    common.iceberg.delete_table(catalog, "silver.jepx_spot_price_{base,area,block}") を使う。
+# 2. 新スキーマで再作成（occto の CSV も同ディレクトリにあるが、差分なしとして素通りする）
 uv run python src/main.py provision-silver-tables
-# 3. Phase 2 完成後に初回フル実行で復元
+# 3. 初回フル実行で復元（fiscal_year 指定なし = 全期間 upsert）
+uv run python src/main.py ingest-jepx-bronze-to-silver
 ```
 
-> **前提の確認:** 再作成前に bronze (`bronze.jepx_spot_price`) に全履歴が揃っていることを確認すること。bronze が source of truth であることが復元の前提。
+### 復元可能性の確認結果（2026-08-02 時点で検証済み）
+
+| 対象 | 実測値 |
+|---|---|
+| `bronze.jepx_spot_price` | 5,856 行 / `delivery_date` 2026-04-01〜2026-07-31 / `source_data` は1ファイルのみ |
+| `silver.jepx_spot_price_base` | 5,856 行（= 122日 × 48コマ、bronze と一致） |
+| `silver.jepx_spot_price_block` | 5,856 行 |
+| `silver.jepx_spot_price_area` | 52,704 行（= 5,856 × 9エリア） |
+
+silver は bronze の内容と過不足なく一致しており、**bronze からの全期間 upsert で完全に復元できる**ことを確認済み。なお現行 silver の `delivery_datetime` はいずれも 9 時間ずれた値なので、どのみち作り直しが必要。
 
 ## Phase 1 の完了条件
-- [ ] 3つのスキーマ CSV が上記の通り更新されている
-- [ ] `uv run python src/main.py provision-silver-tables` が成功する
-- [ ] 再作成後のテーブルで `table.schema().identifier_field_ids` が base/block は `delivery_date`,`time_code`、area は加えて `area_name` を指している
+- [x] 3つのスキーマ CSV が上記の通り更新されている
+- [x] `build_table_schema()` が3ファイルとも正しく解釈する（identifier: base/block = `delivery_date`,`time_code` / area = 加えて `area_name`）
+- [ ] ~~テーブル再作成~~ → Phase 3 へ移動
 
 ---
 
@@ -237,8 +267,10 @@ typed AS (
         TRY_CAST(REPLACE(selling_bid_volume, ',', '') AS BIGINT)     AS selling_bid_volume,
         TRY_CAST(REPLACE(purchase_bid_volume, ',', '') AS BIGINT)    AS purchase_bid_volume,
         TRY_CAST(REPLACE(contracted_volume, ',', '') AS BIGINT)      AS contracted_volume,
-        TRY_CAST(REPLACE(system_price, ',', '') AS BIGINT)           AS system_price,
-        -- area_price_* 9列、block_* 4列も同様に TRY_CAST + REPLACE
+        -- ★ 価格は必ず DECIMAL。BIGINT だと 17.75 が 18 に丸められる（前述「現状の問題」6）
+        TRY_CAST(REPLACE(system_price, ',', '') AS DECIMAL(32, 3))   AS system_price,
+        -- area_price_* 9列も同様に DECIMAL(32, 3) へ
+        -- block_* 4列は kWh の整数なので BIGINT のまま
         ...
         source_data,
         ingestion_time,
@@ -268,6 +300,7 @@ SELECT
     CAST(delivery_date_d AS DATE)                                    AS delivery_date,
     time_code_i                                                      AS time_code,
     -- ★ 修正の核心: 素キャストではなく JST として解釈してから UTC 化する
+    -- (time_code - 1) * 30分 = コマの「開始時刻」（確認済みの前提。定数化してコメントを残すこと）
     (delivery_date_d + ((time_code_i - 1) * INTERVAL 30 MINUTE))
         AT TIME ZONE 'Asia/Tokyo'                                    AS delivery_datetime,
     selling_bid_volume,
@@ -393,12 +426,14 @@ result = target_table.upsert(casted_arrow_table, join_cols=join_cols)
 | 5 | `test_area_frame_unpivots_nine_areas` | 1行 → 9行に展開され、`area_name` が `hokkaido`…`kyushu` になる |
 | 6 | `test_silver_frames_retain_delivery_date_and_time_code` | base / area / block の全てに導出元列が残っている（doc §9 原則1） |
 | 7 | `test_area_frame_excludes_block_columns` | UNPIVOT で `block_*` 列が混入していない |
-| 8 | `test_upsert_is_idempotent` | `@pytest.mark.integration` — 同じ入力で2回実行しても行数が増えない |
+| 8 | `test_prices_keep_decimal_precision` | `system_price='17.75'` → `Decimal('17.750')`（`18` に丸められない）。**現行バグの回帰テスト** |
+| 9 | `test_area_prices_keep_decimal_precision` | area 側も同様に小数が保たれる |
+| 10 | `test_upsert_is_idempotent` | `@pytest.mark.integration` — 同じ入力で2回実行しても行数が増えない |
 
 `@pytest.mark.integration` を付けたテストは RustFS / Iceberg を要するため CI では skip される方針（`docs/tasks/plan_jepx_pipeline_and_ci.md` Phase A に準拠）。
 
 ## Phase 2 の完了条件
-- [ ] 上記テスト 1–7 が green（8 はローカル環境で確認）
+- [ ] 上記テスト 1–9 が green（10 はローカル環境で確認）
 - [ ] `uv run ruff check src/ tests/` / `uv run ruff format --check src/ tests/` が通る
 - [ ] `uv run pyright` が通る
 - [ ] 除外行が発生した場合に件数が WARNING でログ出力される
@@ -437,7 +472,13 @@ result = target_table.upsert(casted_arrow_table, join_cols=join_cols)
 
 > **⚠️ 検証の移管:** `_silver__models.yml` にある JEPX の `not_null` テスト（`delivery_datetime` / `area_name` / `area_price`）が失われる。同等の検証を Phase 2 の `violations` 判定に含めること。
 
-## 3-4. テストとドキュメントの更新
+## 3-4. silver テーブルの再作成（Phase 1-2 から移動）
+
+Phase 1 で保留した drop → provision → 初回フル実行をここで実施する。手順と復元可能性の確認結果は **Phase 1-2 の節**を参照。
+
+このステップを 3-1〜3-3 の後に置くのは、新スキーマ（`delivery_date` / `time_code` が required）を満たせるのが新しい Python 経路だけであり、それが動く状態になってから作り直す必要があるため。
+
+## 3-5. テストとドキュメントの更新
 
 - `tests/test_jepx_pipeline_orchestrator.py` の 3 テスト（`test_run_jepx_orchestrated_pipeline_skips_gold_step` / `_runs_gold_step` / `_skips_raw_to_bronze_when_no_unprocessed`）を新しいステップ構成に合わせて更新
 - `CLAUDE.md` の Commands セクションから `run-jepx-staging-dbt` / `run-jepx-silver-dbt` を削除し、`ingest-jepx-bronze-to-silver` を追加

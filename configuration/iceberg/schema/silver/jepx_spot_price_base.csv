@@ -1,6 +1,8 @@
 field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
-1,delivery_datetime,timestamptz,TRUE,TRUE,Delivery date,hour,受渡日時,
+1,delivery_datetime,timestamptz,FALSE,TRUE,Delivery timestamp in UTC derived from delivery_date and time_code,,受渡日時,
 2,selling_bid_volume,long,FALSE,FALSE,Selling bid volume (kWh),,売り入札量(kWh),
 3,purchase_bid_volume,long,FALSE,FALSE,Purchase bid volume (kWh),,買い入札量(kWh),
 4,contracted_volume,long,FALSE,FALSE,Total contracted volume (kWh),,約定総量(kWh),
-5,system_price,long,FALSE,FALSE,System price (Yen/kWh),,システムプライス(円/kWh),
+5,system_price,decimal,FALSE,FALSE,System price (Yen/kWh),,システムプライス(円/kWh),
+6,delivery_date,date,TRUE,TRUE,Business delivery date in JST calendar,year,受渡日,
+7,time_code,int,TRUE,TRUE,Business time code (1-48),,時刻コード,
