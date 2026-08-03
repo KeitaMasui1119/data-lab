@@ -26,8 +26,7 @@ uv run python src/main.py run-jepx-orchestrator
 uv run python src/main.py scrape-occto --target-date YYYY-MM-DD --download-url <url>
 uv run python src/main.py ingest-occto-raw-to-bronze --object-key raw/occto/unit_generation/<file>.csv
 uv run python src/main.py provision-silver-tables
-uv run python src/main.py run-jepx-staging-dbt
-uv run python src/main.py run-jepx-silver-dbt
+uv run python src/main.py ingest-jepx-bronze-to-silver
 uv run python src/main.py run-occto-silver-dbt
 ```
 
@@ -40,7 +39,7 @@ This is a medallion data platform for Japanese power market data. Storage is Rus
 ```
 Source → Raw (RustFS s3://jp-power-grid-dev/raw/)
        → Bronze (PyIceberg, Polars cast + metadata)
-       → Silver (dbt/DuckDB models → optionally exported back to PyIceberg)
+       → Silver (JEPX: DuckDB transform + PyIceberg upsert / OCCTO: dbt)
        → Gold (dbt, optional)
 ```
 
@@ -50,9 +49,10 @@ Source → Raw (RustFS s3://jp-power-grid-dev/raw/)
 - **`src/orchestration/jepx_pipeline.py`** — ADF-like end-to-end orchestrator for JEPX; returns `list[PipelineStepResult]` per step for structured result tracking.
 - **`src/pipeline/raw/`** — HTTP scraping and raw upload. `JEPXSpotSummaryScraper` and `OCCTOUnitGenerationScraper` both extend `BaseHttpScraper`; only `build_request()` needs to be implemented.
 - **`src/pipeline/bronze/`** — Raw CSV → Iceberg table ingestion. Decodes cp932, casts via schema CSV, appends metadata columns (`source_data`, `status`, `ingestion_time`, `ingestion_date`, `execution_id`).
+- **`src/pipeline/silver/`** — Bronze → Silver for JEPX. DuckDB scans the bronze Iceberg table, casts/dedups/validates, then PyIceberg upserts the base, block and area tables. Daily and full-refresh runs share one code path; only `--fiscal-year` differs.
 - **`src/common/`** — Shared primitives: `BaseHttpScraper`, `RustFSClient` (boto3 wrapper), `get_catalog` / `provision_table` (PyIceberg helpers), `build_schema_exprs` / `add_metadata` (Polars pipeline utilities).
 - **`src/setup/`** — Infra provisioning: bucket creation with Object Lock, prefix initialization.
-- **`src/dbt/jepx_power/`** — dbt project using DuckDB adapter. profiles.yml lives in the same directory. Tags `staging`, `silver`, `gold` control what `--select` targets.
+- **`src/dbt/jepx_power/`** — dbt project using DuckDB adapter, now OCCTO-only. profiles.yml lives in the same directory. Tags `staging`, `silver`, `gold` control what `--select` targets.
 - **`configuration/iceberg/schema/`** — **Source of truth for all table schemas.** CSV format has columns `source_name`, `name`, `type`. `provision_table()` creates or evolves tables from these files.
 - **`configuration/iceberg/.pyiceberg.yaml`** — Catalog config. The `dlh_dev` catalog is SQLite-backed (`catalog/dlh_dev.db`), warehoused on RustFS at `http://rustfs:9000`.
 

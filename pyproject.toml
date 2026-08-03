@@ -44,9 +44,14 @@ dev = [
     'ruff>=0.15.8',
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["tools"]
+[tool.uv]
+# This repository is an application, not a distributable library. Entry points are
+# invoked as `python src/main.py`, and `tests/conftest.py` puts `src` on sys.path,
+# so nothing imports the project as an installed distribution.
+package = false
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests that require external services (RustFS, DuckDB, dbt)",
+]

@@ -26,6 +26,11 @@ from pipeline.raw.source_to_raw_occto import (
     OCCTOUnitGenerationScraper,
     scrape_occto_to_rustfs,
 )
+from pipeline.silver.bronze_to_silver_jepx_spot_price import (
+    DEFAULT_BRONZE_LOCATION,
+    DEFAULT_SILVER_SCHEMA_DIR,
+    run_bronze_to_silver_jepx_spot_price,
+)
 from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
 logging.basicConfig(
@@ -217,14 +222,19 @@ def main():
         help="dbt profiles directory (default: same as dbt project dir)",
     )
     jepx_orchestrator_parser.add_argument(
-        "--staging-select",
-        default="tag:staging",
-        help="dbt select expression for staging step",
+        "--bronze-location",
+        default=DEFAULT_BRONZE_LOCATION,
+        help="Bronze table location scanned by the silver transform",
     )
     jepx_orchestrator_parser.add_argument(
-        "--silver-select",
-        default="tag:silver",
-        help="dbt select expression for silver step",
+        "--silver-schema-dir",
+        default=DEFAULT_SILVER_SCHEMA_DIR,
+        help="Directory containing the silver schema CSV files",
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--silver-fiscal-year",
+        type=int,
+        help="Limit the silver step to one fiscal year (default: every year)",
     )
     jepx_orchestrator_parser.add_argument(
         "--run-gold-step",
@@ -240,16 +250,6 @@ def main():
         "--dbt-full-refresh",
         action="store_true",
         help="Run dbt steps with --full-refresh",
-    )
-    jepx_orchestrator_parser.add_argument(
-        "--export-silver-to-iceberg",
-        action="store_true",
-        help="Export dbt silver tables into PyIceberg silver tables",
-    )
-    jepx_orchestrator_parser.add_argument(
-        "--dbt-duckdb-path",
-        default="/workspace/src/dbt/jepx_power/jepx_power.duckdb",
-        help="Path to dbt DuckDB file used as silver export source",
     )
 
     occto_bronze_parser = subparsers.add_parser(
@@ -369,34 +369,29 @@ def main():
         help="Directory containing silver schema CSV files",
     )
 
-    dbt_staging_parser = subparsers.add_parser(
-        "run-jepx-staging-dbt",
-        help="Run dbt staging models for JEPX using DuckDB",
+    jepx_silver_parser = subparsers.add_parser(
+        "ingest-jepx-bronze-to-silver",
+        help="Transform JEPX bronze spot prices into silver Iceberg tables",
     )
-    dbt_staging_parser.add_argument(
-        "--select",
-        default="tag:staging",
-        help="dbt select expression (default: tag:staging)",
+    jepx_silver_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
     )
-    dbt_staging_parser.add_argument(
-        "--full-refresh",
-        action="store_true",
-        help="Run dbt with --full-refresh",
+    jepx_silver_parser.add_argument(
+        "--bronze-location",
+        default=DEFAULT_BRONZE_LOCATION,
+        help="Bronze table location scanned by DuckDB",
     )
-
-    dbt_silver_parser = subparsers.add_parser(
-        "run-jepx-silver-dbt",
-        help="Run dbt silver models for JEPX using DuckDB",
+    jepx_silver_parser.add_argument(
+        "--schema-dir",
+        default=DEFAULT_SILVER_SCHEMA_DIR,
+        help="Directory containing the silver schema CSV files",
     )
-    dbt_silver_parser.add_argument(
-        "--select",
-        default="tag:silver",
-        help="dbt select expression (default: tag:silver)",
-    )
-    dbt_silver_parser.add_argument(
-        "--full-refresh",
-        action="store_true",
-        help="Run dbt with --full-refresh",
+    jepx_silver_parser.add_argument(
+        "--fiscal-year",
+        type=int,
+        help="Limit the run to one fiscal year (default: upsert every year)",
     )
 
     occto_dbt_parser = subparsers.add_parser(
@@ -556,10 +551,6 @@ def main():
         if not dbt_profiles_dir.exists():
             parser.error(f"dbt profiles directory does not exist: {dbt_profiles_dir}")
 
-        dbt_duckdb_path = Path(args.dbt_duckdb_path)
-        if args.export_silver_to_iceberg and not dbt_duckdb_path.exists():
-            parser.error(f"dbt DuckDB file does not exist: {dbt_duckdb_path}")
-
         results = run_jepx_orchestrated_pipeline(
             bucket_name=args.bucket,
             timestamp_ms=args.timestamp_ms,
@@ -569,13 +560,12 @@ def main():
             allow_duplicate_source=args.allow_duplicate_source,
             dbt_project_dir=dbt_project_dir,
             dbt_profiles_dir=dbt_profiles_dir,
-            staging_select=args.staging_select,
-            silver_select=args.silver_select,
+            bronze_location=args.bronze_location,
+            silver_schema_dir=args.silver_schema_dir,
+            silver_fiscal_year=args.silver_fiscal_year,
             run_gold_step=args.run_gold_step,
             gold_select=args.gold_select,
             dbt_full_refresh=args.dbt_full_refresh,
-            export_silver_to_iceberg=args.export_silver_to_iceberg,
-            dbt_duckdb_path=dbt_duckdb_path,
         )
         for result in results:
             logger.info(
@@ -682,49 +672,25 @@ def main():
 
         logger.info("Provisioned silver tables: %s", provisioned)
 
-    if args.command == "run-jepx-staging-dbt":
-        project_dir = Path("/workspace/src/dbt/jepx_power")
-        profiles_dir = project_dir
-
-        dbt_command = [
-            "uv",
-            "run",
-            "dbt",
-            "run",
-            "--project-dir",
-            str(project_dir),
-            "--profiles-dir",
-            str(profiles_dir),
-            "--select",
-            args.select,
-        ]
-        if args.full_refresh:
-            dbt_command.append("--full-refresh")
-
-        logger.info("Executing dbt staging command: %s", " ".join(dbt_command))
-        subprocess.run(dbt_command, check=True)
-
-    if args.command == "run-jepx-silver-dbt":
-        project_dir = Path("/workspace/src/dbt/jepx_power")
-        profiles_dir = project_dir
-
-        dbt_command = [
-            "uv",
-            "run",
-            "dbt",
-            "run",
-            "--project-dir",
-            str(project_dir),
-            "--profiles-dir",
-            str(profiles_dir),
-            "--select",
-            args.select,
-        ]
-        if args.full_refresh:
-            dbt_command.append("--full-refresh")
-
-        logger.info("Executing dbt silver command: %s", " ".join(dbt_command))
-        subprocess.run(dbt_command, check=True)
+    if args.command == "ingest-jepx-bronze-to-silver":
+        result = run_bronze_to_silver_jepx_spot_price(
+            catalog_name=args.catalog,
+            bronze_location=args.bronze_location,
+            schema_dir=args.schema_dir,
+            fiscal_year=args.fiscal_year,
+        )
+        logger.info(
+            "JEPX bronze-to-silver completed: execution_id=%s, dropped=%s",
+            result.execution_id,
+            result.dropped_row_count,
+        )
+        for upsert in result.upserts:
+            logger.info(
+                " - table=%s, updated=%s, inserted=%s",
+                upsert.table_identifier,
+                upsert.rows_updated,
+                upsert.rows_inserted,
+            )
 
     if args.command == "run-occto-silver-dbt":
         project_dir = Path("/workspace/src/dbt/jepx_power")

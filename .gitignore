@@ -5,3 +5,12 @@ src/prd/data_lake/*
 data/*
 .env
 ./pipeline.log
+
+# Coverage & test artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Claude Code local settings (personal, not shared)
+.claude/settings.local.json

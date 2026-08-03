@@ -42,11 +42,16 @@ RUN useradd -m -s /bin/zsh -u 1000 vscode \
     && rm /tmp/setup_node.sh \
     && apt-get install -y --no-install-recommends nodejs \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
-    && npm install -g @google/gemini-cli@${GEMINI_CLI_VERSION}
-ENV PATH="/home/vscode/.local/bin:${PATH}"
-USER vscode
+    && rm -rf /var/lib/apt/lists/*
+
+# CLI群はvscode所有のprefixへ導入し、CLI自身の自動アップデートを可能にする
+# (root所有の/usr/lib/node_modulesだとvscodeユーザーが書き込めずupdateが失敗する)
+ENV NPM_CONFIG_PREFIX=/home/vscode/.npm-global
+ENV PATH="/home/vscode/.npm-global/bin:/home/vscode/.local/bin:${PATH}"
+USER 1000
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+    && npm install -g @google/gemini-cli@${GEMINI_CLI_VERSION} \
+    && npm cache clean --force
 WORKDIR /workspace
 CMD ["sleep", "infinity"]
 
@@ -63,5 +68,5 @@ RUN useradd -m -s /bin/zsh -u 1000 appuser
 COPY --from=builder /app/.venv /app/.venv
 # ソースコードのコピー
 COPY --chown=appuser:appuser src ./src
-USER appuser
+USER 1000
 CMD ["python", "-m", "src.main"]

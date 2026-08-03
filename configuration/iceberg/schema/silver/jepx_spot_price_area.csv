@@ -1,4 +1,6 @@
 field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
-1,delivery_datetime,timestamptz,TRUE,TRUE,Delivery date,hour,受渡日時,
-2,area_name,string,FALSE,FALSE,"Area name(Hokkaido, Tohoku, Tokyo, Chubu, Hokuriku, Kansai, Chugoku, Shikoku, Kyushu)",,エリア名,
-3,area_price,long,FALSE,FALSE,Area price(Yen/kWh),,エリア価格(円/kWh),
+1,delivery_datetime,timestamptz,FALSE,TRUE,Delivery timestamp in UTC derived from delivery_date and time_code,,受渡日時,
+2,area_name,string,TRUE,TRUE,"Area name(Hokkaido, Tohoku, Tokyo, Chubu, Hokuriku, Kansai, Chugoku, Shikoku, Kyushu)",,エリア名,
+3,area_price,decimal,FALSE,FALSE,Area price(Yen/kWh),,エリア価格(円/kWh),
+4,delivery_date,date,TRUE,TRUE,Business delivery date in JST calendar,year,受渡日,
+5,time_code,int,TRUE,TRUE,Business time code (1-48),,時刻コード,

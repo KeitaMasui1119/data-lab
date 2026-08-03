@@ -4,7 +4,11 @@
     "venv": ".venv",
     "typeCheckingMode": "standard",
     "include": [
-        "tools"
+        "src",
+        "tests"
+    ],
+    "extraPaths": [
+        "src"
     ],
     "exclude": [
         "**/__pycache__",

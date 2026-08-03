@@ -55,5 +55,24 @@ repos:
         types: ["dockerfile"]
         entry: hadolint
 
+  - repo: local
+    hooks:
+      - id: pyright
+        name: Pyright
+        description: "Run pyright for static type checking"
+        entry: uv run pyright
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest
+        name: Pytest (unit tests)
+        description: "Run unit tests. Manual stage only."
+        entry: uv run pytest -m "not integration"
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [manual]
+
 ci:
   autoupdate_schedule: weekly

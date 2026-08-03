@@ -43,7 +43,7 @@
         "GH_TOKEN": "${localEnv:GH_TOKEN}",
         "EDITOR": "code --wait"
     },
-    "postCreateCommand": "uv lock || true && uv sync --frozen $(for g in $UV_GROUPS; do printf ' --group %s' \"$g\"; done) && git config --global user.name 'Keita Masui' && git config --global user.email 'rfrnndam.tennis365@gmail.com' && (gh copilot -- --help >/dev/null 2>&1 || true)",
+    "postCreateCommand": "uv sync --locked $(for g in $UV_GROUPS; do printf ' --group %s' \"$g\"; done) && git config --global user.name 'Keita Masui' && git config --global user.email 'rfrnndam.tennis365@gmail.com' && (gh copilot -- --help >/dev/null 2>&1 || true)",
     "postStartCommand": "uv run pre-commit install || true",
     "remoteUser": "vscode",
     "mounts": [
