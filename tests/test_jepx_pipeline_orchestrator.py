@@ -40,6 +40,7 @@ def _pipeline_kwargs(**overrides: object) -> dict[str, object]:
         "bronze_location": "s3://jp-power-grid-dev/bronze/jepx_spot_price",
         "silver_schema_dir": "/workspace/configuration/iceberg/schema/silver",
         "silver_fiscal_year": None,
+        "silver_all_fiscal_years": False,
         "run_gold_step": False,
         "gold_select": "tag:gold",
         "dbt_full_refresh": False,
@@ -111,8 +112,8 @@ def test_run_dbt_step_executes_expected_command(monkeypatch) -> None:
     )
 
 
-def test_run_bronze_to_silver_step_summarizes_upserts(monkeypatch) -> None:
-    """The silver step should total the per-table upsert counts."""
+def test_run_bronze_to_silver_step_summarizes_written_rows(monkeypatch) -> None:
+    """The silver step should total the per-table written row counts."""
     # Arrange
     captured: dict[str, object] = {}
 
@@ -121,9 +122,9 @@ def test_run_bronze_to_silver_step_summarizes_upserts(monkeypatch) -> None:
         return SimpleNamespace(
             execution_id="exec-1",
             dropped_row_count=2,
-            upserts=[
-                SimpleNamespace(rows_updated=1, rows_inserted=10),
-                SimpleNamespace(rows_updated=3, rows_inserted=20),
+            writes=[
+                SimpleNamespace(rows_written=10),
+                SimpleNamespace(rows_written=20),
             ],
         )
 
@@ -141,8 +142,7 @@ def test_run_bronze_to_silver_step_summarizes_upserts(monkeypatch) -> None:
     assert captured["fiscal_year"] == 2026
     assert result.name == "bronze_to_silver"
     assert result.status == "success"
-    assert "updated=4" in result.detail
-    assert "inserted=30" in result.detail
+    assert "written=30" in result.detail
     assert "dropped=2" in result.detail
 
 
@@ -200,7 +200,7 @@ def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
     assert ingest_calls[0]["fiscal_year"] == 2026
 
     assert len(silver_calls) == 1
-    assert silver_calls[0]["fiscal_year"] is None
+    assert silver_calls[0]["fiscal_year"] == 2026
     assert dbt_calls == []
 
     assert [result.name for result in results] == [
@@ -274,6 +274,67 @@ def test_run_jepx_orchestrated_pipeline_runs_gold_step(monkeypatch) -> None:
         "silver_to_gold",
     ]
     assert results[-1].status == "success"
+
+
+def _run_pipeline_capturing_silver(
+    monkeypatch, **overrides: object
+) -> dict[str, object]:
+    """Run the orchestrator with every step stubbed and return the silver kwargs."""
+
+    class DummyScraper:
+        def close(self) -> None:
+            return None
+
+    silver_calls: list[dict[str, object]] = []
+
+    _patch_raw_step(monkeypatch, DummyScraper())
+    monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", lambda **_: 12)
+
+    def fake_silver_step(**kwargs: object) -> object:
+        silver_calls.append(kwargs)
+        return jepx_pipeline.PipelineStepResult(
+            name="bronze_to_silver", status="success", detail="ok"
+        )
+
+    monkeypatch.setattr(jepx_pipeline, "run_bronze_to_silver_step", fake_silver_step)
+
+    jepx_pipeline.run_jepx_orchestrated_pipeline(**_pipeline_kwargs(**overrides))
+
+    assert len(silver_calls) == 1
+    return silver_calls[0]
+
+
+def test_silver_step_defaults_to_the_fiscal_year_being_processed(monkeypatch) -> None:
+    """A daily run must scope silver to its own fiscal year, not every year.
+
+    Rebuilding every fiscal year on each run is what made the silver step
+    unusable once the tables held two decades of data.
+    """
+    # Arrange / Act
+    silver_kwargs = _run_pipeline_capturing_silver(monkeypatch)
+
+    # Assert
+    assert silver_kwargs["fiscal_year"] == 2026
+
+
+def test_silver_step_honours_an_explicit_fiscal_year(monkeypatch) -> None:
+    """An explicit fiscal year overrides the snapshot's own year."""
+    # Arrange / Act
+    silver_kwargs = _run_pipeline_capturing_silver(monkeypatch, silver_fiscal_year=2020)
+
+    # Assert
+    assert silver_kwargs["fiscal_year"] == 2020
+
+
+def test_silver_step_can_rebuild_every_fiscal_year_on_request(monkeypatch) -> None:
+    """Full refresh stays available, but only when asked for explicitly."""
+    # Arrange / Act
+    silver_kwargs = _run_pipeline_capturing_silver(
+        monkeypatch, silver_all_fiscal_years=True
+    )
+
+    # Assert
+    assert silver_kwargs["fiscal_year"] is None
 
 
 def test_run_jepx_orchestrated_pipeline_skips_raw_to_bronze_when_no_unprocessed(

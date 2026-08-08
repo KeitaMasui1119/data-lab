@@ -4,7 +4,7 @@ This module provides an ADF-like orchestration layer that runs JEPX
 processing steps in dependency order:
 1. Source -> Raw
 2. Raw -> Bronze
-3. Bronze -> Silver (DuckDB transform + PyIceberg upsert)
+3. Bronze -> Silver (DuckDB transform + PyIceberg window replace)
 4. Silver -> Gold (optional dbt gold)
 """
 
@@ -79,6 +79,25 @@ def run_dbt_step(
     )
 
 
+def resolve_silver_fiscal_year(
+    *,
+    silver_fiscal_year: int | None,
+    silver_all_fiscal_years: bool,
+    snapshot_fiscal_year: int,
+) -> int | None:
+    """Decide which fiscal year the silver step rebuilds.
+
+    A run defaults to the fiscal year it just ingested. Rebuilding every year
+    on every run scales with how much history the tables hold rather than with
+    the new data, so a full refresh has to be asked for explicitly.
+    """
+    if silver_all_fiscal_years:
+        return None
+    if silver_fiscal_year is not None:
+        return silver_fiscal_year
+    return snapshot_fiscal_year
+
+
 def run_bronze_to_silver_step(
     *,
     catalog_name: str,
@@ -94,14 +113,14 @@ def run_bronze_to_silver_step(
         fiscal_year=fiscal_year,
     )
 
-    updated = sum(upsert.rows_updated for upsert in result.upserts)
-    inserted = sum(upsert.rows_inserted for upsert in result.upserts)
+    written = sum(write.rows_written for write in result.writes)
+    scope = "all fiscal years" if fiscal_year is None else f"fiscal_year={fiscal_year}"
     return PipelineStepResult(
         name="bronze_to_silver",
         status="success",
         detail=(
-            f"execution_id={result.execution_id}, updated={updated}, "
-            f"inserted={inserted}, dropped={result.dropped_row_count}"
+            f"execution_id={result.execution_id}, {scope}, written={written}, "
+            f"dropped={result.dropped_row_count}"
         ),
     )
 
@@ -119,6 +138,7 @@ def run_jepx_orchestrated_pipeline(
     bronze_location: str,
     silver_schema_dir: str,
     silver_fiscal_year: int | None,
+    silver_all_fiscal_years: bool = False,
     run_gold_step: bool,
     gold_select: str,
     dbt_full_refresh: bool,
@@ -200,7 +220,11 @@ def run_jepx_orchestrated_pipeline(
             catalog_name=catalog_name,
             bronze_location=bronze_location,
             silver_schema_dir=silver_schema_dir,
-            fiscal_year=silver_fiscal_year,
+            fiscal_year=resolve_silver_fiscal_year(
+                silver_fiscal_year=silver_fiscal_year,
+                silver_all_fiscal_years=silver_all_fiscal_years,
+                snapshot_fiscal_year=snapshot_result.year,
+            ),
         )
     )
 
@@ -283,7 +307,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--silver-fiscal-year",
         type=int,
-        help="Limit the silver step to one fiscal year (default: every year)",
+        help=(
+            "Fiscal year for the silver step "
+            "(default: the fiscal year that was just ingested)"
+        ),
+    )
+    parser.add_argument(
+        "--silver-all-fiscal-years",
+        action="store_true",
+        help="Rebuild every fiscal year in the silver step instead of just one",
     )
     parser.add_argument(
         "--run-gold-step",
@@ -313,6 +345,12 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    if args.silver_all_fiscal_years and args.silver_fiscal_year is not None:
+        parser.error(
+            "--silver-all-fiscal-years rebuilds every year and would discard "
+            "the year named by --silver-fiscal-year; pass only one"
+        )
+
     dbt_project_dir = Path(args.dbt_project_dir)
     if not dbt_project_dir.exists():
         parser.error(f"dbt project directory does not exist: {dbt_project_dir}")
@@ -335,6 +373,7 @@ def main() -> None:
         bronze_location=args.bronze_location,
         silver_schema_dir=args.silver_schema_dir,
         silver_fiscal_year=args.silver_fiscal_year,
+        silver_all_fiscal_years=args.silver_all_fiscal_years,
         run_gold_step=args.run_gold_step,
         gold_select=args.gold_select,
         dbt_full_refresh=args.dbt_full_refresh,

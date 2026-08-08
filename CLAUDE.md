@@ -39,7 +39,7 @@ This is a medallion data platform for Japanese power market data. Storage is Rus
 ```
 Source → Raw (RustFS s3://jp-power-grid-dev/raw/)
        → Bronze (PyIceberg, Polars cast + metadata)
-       → Silver (JEPX: DuckDB transform + PyIceberg upsert / OCCTO: dbt)
+       → Silver (JEPX: DuckDB transform + PyIceberg window replace / OCCTO: dbt)
        → Gold (dbt, optional)
 ```
 
@@ -49,7 +49,7 @@ Source → Raw (RustFS s3://jp-power-grid-dev/raw/)
 - **`src/orchestration/jepx_pipeline.py`** — ADF-like end-to-end orchestrator for JEPX; returns `list[PipelineStepResult]` per step for structured result tracking.
 - **`src/pipeline/raw/`** — HTTP scraping and raw upload. `JEPXSpotSummaryScraper` and `OCCTOUnitGenerationScraper` both extend `BaseHttpScraper`; only `build_request()` needs to be implemented.
 - **`src/pipeline/bronze/`** — Raw CSV → Iceberg table ingestion. Decodes cp932, casts via schema CSV, appends metadata columns (`source_data`, `status`, `ingestion_time`, `ingestion_date`, `execution_id`).
-- **`src/pipeline/silver/`** — Bronze → Silver for JEPX. DuckDB scans the bronze Iceberg table, casts/dedups/validates, then PyIceberg upserts the base, block and area tables. Daily and full-refresh runs share one code path; only `--fiscal-year` differs.
+- **`src/pipeline/silver/`** — Bronze → Silver for JEPX. DuckDB scans the bronze Iceberg table, casts/dedups/validates, then PyIceberg replaces the affected `delivery_date` window in the base, block and area tables. Daily and full-refresh runs share one code path; only `--fiscal-year` differs. The write is a window replace, not an upsert: `upsert()` builds a match predicate over every source key and scans the target with it, which exhausted memory once the area table reached a few million rows.
 - **`src/common/`** — Shared primitives: `BaseHttpScraper`, `RustFSClient` (boto3 wrapper), `get_catalog` / `provision_table` (PyIceberg helpers), `build_schema_exprs` / `add_metadata` (Polars pipeline utilities).
 - **`src/setup/`** — Infra provisioning: bucket creation with Object Lock, prefix initialization.
 - **`src/dbt/jepx_power/`** — dbt project using DuckDB adapter, now OCCTO-only. profiles.yml lives in the same directory. Tags `staging`, `silver`, `gold` control what `--select` targets.
@@ -65,6 +65,8 @@ Source → Raw (RustFS s3://jp-power-grid-dev/raw/)
 **Scraper lifecycle**: All scrapers hold an HTTP session. Always call `scraper.close()` or use as a context manager; `main.py` uses `try/finally` for this.
 
 **Fiscal year logic**: JEPX files are keyed by fiscal year (April start). The function `resolve_fiscal_year()` in `common/jepx_common.py` handles the April boundary.
+
+**Silver scope**: `run-jepx-orchestrator` rebuilds only the fiscal year it just ingested. Scoping every run to the whole table makes its cost grow with accumulated history rather than with new data, so a full rebuild has to be requested with `--silver-all-fiscal-years`.
 
 ### Environment variables required at runtime
 

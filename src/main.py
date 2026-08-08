@@ -234,7 +234,15 @@ def main():
     jepx_orchestrator_parser.add_argument(
         "--silver-fiscal-year",
         type=int,
-        help="Limit the silver step to one fiscal year (default: every year)",
+        help=(
+            "Fiscal year for the silver step "
+            "(default: the fiscal year that was just ingested)"
+        ),
+    )
+    jepx_orchestrator_parser.add_argument(
+        "--silver-all-fiscal-years",
+        action="store_true",
+        help="Rebuild every fiscal year in the silver step instead of just one",
     )
     jepx_orchestrator_parser.add_argument(
         "--run-gold-step",
@@ -391,7 +399,7 @@ def main():
     jepx_silver_parser.add_argument(
         "--fiscal-year",
         type=int,
-        help="Limit the run to one fiscal year (default: upsert every year)",
+        help="Limit the run to one fiscal year (default: rebuild every year)",
     )
 
     occto_dbt_parser = subparsers.add_parser(
@@ -541,6 +549,12 @@ def main():
         )
 
     if args.command == "run-jepx-orchestrator":
+        if args.silver_all_fiscal_years and args.silver_fiscal_year is not None:
+            parser.error(
+                "--silver-all-fiscal-years rebuilds every year and would discard "
+                "the year named by --silver-fiscal-year; pass only one"
+            )
+
         dbt_project_dir = Path(args.dbt_project_dir)
         if not dbt_project_dir.exists():
             parser.error(f"dbt project directory does not exist: {dbt_project_dir}")
@@ -563,6 +577,7 @@ def main():
             bronze_location=args.bronze_location,
             silver_schema_dir=args.silver_schema_dir,
             silver_fiscal_year=args.silver_fiscal_year,
+            silver_all_fiscal_years=args.silver_all_fiscal_years,
             run_gold_step=args.run_gold_step,
             gold_select=args.gold_select,
             dbt_full_refresh=args.dbt_full_refresh,
@@ -684,12 +699,11 @@ def main():
             result.execution_id,
             result.dropped_row_count,
         )
-        for upsert in result.upserts:
+        for write in result.writes:
             logger.info(
-                " - table=%s, updated=%s, inserted=%s",
-                upsert.table_identifier,
-                upsert.rows_updated,
-                upsert.rows_inserted,
+                " - table=%s, written=%s",
+                write.table_identifier,
+                write.rows_written,
             )
 
     if args.command == "run-occto-silver-dbt":
