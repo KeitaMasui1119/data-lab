@@ -117,3 +117,82 @@
 - [ ] RustFS の Docker イメージバージョンを確定する（`compose.yaml`）
 - [ ] SQLite カタログファイル（`catalog/dlh_dev.db`）のバックアップ方針を決める
 - [ ] Devcontainer のボリュームマウント設定を確認する
+
+---
+
+## 8. JEPX Silver 書き込み経路の残タスク
+
+FY2005–FY2026 バックフィル時に発生した障害の恒久対応（`upsert` → 区間 `overwrite`）で
+出た残件。経緯・実測値は
+[`docs/reports/reports_20260808_10c4679e-4370-49d3-9b8c-92f890c5eade.md`](../reports/reports_20260808_10c4679e-4370-49d3-9b8c-92f890c5eade.md)
+を参照。コミットは `25c385a`。
+
+### 8.1 Silver テーブルへのパーティション適用（優先度: 高）
+
+**現状の問題。** `provision_table()`（`src/common/iceberg.py`）は `create_table()` に
+partition spec を渡しておらず、スキーマCSVの `partition_transform` 列は完全に無視されている。
+実測で silver 3テーブルとも `spec: []`（未パーティション）を確認済み。
+
+そのため区間 `overwrite` の削除側は各データファイルの min/max メトリクスでしか枝刈りできず、
+窓の境界をまたぐファイルは丸ごと書き換えられる。**書き込みコストがテーブル全体のサイズに
+比例したまま**で、「履歴量から切り離す」という恒久対応の狙いは半分しか達成できていない。
+
+実測（全年度実行の直後 = 全22年度が2〜3ファイルに同居した最悪配置で、年度スコープ実行）:
+9.3秒 / ピークRSS 1.7GB。現時点では耐えるが、履歴が伸びれば線形に悪化する。
+
+- [ ] `provision_table()` でスキーマCSVの `partition_transform` を partition spec に反映する
+- [ ] 既存 silver テーブルの移行方針を決める（`update_spec()` での spec 進化か、作り直しか）
+  - spec を進化させても既存データファイルは旧レイアウトのまま残るため、
+    再書き込みが必要かを判断する
+- [ ] 移行後に同じ最悪配置で再実測し、ファイル書き換えが起きなくなったことを確認する
+
+### 8.2 新しいガードのテスト追加（優先度: 中）
+
+コードレビュー指摘で入れた防御が実挙動確認のみで、回帰防止のテストがない。
+
+- [ ] `ensure_unique_keys()` を全フレームに対し**書き込み前に**一括実行することのテスト
+      （3テーブル目で重複を検出した際に、base/block だけ更新済みになる部分適用が起きないこと）
+- [ ] `--silver-all-fiscal-years` と `--silver-fiscal-year` の同時指定が
+      `parser.error` で弾かれることのテスト（`src/main.py` と
+      `src/orchestration/jepx_pipeline.py` の2箇所）
+
+### 8.3 ドキュメントの追従（優先度: 中）
+
+- [ ] `README.md`（152行目付近）が旧仕様のまま。「PyIceberg upserts the result」
+      「Every fiscal year is upserted by default」という記述を実態に合わせ、
+      `--silver-all-fiscal-years` を追記する。**オーケストレーターの既定が
+      「全年度」から「取り込んだ会計年度」に変わったため、運用者が最初に読むこのファイルの
+      更新が最優先**
+- [ ] `docs/architecture/metadata_columns.md` の削除方針（67行目付近
+      「Physical deletion is avoided... Logical deletion is applied via `is_deleted`」）が
+      区間物理削除する新実装と矛盾している。方針を改めるか、Silver 書き込みの例外を明記する
+- [ ] `docs/tasks/tasks_bts_jepx_sp.md` の「確定済みの設計判断（再検討不要）」表にある
+      `upsert 方式: PyIceberg ネイティブ Table.upsert` と
+      `実行範囲: 全期間 upsert が既定` は、どちらも今回の変更で覆っている。
+      完了済みタスクの記録だが、読んだ人が誤解するため注記を入れる
+
+### 8.4 実行結果判定の厳格化（優先度: 中）
+
+障害2件はいずれも「正常終了」に見えた。さらに現在の実装では、
+`delivery_date` が両フォーマットとも解釈できなくなった場合、
+`_build_fiscal_year_filter` が violation 判定より前に全行を捨てるため、
+`dropped=0 / written=0 / status=success` で Silver が静かに更新されなくなる。
+
+- [ ] `PipelineStepResult` に想定行数と実測行数を持たせ、乖離時に `status="failed"` とする
+- [ ] 書き込み0行かつ除外0行を異常として扱う（正常に0行となるケースの切り分けも含めて設計する）
+
+### 8.5 バックフィル用 CLI コマンドの追加（優先度: 中）
+
+今回の22年度バックフィルは使い捨てのシェルループで実施しており、
+`docs/architecture/replay_strategy.md` が定める再構築手順が実行可能な形で残っていない。
+
+- [ ] 年度範囲を受け取る一次コマンドを `src/main.py` に実装する
+      （例: `backfill-jepx --from-fiscal-year 2005 --to-fiscal-year 2026`）
+
+### 8.6 メタデータ列と変更検知（優先度: 低）
+
+`add_metadata()` は実行ごとに `ingestion_time` / `execution_id` を新規採番するため、
+業務値が不変でも全行が「変更あり」と判定される。区間置換に移行したことで
+実害は解消しているが、将来 `upsert` 系の処理を書く場合は再燃する。
+
+- [ ] 変更検知の比較対象からメタデータ列を除外する方針を決める
