@@ -1,9 +1,24 @@
 """Transform JEPX spot price data from the bronze layer into silver tables.
 
 DuckDB reads the bronze Iceberg table directly, casts and deduplicates the
-rows, derives the delivery timestamp, and PyIceberg upserts the result into
-the three silver tables. Daily and full-refresh runs share this code path;
-the only difference is the fiscal year filter.
+rows, derives the delivery timestamp, and PyIceberg replaces the affected
+delivery window in the three silver tables. Daily and full-refresh runs share
+this code path; the only difference is the fiscal year filter.
+
+The write is a window replace rather than a row-level upsert. ``upsert()``
+builds a match predicate holding every join key in the source frame and scans
+the target table with it, so its cost grows with both the batch and the table.
+At roughly 56k keys against a 3.3M row area table that scan exhausted memory
+and killed the process. The staging relation already holds the complete,
+deduplicated set of rows for the window being loaded, so replacing that window
+reaches the same result without ever building that predicate.
+
+Replacing rather than merging changes one behaviour: a delivery key whose
+newest bronze row fails validation is dropped from the frame, and because the
+whole window is rewritten from the frame alone, that key disappears from silver
+instead of keeping the value an earlier run wrote. Silver therefore mirrors what
+bronze currently says rather than accumulating the last-known-good value; the
+run logs a warning naming every violation that caused it.
 """
 
 from __future__ import annotations
@@ -12,11 +27,20 @@ import argparse
 import logging
 import os
 from dataclasses import dataclass
+from datetime import date
 from urllib.parse import urlparse
 
 import duckdb
 import polars as pl
 from pyiceberg.catalog import Catalog
+from pyiceberg.expressions import (
+    And,
+    BooleanExpression,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
+    LiteralPredicate,
+)
 
 from common.iceberg import get_catalog, provision_table
 from common.pipeline_utilities import add_metadata
@@ -29,6 +53,21 @@ DEFAULT_BRONZE_LOCATION = "s3://jp-power-grid-dev/bronze/jepx_spot_price"
 DEFAULT_SILVER_SCHEMA_DIR = "/workspace/configuration/iceberg/schema/silver"
 
 STAGING_RELATION = "jepx_silver_staging"
+
+# The column every silver table is windowed on.
+#
+# The silver tables are currently unpartitioned: the schema CSVs carry a
+# `partition_transform` column, but `provision_table()` never passes a
+# partition spec to `create_table`, so it has no effect. Iceberg therefore
+# prunes the window delete using each data file's min/max metrics, and only
+# drops a file outright when every row in it falls inside the window. A file
+# straddling the window boundary is rewritten instead, which pulls it through
+# memory. That stays bounded while files are written per fiscal year, but a
+# full-refresh run writes files spanning every year, so the next scoped run
+# rewrites the whole table. Partitioning on `year(delivery_date)` would make
+# the pruning exact; see the follow-up in
+# docs/reports/reports_20260808_10c4679e-4370-49d3-9b8c-92f890c5eade.md.
+DELIVERY_DATE_COLUMN = "delivery_date"
 
 # A time code identifies a 30-minute slot and denotes its START time in JST.
 # Time code 1 covers 00:00-00:30 and is stored as 00:00 JST (15:00 UTC the
@@ -73,12 +112,11 @@ BLOCK_COLUMNS = (
 
 
 @dataclass(frozen=True)
-class SilverUpsertResult:
-    """Outcome of upserting one silver table."""
+class SilverWriteResult:
+    """Outcome of writing one silver table."""
 
     table_identifier: str
-    rows_updated: int
-    rows_inserted: int
+    rows_written: int
 
 
 @dataclass(frozen=True)
@@ -86,7 +124,7 @@ class BronzeToSilverResult:
     """Outcome of one bronze-to-silver run."""
 
     execution_id: str
-    upserts: list[SilverUpsertResult]
+    writes: list[SilverWriteResult]
     dropped_row_count: int
 
 
@@ -331,22 +369,109 @@ def _align_to_target_schema(frame: pl.DataFrame, target_field_names: list[str]):
     return aligned.select(target_field_names)
 
 
-def upsert_silver_table(
+def resolve_staged_delivery_range(
+    conn: duckdb.DuckDBPyConnection,
+) -> tuple[date, date] | None:
+    """Return the delivery date bounds of the staged rows that passed validation."""
+    row = conn.execute(f"""
+        SELECT min(delivery_date), max(delivery_date)
+        FROM {STAGING_RELATION}
+        WHERE len(violations) = 0
+    """).fetchone()
+    if row is None or row[0] is None:
+        return None
+    return row[0], row[1]
+
+
+def delivery_date_bound(
+    predicate: type[LiteralPredicate], boundary: date
+) -> BooleanExpression:
+    """Build one delivery-date comparison against ``boundary``.
+
+    PyIceberg predicates accept a column name and a plain Python value at
+    runtime, but pyright type-checks the ``__init__`` Pydantic synthesizes from
+    the model fields rather than the hand-written one, and rejects both
+    arguments. Wrapping the call keeps that suppression to a single site.
+    """
+    return predicate(DELIVERY_DATE_COLUMN, boundary)  # pyright: ignore[reportCallIssue]
+
+
+def build_delivery_window(
+    *,
+    fiscal_year: int | None,
+    staged_range: tuple[date, date] | None,
+) -> BooleanExpression | None:
+    """Build the predicate identifying the silver rows this run replaces.
+
+    A fiscal year spans April 1 through the following March 31, so scoping to
+    it clears any stale row in that window even when the new snapshot covers
+    fewer days. Without a fiscal year the window falls back to exactly what was
+    staged, which keeps a full-refresh run from touching anything it did not
+    rebuild.
+    """
+    if fiscal_year is not None:
+        return And(
+            left=delivery_date_bound(
+                GreaterThanOrEqual, date(fiscal_year, FISCAL_YEAR_START_MONTH, 1)
+            ),
+            right=delivery_date_bound(
+                LessThan, date(fiscal_year + 1, FISCAL_YEAR_START_MONTH, 1)
+            ),
+        )
+    if staged_range is None:
+        return None
+    earliest, latest = staged_range
+    return And(
+        left=delivery_date_bound(GreaterThanOrEqual, earliest),
+        right=delivery_date_bound(LessThanOrEqual, latest),
+    )
+
+
+def ensure_unique_keys(
+    frame: pl.DataFrame,
+    *,
+    key_cols: tuple[str, ...],
+    table_identifier: str,
+) -> None:
+    """Reject frames holding more than one row per business key.
+
+    ``upsert()`` refused duplicate source keys outright. Replacing a window
+    would instead write them straight through, so the guard has to be explicit
+    now that the write no longer performs the match itself.
+    """
+    duplicate_count = frame.height - frame.select(key_cols).n_unique()
+    if duplicate_count:
+        raise ValueError(
+            f"Refusing to write {table_identifier}: found {duplicate_count} "
+            f"duplicate rows for key {key_cols}"
+        )
+
+
+def write_silver_table(
     catalog: Catalog,
     *,
     table_identifier: str,
     schema_path: str,
     frame: pl.DataFrame,
-    join_cols: tuple[str, ...],
+    key_cols: tuple[str, ...],
+    overwrite_filter: BooleanExpression | None,
     execution_id: str,
-) -> SilverUpsertResult:
-    """Upsert one silver table, stamping the audit columns on the way in."""
+) -> SilverWriteResult:
+    """Replace one silver table's target window, stamping the audit columns."""
     provision_table(catalog, table_identifier, schema_path)
     table = catalog.load_table(table_identifier)
 
     if frame.is_empty():
         logger.info("Skipped %s because there are no valid rows", table_identifier)
-        return SilverUpsertResult(table_identifier, rows_updated=0, rows_inserted=0)
+        return SilverWriteResult(table_identifier, rows_written=0)
+
+    ensure_unique_keys(frame, key_cols=key_cols, table_identifier=table_identifier)
+
+    if overwrite_filter is None:
+        raise ValueError(
+            f"Refusing to write {table_identifier} without a delivery window; "
+            "a non-empty frame must always resolve to one"
+        )
 
     stamped = add_metadata(
         frame.with_columns(pl.lit(SILVER_STATUS_LOADED).alias("status")),
@@ -355,20 +480,20 @@ def upsert_silver_table(
 
     target_schema = table.schema().as_arrow()
     aligned = _align_to_target_schema(stamped, [field.name for field in target_schema])
-    result = table.upsert(
-        aligned.to_arrow().cast(target_schema), join_cols=list(join_cols)
+    table.overwrite(
+        aligned.to_arrow().cast(target_schema),
+        overwrite_filter=overwrite_filter,
     )
 
+    row_count = aligned.height
     logger.info(
-        "Upserted %s: updated=%s, inserted=%s",
+        "Replaced the target window of %s with %s rows",
         table_identifier,
-        result.rows_updated,
-        result.rows_inserted,
+        row_count,
     )
-    return SilverUpsertResult(
+    return SilverWriteResult(
         table_identifier=table_identifier,
-        rows_updated=result.rows_updated,
-        rows_inserted=result.rows_inserted,
+        rows_written=row_count,
     )
 
 
@@ -395,10 +520,19 @@ def run_bronze_to_silver_jepx_spot_price(
         dropped_row_count = count_dropped_rows(conn)
         if dropped_row_count:
             logger.warning(
-                "Excluded %s invalid rows from silver: %s",
+                (
+                    "Dropped %s invalid rows; their delivery keys are removed "
+                    "from silver because the window is replaced by the valid "
+                    "rows alone: %s"
+                ),
                 dropped_row_count,
                 summarize_violations(conn),
             )
+
+        overwrite_filter = build_delivery_window(
+            fiscal_year=fiscal_year,
+            staged_range=resolve_staged_delivery_range(conn),
+        )
 
         targets = (
             (
@@ -418,23 +552,34 @@ def run_bronze_to_silver_jepx_spot_price(
             ),
         )
 
-        upserts = [
-            upsert_silver_table(
+        # Each table is replaced in its own transaction, so a key collision
+        # discovered while writing the third target would leave the first two
+        # already rebuilt against the new snapshot. Validate every frame before
+        # touching any table.
+        for identifier, key_cols, frame in targets:
+            if not frame.is_empty():
+                ensure_unique_keys(
+                    frame, key_cols=key_cols, table_identifier=identifier
+                )
+
+        writes = [
+            write_silver_table(
                 catalog,
                 table_identifier=identifier,
                 schema_path=f"{schema_dir}/{identifier.split('.')[-1]}.csv",
                 frame=frame,
-                join_cols=join_cols,
+                key_cols=key_cols,
+                overwrite_filter=overwrite_filter,
                 execution_id=run_execution_id,
             )
-            for identifier, join_cols, frame in targets
+            for identifier, key_cols, frame in targets
         ]
     finally:
         conn.close()
 
     return BronzeToSilverResult(
         execution_id=run_execution_id,
-        upserts=upserts,
+        writes=writes,
         dropped_row_count=dropped_row_count,
     )
 
@@ -462,7 +607,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fiscal-year",
         type=int,
-        help="Limit the run to one fiscal year (default: upsert every year)",
+        help="Limit the run to one fiscal year (default: rebuild every year)",
     )
     return parser
 
@@ -483,12 +628,11 @@ def main() -> None:
     )
 
     logger.info("JEPX bronze-to-silver summary (execution_id=%s):", result.execution_id)
-    for upsert in result.upserts:
+    for write in result.writes:
         logger.info(
-            " - table=%s, updated=%s, inserted=%s",
-            upsert.table_identifier,
-            upsert.rows_updated,
-            upsert.rows_inserted,
+            " - table=%s, written=%s",
+            write.table_identifier,
+            write.rows_written,
         )
     logger.info(" - dropped rows: %s", result.dropped_row_count)
 

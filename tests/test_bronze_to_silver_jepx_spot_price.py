@@ -8,19 +8,31 @@ Iceberg catalog. Only the ``integration`` marked tests touch real storage.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import cast
 
 import duckdb
 import polars as pl
+import pyarrow as pa
 import pytest
+from pyiceberg.catalog import Catalog
+from pyiceberg.expressions import And, GreaterThanOrEqual, LessThan, LessThanOrEqual
 
+from common.pipeline_utilities import add_metadata
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
+    SILVER_STATUS_LOADED,
+    build_delivery_window,
     build_staging_relation,
     count_dropped_rows,
+    delivery_date_bound,
+    ensure_unique_keys,
     extract_area_frame,
     extract_base_frame,
     extract_block_frame,
+    resolve_staged_delivery_range,
+    write_silver_table,
 )
 
 AREA_SUFFIXES = (
@@ -300,3 +312,262 @@ def test_source_data_is_carried_into_silver(conn) -> None:
 
     # Assert
     assert frame["source_data"][0] == "raw/jepx/spot.csv.gz"
+
+
+# --- Silver write path -------------------------------------------------------
+#
+# The write path replaces a delivery window wholesale instead of upserting row
+# by row. PyIceberg's upsert() builds a match predicate over every join key in
+# the source frame, which crashed the process once the area table reached a few
+# million rows. The staging relation already holds the complete, deduplicated
+# set of rows for the target window, so replacing that window is equivalent and
+# does not scale with table size.
+
+
+class _FakeTable:
+    """Iceberg table stand-in that records how it was written to."""
+
+    def __init__(self, schema: pa.Schema) -> None:
+        self._schema = schema
+        self.overwrite_calls: list[tuple[pa.Table, object]] = []
+
+    def schema(self) -> SimpleNamespace:
+        return SimpleNamespace(as_arrow=lambda: self._schema)
+
+    def overwrite(self, df: pa.Table, overwrite_filter: object = None, **_: object):
+        self.overwrite_calls.append((df, overwrite_filter))
+
+    def upsert(self, *_: object, **__: object):
+        raise AssertionError("upsert must not be used by the silver write path")
+
+
+class _FakeCatalog:
+    def __init__(self, table: _FakeTable) -> None:
+        self._table = table
+
+    def load_table(self, _identifier: str) -> _FakeTable:
+        return self._table
+
+
+def _silver_frame(rows: int = 2) -> pl.DataFrame:
+    """Build a silver-shaped frame the way the extract_* helpers would."""
+    return pl.DataFrame(
+        {
+            "delivery_date": [date(2026, 4, 1)] * rows,
+            "time_code": list(range(1, rows + 1)),
+            "system_price": [Decimal("10.000")] * rows,
+            "source_data": ["raw/jepx/spot.csv.gz"] * rows,
+        }
+    )
+
+
+def _target_schema_for(frame: pl.DataFrame) -> pa.Schema:
+    """Derive the schema the silver table would expose for this frame."""
+    stamped = add_metadata(
+        frame.with_columns(pl.lit(SILVER_STATUS_LOADED).alias("status")),
+        execution_id="exec-1",
+    )
+    return stamped.to_arrow().schema
+
+
+@pytest.fixture(autouse=True)
+def _stub_provision_table(monkeypatch) -> None:
+    """provision_table talks to a real catalog, which unit tests must not do."""
+    monkeypatch.setattr(
+        "pipeline.silver.bronze_to_silver_jepx_spot_price.provision_table",
+        lambda *_, **__: None,
+    )
+
+
+def test_build_delivery_window_covers_the_whole_fiscal_year() -> None:
+    """A fiscal year window runs April 1 through the following March 31."""
+    # Arrange / Act
+    window = build_delivery_window(fiscal_year=2026, staged_range=None)
+
+    # Assert
+    assert window == And(
+        left=delivery_date_bound(GreaterThanOrEqual, date(2026, 4, 1)),
+        right=delivery_date_bound(LessThan, date(2027, 4, 1)),
+    )
+
+
+def test_build_delivery_window_falls_back_to_the_staged_range() -> None:
+    """Without a fiscal year the window covers exactly what was staged."""
+    # Arrange
+    staged_range = (date(2005, 4, 2), date(2026, 8, 9))
+
+    # Act
+    window = build_delivery_window(fiscal_year=None, staged_range=staged_range)
+
+    # Assert
+    assert window == And(
+        left=delivery_date_bound(GreaterThanOrEqual, date(2005, 4, 2)),
+        right=delivery_date_bound(LessThanOrEqual, date(2026, 8, 9)),
+    )
+
+
+def test_build_delivery_window_is_none_when_nothing_was_staged() -> None:
+    """No staged rows means there is no window to replace."""
+    # Arrange / Act
+    window = build_delivery_window(fiscal_year=None, staged_range=None)
+
+    # Assert
+    assert window is None
+
+
+def test_resolve_staged_delivery_range_returns_valid_row_bounds(conn) -> None:
+    """The staged range spans only rows that passed validation."""
+    # Arrange
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(delivery_date="2024/04/01"),
+            _bronze_row(delivery_date="2024/04/05"),
+            _bronze_row(delivery_date="2024/04/09", time_code="0"),
+        ],
+    )
+
+    # Act
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    staged_range = resolve_staged_delivery_range(conn)
+
+    # Assert
+    assert staged_range == (date(2024, 4, 1), date(2024, 4, 5))
+
+
+def test_resolve_staged_delivery_range_is_none_without_valid_rows(conn) -> None:
+    """An all-invalid staging relation yields no range."""
+    # Arrange
+    _register_bronze(conn, [_bronze_row(time_code="0")])
+
+    # Act
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+
+    # Assert
+    assert resolve_staged_delivery_range(conn) is None
+
+
+def test_write_silver_table_replaces_the_target_window() -> None:
+    """The write path overwrites the delivery window rather than upserting."""
+    # Arrange
+    frame = _silver_frame()
+    table = _FakeTable(_target_schema_for(frame))
+    window = build_delivery_window(fiscal_year=2026, staged_range=None)
+
+    # Act
+    result = write_silver_table(
+        cast(Catalog, _FakeCatalog(table)),
+        table_identifier="silver.jepx_spot_price_base",
+        schema_path="/unused.csv",
+        frame=frame,
+        key_cols=("delivery_date", "time_code"),
+        overwrite_filter=window,
+        execution_id="exec-1",
+    )
+
+    # Assert
+    assert len(table.overwrite_calls) == 1
+    written, overwrite_filter = table.overwrite_calls[0]
+    assert overwrite_filter == window
+    assert written.num_rows == 2
+    assert result.rows_written == 2
+
+
+def test_write_silver_table_stamps_status_and_execution_id() -> None:
+    """Rows carry the loaded status and the run's execution id."""
+    # Arrange
+    frame = _silver_frame()
+    table = _FakeTable(_target_schema_for(frame))
+
+    # Act
+    write_silver_table(
+        cast(Catalog, _FakeCatalog(table)),
+        table_identifier="silver.jepx_spot_price_base",
+        schema_path="/unused.csv",
+        frame=frame,
+        key_cols=("delivery_date", "time_code"),
+        overwrite_filter=build_delivery_window(fiscal_year=2026, staged_range=None),
+        execution_id="exec-42",
+    )
+
+    # Assert
+    written = table.overwrite_calls[0][0].to_pydict()
+    assert set(written["status"]) == {SILVER_STATUS_LOADED}
+    assert set(written["execution_id"]) == {"exec-42"}
+
+
+def test_write_silver_table_skips_empty_frame_without_deleting() -> None:
+    """An empty frame must not wipe the window it would have replaced."""
+    # Arrange
+    frame = _silver_frame(rows=0)
+    table = _FakeTable(_target_schema_for(_silver_frame()))
+
+    # Act
+    result = write_silver_table(
+        cast(Catalog, _FakeCatalog(table)),
+        table_identifier="silver.jepx_spot_price_base",
+        schema_path="/unused.csv",
+        frame=frame,
+        key_cols=("delivery_date", "time_code"),
+        overwrite_filter=build_delivery_window(fiscal_year=2026, staged_range=None),
+        execution_id="exec-1",
+    )
+
+    # Assert
+    assert table.overwrite_calls == []
+    assert result.rows_written == 0
+
+
+def test_write_silver_table_rejects_duplicate_business_keys() -> None:
+    """upsert() used to reject duplicate keys; overwrite must keep that guard."""
+    # Arrange
+    frame = pl.DataFrame(
+        {
+            "delivery_date": [date(2026, 4, 1), date(2026, 4, 1)],
+            "time_code": [1, 1],
+            "system_price": [Decimal("10.000"), Decimal("11.000")],
+            "source_data": ["raw/a.csv.gz", "raw/a.csv.gz"],
+        }
+    )
+    table = _FakeTable(_target_schema_for(frame))
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="duplicate"):
+        write_silver_table(
+            cast(Catalog, _FakeCatalog(table)),
+            table_identifier="silver.jepx_spot_price_base",
+            schema_path="/unused.csv",
+            frame=frame,
+            key_cols=("delivery_date", "time_code"),
+            overwrite_filter=build_delivery_window(fiscal_year=2026, staged_range=None),
+            execution_id="exec-1",
+        )
+    assert table.overwrite_calls == []
+
+
+def test_ensure_unique_keys_accepts_distinct_keys() -> None:
+    """Distinct business keys pass the guard untouched."""
+    # Arrange
+    frame = _silver_frame()
+
+    # Act / Assert
+    ensure_unique_keys(
+        frame, key_cols=("delivery_date", "time_code"), table_identifier="silver.t"
+    )
+
+
+def test_area_rows_are_unique_per_area(conn) -> None:
+    """The area frame's business key includes area_name, so rows stay unique."""
+    # Arrange
+    _register_bronze(conn, [_bronze_row()])
+
+    # Act
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = extract_area_frame(conn)
+
+    # Assert
+    ensure_unique_keys(
+        frame,
+        key_cols=("delivery_date", "time_code", "area_name"),
+        table_identifier="silver.jepx_spot_price_area",
+    )
