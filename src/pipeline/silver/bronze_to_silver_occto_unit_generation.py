@@ -8,6 +8,8 @@ the affected target_date window in the silver table.
 
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
 from datetime import date
 
 import duckdb
@@ -20,7 +22,12 @@ from pyiceberg.expressions import (
     LiteralPredicate,
 )
 
-from common.silver_write import column_bound
+from common.duckdb_utils import create_duckdb_connection
+from common.iceberg import get_catalog
+from common.silver_write import SilverWriteResult, column_bound, write_silver_table
+from common.utilities import gen_uuid
+
+logger = logging.getLogger(__name__)
 
 STAGING_RELATION = "occto_silver_staging"
 
@@ -101,17 +108,34 @@ def _build_violation_expression() -> str:
     return f"list_filter([\n            {joined}\n        ], x -> x IS NOT NULL)"
 
 
+def _build_target_date_filter(from_date: date | None, to_date: date | None) -> str:
+    """Build the WHERE clause that narrows a run to a target_date range."""
+    conditions = []
+    if from_date is not None:
+        conditions.append(f"target_date_d >= DATE '{from_date.isoformat()}'")
+    if to_date is not None:
+        conditions.append(f"target_date_d <= DATE '{to_date.isoformat()}'")
+    if not conditions:
+        return ""
+    return "WHERE " + " AND ".join(conditions)
+
+
 def build_staging_relation(
     conn: duckdb.DuckDBPyConnection,
     *,
     source_relation: str,
+    from_date: date | None = None,
+    to_date: date | None = None,
 ) -> None:
     """Cast, deduplicate and validate bronze rows into a staging relation.
 
     ``source_relation`` is a relation name so that tests can pass a locally
-    registered frame in place of ``iceberg_scan``. The timeslot unpivot is
-    added in a later step; this stage stops at one row per business key
-    with a ``violations`` column recording why it should not be written.
+    registered frame in place of ``iceberg_scan``. ``from_date``/``to_date``
+    narrow the scan the same way JEPX's ``fiscal_year`` filter does, cutting
+    the amount of bronze DuckDB has to read for a scoped run. The timeslot
+    unpivot happens separately in extract_unit_generation_frame(); this stage
+    stops at one row per business key with a ``violations`` column recording
+    why it should not be written.
     """
     passthrough = ",\n    ".join((*TIMESLOT_COLUMNS, "daily_amount"))
     key_columns = ", ".join(NATURAL_KEY_COLUMNS)
@@ -128,6 +152,7 @@ typed AS (
 deduplicated AS (
     SELECT *
     FROM typed
+    {_build_target_date_filter(from_date, to_date)}
     QUALIFY ROW_NUMBER() OVER (
         PARTITION BY {key_columns}
         ORDER BY updated_datetime_ts DESC NULLS LAST,
@@ -320,4 +345,99 @@ def build_target_date_window(
     return And(
         left=target_date_bound(GreaterThanOrEqual, earliest),
         right=target_date_bound(LessThanOrEqual, latest),
+    )
+
+
+DEFAULT_CATALOG_NAME = "dlh_dev"
+DEFAULT_BRONZE_LOCATION = "s3://jp-power-grid-dev/bronze/occto_unit_generation_actuals"
+DEFAULT_SILVER_SCHEMA_DIR = "/workspace/configuration/iceberg/schema/silver"
+DEFAULT_SILVER_TABLE = "silver.occto_unit_generation_actuals"
+
+SILVER_KEY_COLUMNS = ("power_plant_code", "unit_name", "target_date", "time_code")
+
+
+@dataclass(frozen=True)
+class OcctoBronzeToSilverResult:
+    """Outcome of one OCCTO bronze-to-silver run."""
+
+    execution_id: str
+    write: SilverWriteResult
+    dropped_row_count: int
+    daily_amount_mismatch: dict[str, int]
+
+
+def run_bronze_to_silver_occto_unit_generation(
+    *,
+    catalog_name: str = DEFAULT_CATALOG_NAME,
+    bronze_location: str = DEFAULT_BRONZE_LOCATION,
+    schema_dir: str = DEFAULT_SILVER_SCHEMA_DIR,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    execution_id: str | None = None,
+) -> OcctoBronzeToSilverResult:
+    """Run the full bronze-to-silver transformation for OCCTO unit generation.
+
+    Unlike JEPX's three-way table split, OCCTO writes a single long table,
+    so there is only one write() call and one key tuple.
+    """
+    run_execution_id = execution_id or gen_uuid()
+    catalog = get_catalog(catalog_name)
+
+    conn = create_duckdb_connection()
+    try:
+        build_staging_relation(
+            conn,
+            source_relation=f"iceberg_scan('{bronze_location}')",
+            from_date=from_date,
+            to_date=to_date,
+        )
+
+        dropped_row_count = count_dropped_rows(conn)
+        if dropped_row_count:
+            logger.warning(
+                (
+                    "Dropped %s invalid rows; their keys are removed from "
+                    "silver because the window is replaced by the valid "
+                    "rows alone: %s"
+                ),
+                dropped_row_count,
+                summarize_violations(conn),
+            )
+
+        daily_amount_mismatch = summarize_daily_amount_mismatches(conn)
+        if daily_amount_mismatch["mismatch_count"]:
+            logger.warning(
+                (
+                    "daily_amount mismatch for %s staged rows (max deviation "
+                    "%s kWh); rows are kept, this is a quality signal only"
+                ),
+                daily_amount_mismatch["mismatch_count"],
+                daily_amount_mismatch["max_deviation"],
+            )
+
+        frame = extract_unit_generation_frame(conn)
+
+        overwrite_filter = build_target_date_window(
+            from_date=from_date,
+            to_date=to_date,
+            staged_range=resolve_staged_target_date_range(frame),
+        )
+
+        write = write_silver_table(
+            catalog,
+            table_identifier=DEFAULT_SILVER_TABLE,
+            schema_path=f"{schema_dir}/occto_unit_generation_actuals.csv",
+            frame=frame,
+            key_cols=SILVER_KEY_COLUMNS,
+            overwrite_filter=overwrite_filter,
+            execution_id=run_execution_id,
+        )
+    finally:
+        conn.close()
+
+    return OcctoBronzeToSilverResult(
+        execution_id=run_execution_id,
+        write=write,
+        dropped_row_count=dropped_row_count,
+        daily_amount_mismatch=daily_amount_mismatch,
     )

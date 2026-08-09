@@ -222,6 +222,43 @@ def test_keeps_latest_row_per_natural_key(conn) -> None:
     assert frame["timeslot_00_30"][0] == 200
 
 
+def test_from_date_and_to_date_narrow_the_scanned_rows(conn) -> None:
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(target_date="2026/08/05"),
+            _bronze_row(unit_name="2号機", target_date="2026/08/07"),
+            _bronze_row(unit_name="3号機", target_date="2026/08/09"),
+        ],
+    )
+
+    build_staging_relation(
+        conn,
+        source_relation=SOURCE_RELATION,
+        from_date=date(2026, 8, 6),
+        to_date=date(2026, 8, 8),
+    )
+    frame = _staged(conn)
+
+    assert frame.height == 1
+    assert frame["unit_name"][0] == "2号機"
+
+
+def test_without_date_range_all_rows_are_staged(conn) -> None:
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(target_date="2026/08/05"),
+            _bronze_row(unit_name="2号機", target_date="2026/08/09"),
+        ],
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = _staged(conn)
+
+    assert frame.height == 2
+
+
 def test_dedup_is_scoped_per_unit_not_just_per_plant(conn) -> None:
     """Two distinct units at the same plant/date must both survive dedup;
     this is the Phase 3-4 bug this natural key exists to prevent."""
