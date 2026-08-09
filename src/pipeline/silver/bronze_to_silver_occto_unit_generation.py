@@ -8,10 +8,23 @@ the affected target_date window in the silver table.
 
 from __future__ import annotations
 
+from datetime import date
+
 import duckdb
 import polars as pl
+from pyiceberg.expressions import (
+    And,
+    BooleanExpression,
+    GreaterThanOrEqual,
+    LessThanOrEqual,
+    LiteralPredicate,
+)
+
+from common.silver_write import column_bound
 
 STAGING_RELATION = "occto_silver_staging"
+
+TARGET_DATE_COLUMN = "target_date"
 
 # A time code identifies a 30-minute slot and denotes its START time in JST.
 # Time code 1 covers 00:00-00:30 and is stored as 00:00 JST (15:00 UTC the
@@ -256,3 +269,55 @@ def summarize_daily_amount_mismatches(
         "mismatch_count": int(mismatch_count or 0),
         "max_deviation": int(max_deviation or 0),
     }
+
+
+def target_date_bound(
+    predicate: type[LiteralPredicate],
+    boundary: date,
+) -> BooleanExpression:
+    """Build one target_date comparison against ``boundary``."""
+    return column_bound(TARGET_DATE_COLUMN, predicate, boundary)
+
+
+def resolve_staged_target_date_range(
+    frame: pl.DataFrame,
+) -> tuple[date, date] | None:
+    """Return the target_date bounds of the extracted (already-valid) frame.
+
+    Unlike JEPX, which queries the DuckDB staging relation directly, OCCTO
+    only ever produces one output frame, so the range is read straight off
+    it after extract_unit_generation_frame() has already dropped invalid
+    rows.
+    """
+    if frame.is_empty():
+        return None
+    column = frame[TARGET_DATE_COLUMN]
+    return column.min(), column.max()  # pyright: ignore[reportReturnType]
+
+
+def build_target_date_window(
+    *,
+    from_date: date | None,
+    to_date: date | None,
+    staged_range: tuple[date, date] | None,
+) -> BooleanExpression | None:
+    """Build the predicate identifying the silver rows this run replaces.
+
+    An explicit --from-date (with --to-date defaulting to the same day)
+    always wins, so a backfill can clear a range even where it produced no
+    valid staged rows. Without one, the window falls back to exactly what
+    was staged, keeping a run from touching anything it did not rebuild.
+    """
+    if from_date is not None:
+        upper = to_date or from_date
+        return And(
+            left=target_date_bound(GreaterThanOrEqual, from_date),
+            right=target_date_bound(LessThanOrEqual, upper),
+        )
+    if staged_range is None:
+        return None
+    earliest, latest = staged_range
+    return And(
+        left=target_date_bound(GreaterThanOrEqual, earliest),
+        right=target_date_bound(LessThanOrEqual, latest),
+    )

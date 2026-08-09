@@ -9,21 +9,25 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import duckdb
 import polars as pl
 import pytest
+from pyiceberg.expressions import And, GreaterThanOrEqual, LessThanOrEqual
 
 from pipeline.silver.bronze_to_silver_occto_unit_generation import (
     STAGING_RELATION,
     TIMESLOT_COLUMNS,
     build_staging_relation,
+    build_target_date_window,
     count_dropped_rows,
     extract_unit_generation_frame,
+    resolve_staged_target_date_range,
     summarize_daily_amount_mismatches,
     summarize_violations,
+    target_date_bound,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -482,3 +486,74 @@ def test_daily_amount_mismatch_does_not_drop_the_row(conn) -> None:
     frame = extract_unit_generation_frame(conn)
 
     assert frame.height == 48
+
+
+# ---------------------------------------------------------------------------
+# window resolution for the write path (Step 4-8)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_staged_target_date_range_returns_min_and_max(conn) -> None:
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(target_date="2026/08/05"),
+            _bronze_row(unit_name="2号機", target_date="2026/08/07"),
+        ],
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = extract_unit_generation_frame(conn)
+
+    staged_range = resolve_staged_target_date_range(frame)
+
+    assert staged_range == (date(2026, 8, 5), date(2026, 8, 7))
+
+
+def test_resolve_staged_target_date_range_is_none_for_empty_frame() -> None:
+    empty = pl.DataFrame({"target_date": pl.Series([], dtype=pl.Date)})
+
+    assert resolve_staged_target_date_range(empty) is None
+
+
+def test_build_target_date_window_uses_explicit_range() -> None:
+    window = build_target_date_window(
+        from_date=date(2026, 8, 1),
+        to_date=date(2026, 8, 7),
+        staged_range=None,
+    )
+
+    assert window == And(
+        left=target_date_bound(GreaterThanOrEqual, date(2026, 8, 1)),
+        right=target_date_bound(LessThanOrEqual, date(2026, 8, 7)),
+    )
+
+
+def test_build_target_date_window_treats_missing_to_date_as_single_day() -> None:
+    window = build_target_date_window(
+        from_date=date(2026, 8, 7), to_date=None, staged_range=None
+    )
+
+    assert window == And(
+        left=target_date_bound(GreaterThanOrEqual, date(2026, 8, 7)),
+        right=target_date_bound(LessThanOrEqual, date(2026, 8, 7)),
+    )
+
+
+def test_build_target_date_window_falls_back_to_staged_range() -> None:
+    staged_range = (date(2026, 8, 1), date(2026, 8, 3))
+
+    window = build_target_date_window(
+        from_date=None, to_date=None, staged_range=staged_range
+    )
+
+    assert window == And(
+        left=target_date_bound(GreaterThanOrEqual, date(2026, 8, 1)),
+        right=target_date_bound(LessThanOrEqual, date(2026, 8, 3)),
+    )
+
+
+def test_build_target_date_window_is_none_without_dates_or_staged_range() -> None:
+    window = build_target_date_window(from_date=None, to_date=None, staged_range=None)
+
+    assert window is None
