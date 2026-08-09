@@ -1,6 +1,5 @@
 import argparse
 import logging
-import os
 import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -22,9 +21,8 @@ from pipeline.raw.source_to_raw_jepx_spot_price import (
     scrape_jepx_to_rustfs,
 )
 from pipeline.raw.source_to_raw_occto import (
-    OCCTOUnitGenerationConfig,
     OCCTOUnitGenerationScraper,
-    scrape_occto_to_rustfs,
+    scrape_occto_unit_generation_raw,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     DEFAULT_BRONZE_LOCATION,
@@ -341,25 +339,11 @@ def main():
         help="Target date in YYYY-MM-DD (default: previous day in Asia/Tokyo)",
     )
     occto_scrape_parser.add_argument(
-        "--download-url",
+        "--to-date",
         help=(
-            "OCCTO CSV download endpoint URL "
-            "(default: OCCTO_DOWNLOAD_CSV_URL environment variable)"
+            "End of target date range in YYYY-MM-DD for a multi-day fetch "
+            "(default: same as --target-date, i.e. a single day)"
         ),
-    )
-    occto_scrape_parser.add_argument(
-        "--referer",
-        help="Optional Referer header value",
-    )
-    occto_scrape_parser.add_argument(
-        "--date-param-name",
-        default="targetDate",
-        help="Query parameter name used for target date (default: targetDate)",
-    )
-    occto_scrape_parser.add_argument(
-        "--date-format",
-        default="%Y-%m-%d",
-        help="Date format for query parameter and file name (default: %%Y-%%m-%%d)",
     )
 
     silver_parser = subparsers.add_parser(
@@ -629,43 +613,45 @@ def main():
         )
 
     if args.command == "scrape-occto":
-        download_url = args.download_url or os.getenv("OCCTO_DOWNLOAD_CSV_URL")
-        if not download_url:
-            parser.error(
-                "OCCTO download URL is required. "
-                "Provide --download-url or set OCCTO_DOWNLOAD_CSV_URL."
-            )
-
         if args.target_date:
             try:
-                target_date = date.fromisoformat(args.target_date)
+                from_date = date.fromisoformat(args.target_date)
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
         else:
             jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
-            target_date = (jst_now - timedelta(days=1)).date()
+            from_date = (jst_now - timedelta(days=1)).date()
+
+        to_date = None
+        if args.to_date:
+            try:
+                to_date = date.fromisoformat(args.to_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
 
         rustfs = RustFSClient()
-        scraper_config = OCCTOUnitGenerationConfig(
-            base_url=download_url,
-            referer=args.referer,
-            date_param_name=args.date_param_name,
-            date_format=args.date_format,
-        )
-        scraper = OCCTOUnitGenerationScraper(config=scraper_config)
+        scraper = OCCTOUnitGenerationScraper()
         try:
-            result = scrape_occto_to_rustfs(
+            result = scrape_occto_unit_generation_raw(
                 storage_client=rustfs,
                 scraper=scraper,
                 bucket_name=args.bucket,
-                target_at=target_date,
+                from_date=from_date,
+                to_date=to_date,
             )
-            logger.info(
-                "Uploaded OCCTO raw file to s3://%s/%s (%s bytes)",
-                result.bucket_name,
-                result.object_key,
-                result.size_bytes,
-            )
+            if result.skipped:
+                logger.info(
+                    "OCCTO scrape skipped (no change): target_date=%s, sha256=%.8s",
+                    result.from_date,
+                    result.sha256,
+                )
+            else:
+                logger.info(
+                    "OCCTO snapshot saved: target_date=%s, sha256=%.8s, prefix=%s",
+                    result.from_date,
+                    result.sha256,
+                    result.snapshot_prefix,
+                )
         finally:
             scraper.close()
 
