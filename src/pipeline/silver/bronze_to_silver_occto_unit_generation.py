@@ -9,8 +9,16 @@ the affected target_date window in the silver table.
 from __future__ import annotations
 
 import duckdb
+import polars as pl
 
 STAGING_RELATION = "occto_silver_staging"
+
+# A time code identifies a 30-minute slot and denotes its START time in JST.
+# Time code 1 covers 00:00-00:30 and is stored as 00:00 JST (15:00 UTC the
+# previous day). Same convention and constants as JEPX's silver transform.
+SLOT_MINUTES = 30
+SLOT_OFFSET = 1
+DELIVERY_TIMEZONE = "Asia/Tokyo"
 
 # The natural key for a unit-generation record. unit_name may legitimately
 # be an empty string (Phase 0 confirmed real plants publish it that way), so
@@ -154,3 +162,68 @@ def summarize_violations(conn: duckdb.DuckDBPyConnection) -> dict[str, int]:
         ORDER BY row_count DESC
     """).fetchall()
     return {reason: int(count) for reason, count in rows}
+
+
+def _build_time_code_case_expression() -> str:
+    """Build the CASE expression mapping an unpivoted column name to time_code.
+
+    time_code is defined by TIMESLOT_COLUMNS' position (1-indexed), not by
+    parsing the column name, so this only ever has to agree with that one
+    tuple.
+    """
+    cases = "\n            ".join(
+        f"WHEN '{column}' THEN {index}"
+        for index, column in enumerate(TIMESLOT_COLUMNS, start=1)
+    )
+    return f"CASE timeslot_column\n            {cases}\n        END"
+
+
+def extract_unit_generation_frame(conn: duckdb.DuckDBPyConnection) -> pl.DataFrame:
+    """Unpivot the 48 timeslot columns into one row per 30-minute slot.
+
+    The inner SELECT narrows the columns before UNPIVOT because DuckDB
+    carries every unlisted column through, which would otherwise pull
+    daily_amount into this frame alongside the timeslot columns.
+    """
+    timeslot_columns = ", ".join(TIMESLOT_COLUMNS)
+    return conn.execute(f"""
+        WITH source AS (
+            SELECT
+                power_plant_code,
+                unit_name,
+                target_date_d,
+                updated_datetime_ts,
+                area,
+                power_plant_name,
+                power_generation_method_and_fuel_type,
+                source_data,
+                {timeslot_columns}
+            FROM {STAGING_RELATION}
+            WHERE len(violations) = 0
+        ),
+        unpivoted AS (
+            SELECT * FROM source
+            UNPIVOT (generation_kwh FOR timeslot_column IN ({timeslot_columns}))
+        ),
+        with_time_code AS (
+            SELECT
+                *,
+                {_build_time_code_case_expression()} AS time_code
+            FROM unpivoted
+        )
+        SELECT
+            power_plant_code,
+            unit_name,
+            CAST(target_date_d AS DATE) AS target_date,
+            time_code,
+            (target_date_d
+                + ((time_code - {SLOT_OFFSET}) * INTERVAL {SLOT_MINUTES} MINUTE))
+                AT TIME ZONE '{DELIVERY_TIMEZONE}' AS delivery_datetime,
+            generation_kwh,
+            area,
+            power_plant_name,
+            power_generation_method_and_fuel_type,
+            updated_datetime_ts AS updated_datetime,
+            source_data
+        FROM with_time_code
+    """).pl()

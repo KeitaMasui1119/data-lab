@@ -21,6 +21,7 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation import (
     TIMESLOT_COLUMNS,
     build_staging_relation,
     count_dropped_rows,
+    extract_unit_generation_frame,
     summarize_violations,
 )
 
@@ -338,3 +339,85 @@ def test_summarize_violations_counts_each_reason(conn) -> None:
 
     assert summary["power_plant_code_null"] == 2
     assert summary["target_date_null"] == 1
+
+
+# ---------------------------------------------------------------------------
+# extract_unit_generation_frame() — unpivot + delivery_datetime (Step 4-5)
+# ---------------------------------------------------------------------------
+
+
+def test_timeslot_00_30_maps_to_time_code_1_and_midnight_jst(conn) -> None:
+    """timeslot_00_30 covers 00:00-00:30 JST -> time_code 1 -> delivery_datetime
+    00:00 JST, which is 15:00 UTC on the previous day."""
+    _register_bronze(
+        conn, [_bronze_row(target_date="2026/08/07", **{"timeslot_00_30": "500"})]
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = extract_unit_generation_frame(conn)
+
+    row = frame.filter(pl.col("time_code") == 1)
+    assert row.height == 1
+    assert row["delivery_datetime"][0] == datetime(2026, 8, 6, 15, 0, tzinfo=UTC)
+    assert row["generation_kwh"][0] == 500
+
+
+def test_timeslot_24_00_maps_to_time_code_48_and_23_30_jst(conn) -> None:
+    """timeslot_24_00 covers 23:30-24:00 JST -> time_code 48 -> delivery_datetime
+    23:30 JST, which is 14:30 UTC the same day."""
+    _register_bronze(
+        conn, [_bronze_row(target_date="2026/08/07", **{"timeslot_24_00": "700"})]
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = extract_unit_generation_frame(conn)
+
+    row = frame.filter(pl.col("time_code") == 48)
+    assert row.height == 1
+    assert row["delivery_datetime"][0] == datetime(2026, 8, 7, 14, 30, tzinfo=UTC)
+    assert row["generation_kwh"][0] == 700
+
+
+def test_unpivot_produces_48_rows_per_valid_source_row(conn) -> None:
+    _register_bronze(conn, [_bronze_row()])
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = extract_unit_generation_frame(conn)
+
+    assert frame.height == 48
+    assert sorted(frame["time_code"].to_list()) == list(range(1, 49))
+
+
+def test_unpivot_excludes_rows_with_violations(conn) -> None:
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(),
+            _bronze_row(unit_name="無効ユニット", power_plant_code=None),
+        ],
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = extract_unit_generation_frame(conn)
+
+    assert frame.height == 48
+    assert set(frame["power_plant_code"].to_list()) == {"10001"}
+
+
+def test_unpivot_carries_attributes_and_target_date_through(conn) -> None:
+    _register_bronze(conn, [_bronze_row(target_date="2026/08/07")])
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = extract_unit_generation_frame(conn)
+
+    row = frame.filter(pl.col("time_code") == 1)
+    assert row["power_plant_code"][0] == "10001"
+    assert row["unit_name"][0] == "1号機"
+    assert row["target_date"][0] == datetime(2026, 8, 7).date()
+    assert row["area"][0] == "01"
+    assert row["power_plant_name"][0] == "テスト発電所"
+    assert row["power_generation_method_and_fuel_type"][0] == "火力・LNG"
+    assert row["source_data"][0] == (
+        "raw/occto/unit_generation/target_date=2026-08-07/file.csv"
+    )
+    assert row["updated_datetime"][0] == datetime(2026, 8, 7, 15, 30, 0)
