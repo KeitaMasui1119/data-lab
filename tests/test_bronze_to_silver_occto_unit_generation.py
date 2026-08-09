@@ -22,6 +22,7 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation import (
     build_staging_relation,
     count_dropped_rows,
     extract_unit_generation_frame,
+    summarize_daily_amount_mismatches,
     summarize_violations,
 )
 
@@ -421,3 +422,63 @@ def test_unpivot_carries_attributes_and_target_date_through(conn) -> None:
         "raw/occto/unit_generation/target_date=2026-08-07/file.csv"
     )
     assert row["updated_datetime"][0] == datetime(2026, 8, 7, 15, 30, 0)
+
+
+# ---------------------------------------------------------------------------
+# daily_amount quality check (Step 4-6) — warn only, never drops rows
+# ---------------------------------------------------------------------------
+
+
+def test_daily_amount_mismatch_is_counted_with_its_deviation(conn) -> None:
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(
+                **{"timeslot_00_30": "100", "timeslot_01_00": "200"},
+                daily_amount="250",
+            )
+        ],
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    summary = summarize_daily_amount_mismatches(conn)
+
+    assert summary["mismatch_count"] == 1
+    assert summary["max_deviation"] == 50
+
+
+def test_daily_amount_match_reports_no_mismatches(conn) -> None:
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(
+                **{"timeslot_00_30": "100", "timeslot_01_00": "200"},
+                daily_amount="300",
+            )
+        ],
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    summary = summarize_daily_amount_mismatches(conn)
+
+    assert summary["mismatch_count"] == 0
+    assert summary["max_deviation"] == 0
+
+
+def test_daily_amount_mismatch_does_not_drop_the_row(conn) -> None:
+    """A daily_amount mismatch is a quality signal only; the row must still
+    reach the long output (docs/tasks/plan_occto_pipeline.md 4-5)."""
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(
+                **{"timeslot_00_30": "100", "timeslot_01_00": "200"},
+                daily_amount="999999",
+            )
+        ],
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = extract_unit_generation_frame(conn)
+
+    assert frame.height == 48

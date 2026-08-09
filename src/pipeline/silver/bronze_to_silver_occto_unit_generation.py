@@ -227,3 +227,32 @@ def extract_unit_generation_frame(conn: duckdb.DuckDBPyConnection) -> pl.DataFra
             source_data
         FROM with_time_code
     """).pl()
+
+
+def summarize_daily_amount_mismatches(
+    conn: duckdb.DuckDBPyConnection,
+) -> dict[str, int]:
+    """Compare each staged row's 48-slot sum against its reported daily_amount.
+
+    This is a quality signal only (docs/tasks/plan_occto_pipeline.md 4-5):
+    OCCTO's published daily total can diverge slightly from the sum of its
+    own slots, and dropping rows over that would lose real generation data
+    for a cosmetic reconciliation issue. Callers log the result; no row is
+    ever excluded because of it.
+    """
+    timeslot_list = ", ".join(TIMESLOT_COLUMNS)
+    row = conn.execute(f"""
+        SELECT
+            count(*) FILTER (
+                WHERE list_sum([{timeslot_list}]) IS DISTINCT FROM daily_amount
+            ) AS mismatch_count,
+            max(abs(list_sum([{timeslot_list}]) - daily_amount)) AS max_deviation
+        FROM {STAGING_RELATION}
+    """).fetchone()
+    if row is None:
+        return {"mismatch_count": 0, "max_deviation": 0}
+    mismatch_count, max_deviation = row
+    return {
+        "mismatch_count": int(mismatch_count or 0),
+        "max_deviation": int(max_deviation or 0),
+    }
