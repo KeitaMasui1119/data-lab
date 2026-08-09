@@ -269,14 +269,18 @@ def main():
     )
     occto_bronze_parser.add_argument(
         "--object-key",
-        required=True,
         help="Source object key in raw layer"
-        " (e.g. raw/occto/unit_generation/ユニット別発電実績_xxx.csv)",
+        " (e.g. raw/occto/unit_generation/target_date=.../ingested_at=.../<file>.csv)."
+        " Required unless --use-ingestion-log is set",
     )
     occto_bronze_parser.add_argument(
         "--source-file-name",
-        help="Source file name stored in source_data"
-        " (default: last segment of object-key)",
+        help="Source file name stored in source_data (default: object-key in full)",
+    )
+    occto_bronze_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD. Required when --use-ingestion-log is"
+        " set and --object-key is omitted",
     )
     occto_bronze_parser.add_argument(
         "--catalog",
@@ -298,6 +302,16 @@ def main():
         "--allow-duplicate-source",
         action="store_true",
         help="Allow append even if source_data already exists",
+    )
+    occto_bronze_parser.add_argument(
+        "--use-ingestion-log",
+        action="store_true",
+        help="Resolve latest raw snapshot from metadata ingestion log",
+    )
+    occto_bronze_parser.add_argument(
+        "--require-unprocessed",
+        action="store_true",
+        help="When using ingestion log, select only unprocessed latest snapshot",
     )
 
     occto_migrate_parser = subparsers.add_parser(
@@ -575,26 +589,36 @@ def main():
             )
 
     if args.command == "ingest-occto-raw-to-bronze":
-        object_key = args.object_key
-        source_file_name = (
-            args.source_file_name or object_key.rsplit("/", maxsplit=1)[-1]
-        )
+        target_date = None
+        if args.target_date:
+            try:
+                target_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+        elif args.use_ingestion_log and args.object_key is None:
+            parser.error(
+                "--target-date is required when --use-ingestion-log is set "
+                "without --object-key"
+            )
 
         rustfs = RustFSClient()
         row_count = ingest_occto_unit_generation(
             client=rustfs,
             bucket_name=args.bucket,
-            object_key=object_key,
-            source_file_name=source_file_name,
+            object_key=args.object_key,
+            source_file_name=args.source_file_name,
             catalog_name=args.catalog,
             table_identifier=args.table,
             schema_path=args.schema_path,
             skip_if_exists=not args.allow_duplicate_source,
+            target_date=target_date,
+            use_ingestion_log=args.use_ingestion_log,
+            require_unprocessed=args.require_unprocessed,
+            update_ingestion_log_status=args.use_ingestion_log,
         )
         logger.info(
-            "Ingestion completed: table=%s, source=%s, rows=%s",
+            "Ingestion completed: table=%s, rows=%s",
             args.table,
-            source_file_name,
             row_count,
         )
 

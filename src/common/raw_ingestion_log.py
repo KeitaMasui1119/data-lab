@@ -67,6 +67,50 @@ def resolve_latest_raw_object(
     return object_key
 
 
+def resolve_latest_raw_object_by_snapshot_date(
+    client: RustFSClient,
+    bucket_name: str,
+    dataset: str,
+    snapshot_date: str,
+    require_unprocessed: bool = True,
+    log_key: str = DEFAULT_INGESTION_LOG_KEY,
+) -> str:
+    """Resolve latest raw object key for a dataset/snapshot_date from ingestion log.
+
+    Counterpart to resolve_latest_raw_object() for datasets keyed by a
+    calendar date (e.g. OCCTO unit generation) rather than a fiscal year
+    (e.g. JEPX spot price).
+    """
+    ingestion_log = load_ingestion_log(client, bucket_name, log_key=log_key)
+    if ingestion_log.is_empty():
+        raise ValueError(
+            f"Ingestion log not found or empty: s3://{bucket_name}/{log_key}"
+        )
+
+    filtered = ingestion_log.filter(
+        (pl.col("dataset") == dataset)
+        & (pl.col("snapshot_date") == snapshot_date)
+        & pl.col("is_latest")
+    )
+
+    if require_unprocessed:
+        filtered = filtered.filter(pl.col("bronze_status") != "processed")
+
+    if filtered.is_empty():
+        state_label = "unprocessed latest" if require_unprocessed else "latest"
+        raise ValueError(
+            f"No {state_label} snapshot found in ingestion log "
+            f"for snapshot_date={snapshot_date}"
+        )
+
+    latest = filtered.sort("ingested_at", descending=True).head(1)
+    object_key = latest.item(0, "file_path")
+    if not isinstance(object_key, str) or not object_key:
+        raise ValueError("Invalid file_path in ingestion log")
+
+    return object_key
+
+
 def mark_raw_object_processed(
     client: RustFSClient,
     bucket_name: str,

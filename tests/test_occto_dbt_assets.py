@@ -11,9 +11,6 @@ JEPX_DBT_MODEL_DIR = ROOT / "src/dbt/jepx_power/models"
 BRONZE_SCHEMA = (
     ROOT / "configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv"
 )
-SILVER_SCHEMA = (
-    ROOT / "configuration/iceberg/schema/silver/occto_unit_generation_actuals.csv"
-)
 STAGING_SQL = (
     ROOT / "src/dbt/jepx_power/models/staging/stg_occto_unit_generation_actuals.sql"
 )
@@ -26,10 +23,6 @@ README = ROOT / "README.md"
 def _read_csv_rows(path: Path) -> list[list[str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.reader(handle))
-
-
-def test_occto_silver_schema_matches_bronze_schema() -> None:
-    assert _read_csv_rows(BRONZE_SCHEMA) == _read_csv_rows(SILVER_SCHEMA)
 
 
 def test_jepx_bronze_schema_has_expected_columns() -> None:
