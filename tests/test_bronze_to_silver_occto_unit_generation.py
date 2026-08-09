@@ -20,6 +20,8 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation import (
     STAGING_RELATION,
     TIMESLOT_COLUMNS,
     build_staging_relation,
+    count_dropped_rows,
+    summarize_violations,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,17 +53,36 @@ def _bronze_row(**overrides: object) -> dict[str, object]:
     return row
 
 
+STRING_COLUMNS = (
+    "power_plant_code",
+    "area",
+    "power_plant_name",
+    "unit_name",
+    "power_generation_method_and_fuel_type",
+    "target_date",
+    "daily_amount",
+    "updated_datetime",
+    "source_data",
+    "status",
+    "execution_id",
+    *TIMESLOT_COLUMNS,
+)
+
+
 def _register_bronze(
     conn: duckdb.DuckDBPyConnection, rows: list[dict[str, object]]
 ) -> None:
     """Register rows as a relation that stands in for the bronze table.
 
-    unit_name is cast to Utf8 explicitly: a row with unit_name=None and no
-    other row to infer a type from would otherwise make polars type the
-    whole column as Null, which the real bronze Iceberg table (declared
-    string in its schema CSV) never does.
+    Every bronze column is cast to Utf8 explicitly: a test row with one of
+    them set to None and no other row to infer a type from would otherwise
+    make polars type the whole column as Null (or, worse, Int64), which the
+    real bronze Iceberg table -- every column declared string in its schema
+    CSV -- never does.
     """
-    frame = pl.DataFrame(rows).with_columns(pl.col("unit_name").cast(pl.Utf8))
+    frame = pl.DataFrame(rows).with_columns(
+        [pl.col(column).cast(pl.Utf8) for column in STRING_COLUMNS]
+    )
     conn.register(SOURCE_RELATION, frame)
 
 
@@ -225,3 +246,95 @@ def test_dedup_falls_back_to_ingestion_time_when_updated_datetime_tied(conn) -> 
 
     assert frame.height == 1
     assert frame["timeslot_00_30"][0] == 200
+
+
+# ---------------------------------------------------------------------------
+# validated / violations (Step 4-4)
+# ---------------------------------------------------------------------------
+
+
+def test_violations_empty_for_a_valid_row(conn) -> None:
+    _register_bronze(conn, [_bronze_row()])
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = _staged(conn)
+
+    assert frame["violations"][0].to_list() == []
+
+
+def test_violations_flags_null_target_date(conn) -> None:
+    _register_bronze(conn, [_bronze_row(target_date=None)])
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = _staged(conn)
+
+    assert "target_date_null" in frame["violations"][0].to_list()
+
+
+def test_violations_flags_null_power_plant_code(conn) -> None:
+    _register_bronze(conn, [_bronze_row(power_plant_code=None)])
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = _staged(conn)
+
+    assert "power_plant_code_null" in frame["violations"][0].to_list()
+
+
+def test_violations_flags_negative_generation_value(conn) -> None:
+    _register_bronze(conn, [_bronze_row(**{"timeslot_00_30": "-100"})])
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = _staged(conn)
+
+    assert "generation_negative" in frame["violations"][0].to_list()
+
+
+def test_violations_flags_all_timeslots_null(conn) -> None:
+    all_null = {column: None for column in TIMESLOT_COLUMNS}
+    _register_bronze(conn, [_bronze_row(**all_null)])
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = _staged(conn)
+
+    assert "all_timeslots_null" in frame["violations"][0].to_list()
+
+
+def test_violations_does_not_flag_all_timeslots_null_when_one_is_present(conn) -> None:
+    _register_bronze(conn, [_bronze_row(**{"timeslot_00_30": "0"})])
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = _staged(conn)
+
+    assert "all_timeslots_null" not in frame["violations"][0].to_list()
+
+
+def test_count_dropped_rows_counts_rows_with_violations(conn) -> None:
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(),
+            _bronze_row(power_plant_code=None),
+            _bronze_row(unit_name="別ユニット", target_date=None),
+        ],
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+
+    assert count_dropped_rows(conn) == 2
+
+
+def test_summarize_violations_counts_each_reason(conn) -> None:
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(power_plant_code=None),
+            _bronze_row(unit_name="別ユニット", power_plant_code=None),
+            _bronze_row(unit_name="別ユニット2", target_date=None),
+        ],
+    )
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    summary = summarize_violations(conn)
+
+    assert summary["power_plant_code_null"] == 2
+    assert summary["target_date_null"] == 1

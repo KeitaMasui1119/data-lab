@@ -65,17 +65,32 @@ def _build_typed_projection() -> str:
     return ",\n        ".join(expressions)
 
 
+def _build_violation_expression() -> str:
+    """Build the list expression that records why a row is not usable."""
+    timeslot_list = ", ".join(TIMESLOT_COLUMNS)
+    checks = [
+        "CASE WHEN target_date_d IS NULL THEN 'target_date_null' END",
+        "CASE WHEN power_plant_code IS NULL THEN 'power_plant_code_null' END",
+        f"CASE WHEN list_min([{timeslot_list}]) < 0 THEN 'generation_negative' END",
+        # list_min ignores NULLs and only returns NULL itself when every
+        # element is NULL, so this is true exactly when all 48 slots are.
+        f"CASE WHEN list_min([{timeslot_list}]) IS NULL THEN 'all_timeslots_null' END",
+    ]
+    joined = ",\n            ".join(checks)
+    return f"list_filter([\n            {joined}\n        ], x -> x IS NOT NULL)"
+
+
 def build_staging_relation(
     conn: duckdb.DuckDBPyConnection,
     *,
     source_relation: str,
 ) -> None:
-    """Cast and deduplicate bronze rows into a staging relation.
+    """Cast, deduplicate and validate bronze rows into a staging relation.
 
     ``source_relation`` is a relation name so that tests can pass a locally
-    registered frame in place of ``iceberg_scan``. Validation and the
-    timeslot unpivot are added in later steps; this stage only establishes
-    the typed, deduplicated shape they build on.
+    registered frame in place of ``iceberg_scan``. The timeslot unpivot is
+    added in a later step; this stage stops at one row per business key
+    with a ``violations`` column recording why it should not be written.
     """
     passthrough = ",\n    ".join((*TIMESLOT_COLUMNS, "daily_amount"))
     key_columns = ", ".join(NATURAL_KEY_COLUMNS)
@@ -98,6 +113,12 @@ deduplicated AS (
                  ingestion_time      DESC NULLS LAST,
                  execution_id        DESC NULLS LAST
     ) = 1
+),
+validated AS (
+    SELECT
+        *,
+        {_build_violation_expression()} AS violations
+    FROM deduplicated
 )
 SELECT
     power_plant_code,
@@ -110,6 +131,26 @@ SELECT
     {passthrough},
     source_data,
     ingestion_time,
-    execution_id
-FROM deduplicated
+    execution_id,
+    violations
+FROM validated
 """)
+
+
+def count_dropped_rows(conn: duckdb.DuckDBPyConnection) -> int:
+    """Count staged rows excluded from silver because they failed validation."""
+    row = conn.execute(
+        f"SELECT count(*) FROM {STAGING_RELATION} WHERE len(violations) > 0"
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def summarize_violations(conn: duckdb.DuckDBPyConnection) -> dict[str, int]:
+    """Return how many rows hit each violation reason."""
+    rows = conn.execute(f"""
+        SELECT reason, count(*) AS row_count
+        FROM (SELECT unnest(violations) AS reason FROM {STAGING_RELATION})
+        GROUP BY reason
+        ORDER BY row_count DESC
+    """).fetchall()
+    return {reason: int(count) for reason, count in rows}
