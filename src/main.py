@@ -29,6 +29,15 @@ from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     DEFAULT_SILVER_SCHEMA_DIR,
     run_bronze_to_silver_jepx_spot_price,
 )
+from pipeline.silver.bronze_to_silver_occto_unit_generation import (
+    DEFAULT_BRONZE_LOCATION as OCCTO_DEFAULT_BRONZE_LOCATION,
+)
+from pipeline.silver.bronze_to_silver_occto_unit_generation import (
+    DEFAULT_SILVER_SCHEMA_DIR as OCCTO_DEFAULT_SILVER_SCHEMA_DIR,
+)
+from pipeline.silver.bronze_to_silver_occto_unit_generation import (
+    run_bronze_to_silver_occto_unit_generation,
+)
 from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
 logging.basicConfig(
@@ -312,6 +321,40 @@ def main():
         "--require-unprocessed",
         action="store_true",
         help="When using ingestion log, select only unprocessed latest snapshot",
+    )
+
+    occto_silver_parser = subparsers.add_parser(
+        "ingest-occto-bronze-to-silver",
+        help="Transform OCCTO bronze unit generation actuals into silver",
+    )
+    occto_silver_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    occto_silver_parser.add_argument(
+        "--bronze-location",
+        default=OCCTO_DEFAULT_BRONZE_LOCATION,
+        help="Bronze table location scanned by DuckDB",
+    )
+    occto_silver_parser.add_argument(
+        "--schema-dir",
+        default=OCCTO_DEFAULT_SILVER_SCHEMA_DIR,
+        help="Directory containing the silver schema CSV files",
+    )
+    occto_silver_parser.add_argument(
+        "--target-date",
+        help="Limit the run to one target_date in YYYY-MM-DD"
+        " (default: rebuild the full range staged from bronze)",
+    )
+    occto_silver_parser.add_argument(
+        "--from-date",
+        help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
+    )
+    occto_silver_parser.add_argument(
+        "--to-date",
+        help="End of a target_date range in YYYY-MM-DD"
+        " (default: same as --from-date/--target-date)",
     )
 
     occto_migrate_parser = subparsers.add_parser(
@@ -715,6 +758,48 @@ def main():
                 write.table_identifier,
                 write.rows_written,
             )
+
+    if args.command == "ingest-occto-bronze-to-silver":
+        from_date = None
+        to_date = None
+        if args.from_date:
+            try:
+                from_date = date.fromisoformat(args.from_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --from-date value: {args.from_date} ({exc})")
+            if args.to_date:
+                try:
+                    to_date = date.fromisoformat(args.to_date)
+                except ValueError as exc:
+                    parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
+            else:
+                to_date = from_date
+        elif args.target_date:
+            try:
+                from_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+            to_date = from_date
+
+        result = run_bronze_to_silver_occto_unit_generation(
+            catalog_name=args.catalog,
+            bronze_location=args.bronze_location,
+            schema_dir=args.schema_dir,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        logger.info(
+            "OCCTO bronze-to-silver completed: execution_id=%s, dropped=%s, "
+            "daily_amount_mismatch=%s",
+            result.execution_id,
+            result.dropped_row_count,
+            result.daily_amount_mismatch,
+        )
+        logger.info(
+            " - table=%s, written=%s",
+            result.write.table_identifier,
+            result.write.rows_written,
+        )
 
     if args.command == "run-occto-silver-dbt":
         project_dir = Path("/workspace/src/dbt/jepx_power")
