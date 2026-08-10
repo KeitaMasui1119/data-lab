@@ -21,18 +21,20 @@ from pyiceberg.catalog import Catalog
 from pyiceberg.expressions import And, GreaterThanOrEqual, LessThan, LessThanOrEqual
 
 from common.pipeline_utilities import add_metadata
-from pipeline.silver.bronze_to_silver_jepx_spot_price import (
+from common.silver_write import (
     SILVER_STATUS_LOADED,
+    ensure_unique_keys,
+    write_silver_table,
+)
+from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     build_delivery_window,
     build_staging_relation,
     count_dropped_rows,
     delivery_date_bound,
-    ensure_unique_keys,
     extract_area_frame,
     extract_base_frame,
     extract_block_frame,
     resolve_staged_delivery_range,
-    write_silver_table,
 )
 
 AREA_SUFFIXES = (
@@ -374,7 +376,7 @@ def _target_schema_for(frame: pl.DataFrame) -> pa.Schema:
 def _stub_provision_table(monkeypatch) -> None:
     """provision_table talks to a real catalog, which unit tests must not do."""
     monkeypatch.setattr(
-        "pipeline.silver.bronze_to_silver_jepx_spot_price.provision_table",
+        "common.silver_write.provision_table",
         lambda *_, **__: None,
     )
 

@@ -1,5 +1,5 @@
 field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
-1,delivery_date,string,TRUE,TRUE,Delivery date,month,受渡日,
+1,delivery_date,string,TRUE,TRUE,Delivery date,,受渡日,
 2,time_code,string,TRUE,TRUE,Time code (1-48),,時刻コード,
 3,selling_bid_volume,string,FALSE,FALSE,Selling bid volume (kWh),,売り入札量(kWh),
 4,purchase_bid_volume,string,FALSE,FALSE,Purchase bid volume (kWh),,買い入札量(kWh),

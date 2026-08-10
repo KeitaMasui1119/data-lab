@@ -7,7 +7,7 @@ from pyiceberg.exceptions import NoSuchTableError
 from pyiceberg.schema import Schema
 
 from common.logging_utils import get_logger
-from common.schema_builder import build_table_schema
+from common.schema_builder import build_partition_spec, build_table_schema
 
 logger = get_logger(__name__)
 
@@ -84,6 +84,8 @@ def provision_table(catalog: Catalog, identifier: str, schema_csv_path: str) -> 
             f"build_table_schema returned non-Schema type: {type(new_schema)}"
         )
 
+    new_partition_spec = build_partition_spec(schema_csv_path, new_schema)
+
     try:
         existing_table = catalog.load_table(identifier)
         logger.info("Table '%s' exists. Checking schema diff.", identifier)
@@ -113,7 +115,20 @@ def provision_table(catalog: Catalog, identifier: str, schema_csv_path: str) -> 
             logger.info("Added new columns: %s", sorted(added_cols))
         else:
             logger.info("No schema changes detected")
+
+        if existing_table.spec() != new_partition_spec:
+            logger.warning(
+                "Partition spec drift for '%s': schema CSV wants %s but table "
+                "has %s. provision_table() does not evolve partition specs "
+                "automatically; see docs/tasks/tasks.md section 8.1.",
+                identifier,
+                new_partition_spec,
+                existing_table.spec(),
+            )
     except NoSuchTableError:
         logger.info("Table '%s' does not exist. Creating.", identifier)
-        catalog.create_table(identifier=identifier, schema=new_schema)
+        create_kwargs = {"identifier": identifier, "schema": new_schema}
+        if not new_partition_spec.is_unpartitioned():
+            create_kwargs["partition_spec"] = new_partition_spec
+        catalog.create_table(**create_kwargs)
         logger.info("Table '%s' created successfully.", identifier)

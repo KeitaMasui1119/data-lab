@@ -2,7 +2,13 @@ import csv
 import logging
 import os
 
+from pyiceberg.partitioning import (
+    PARTITION_FIELD_ID_START,
+    PartitionField,
+    PartitionSpec,
+)
 from pyiceberg.schema import Schema
+from pyiceberg.transforms import parse_transform
 from pyiceberg.types import (
     BooleanType,
     DateType,
@@ -18,6 +24,64 @@ from pyiceberg.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def build_partition_spec(file_path: str, schema: Schema) -> PartitionSpec:
+    """Builds a PartitionSpec from the partition_transform column of a schema CSV.
+
+    Rows with an empty partition_transform are skipped. PyIceberg's own
+    create_table() does not validate that a transform is compatible with its
+    source column's type (for example month() on a string column is accepted
+    silently and produces a spec that breaks at write time), so this
+    function checks compatibility itself and raises ValueError instead.
+
+    Args:
+        file_path (str): Path to the CSV file containing schema definitions.
+        schema (Schema): The Schema already built from the same CSV via
+            build_table_schema(), used to look up each column's Iceberg type.
+
+    Raises:
+        FileNotFoundError: If the specified CSV file does not exist.
+        ValueError: If a partition_transform value is not a recognized
+            transform, or is incompatible with its column's type.
+
+    Returns:
+        PartitionSpec: Unpartitioned (empty) if no row declares a transform.
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File counld not found: {file_path}")
+
+    partition_fields = []
+    with open(file_path) as f:
+        reader = csv.DictReader(f)
+        for row_n, row in enumerate(reader, start=1):
+            if not any(val.strip() for val in row.values() if val is not None):
+                continue
+
+            transform_str = (row.get("partition_transform") or "").strip()
+            if not transform_str:
+                continue
+
+            transform = parse_transform(transform_str)
+            source_id = int(row["field_id"])
+            field = schema.find_field(source_id)
+            if not transform.can_transform(field.field_type):
+                raise ValueError(
+                    f"Invalid partition_transform '{transform_str}' for column "
+                    f"'{row['name']}' (type={field.field_type}) in "
+                    f"{file_path}:{row_n}"
+                )
+
+            partition_fields.append(
+                PartitionField(
+                    source_id=source_id,
+                    field_id=PARTITION_FIELD_ID_START + len(partition_fields),
+                    transform=transform,
+                    name=f"{row['name']}_{transform_str.split('[')[0]}",
+                )
+            )
+
+    return PartitionSpec(*partition_fields)
 
 
 def str_to_bool(required_field: str) -> bool:

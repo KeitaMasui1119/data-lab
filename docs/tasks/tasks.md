@@ -87,7 +87,10 @@
 
 ### タスク
 
-- [ ] OCCTO オーケストレーターを実装する（`src/orchestration/occto_pipeline.py`）
+- [x] OCCTO オーケストレーターを実装する（`src/orchestration/pl_occto_unit_generation_actuals.py`）
+      → 完了。`run-occto-orchestrator` CLI を追加。共通の `PipelineStepResult` は
+      `src/orchestration/pipeline_result.py` に切り出し、JEPX/OCCTO 両オーケストレーターで共有。
+      詳細は `docs/tasks/plan_occto_pipeline.md` Phase 5-3 を参照
 - [ ] 電力需給 オーケストレーターを実装する（会社ごと or 統合）
 - [ ] クロスデータセット依存関係を宣言する仕組みを設計する
 - [ ] リトライポリシー（上限回数・非一時エラーの除外）を各オーケストレーターに組み込む
@@ -106,7 +109,8 @@
 - [ ] `layers.md` の「Evolution Policy」を記述する
 - [ ] `data_model.md` の Open Questions を解決する
   - [ ] 電力各社の対象会社を確定する
-  - [ ] OCCTOの `plant_id` と `plant_number` の一意性を確認する
+  - [x] OCCTOの `plant_id` と `plant_number` の一意性を確認する
+        → 解決済み。`(power_plant_code, unit_name, target_date)` で重複ゼロを実データ確認
 
 ---
 
@@ -129,19 +133,28 @@ FY2005–FY2026 バックフィル時に発生した障害の恒久対応（`ups
 
 ### 8.1 Silver テーブルへのパーティション適用（優先度: 高）
 
-**現状の問題。** `provision_table()`（`src/common/iceberg.py`）は `create_table()` に
-partition spec を渡しておらず、スキーマCSVの `partition_transform` 列は完全に無視されている。
-実測で silver 3テーブルとも `spec: []`（未パーティション）を確認済み。
+**現状の問題（コード側は解決済み）。** `provision_table()`（`src/common/iceberg.py`）は
+`create_table()` に partition spec を渡しておらず、スキーマCSVの `partition_transform` 列は
+完全に無視されていた。→ **`ba66297`（`docs/tasks/plan_occto_pipeline.md` Phase 1）で解決済み。**
+`build_partition_spec()` がスキーマCSVの `partition_transform` を読み、新規テーブル作成時に
+`partition_spec` を渡すようになった。OCCTO silver（`silver.occto_unit_generation_actuals`）は
+このコードで最初から `day(target_date)` パーティション付きで作成され、実データ backfill
+（約1,968万行）でも `spec: [1000: target_date_day: day(3)]` を実測確認済み。
 
-そのため区間 `overwrite` の削除側は各データファイルの min/max メトリクスでしか枝刈りできず、
-窓の境界をまたぐファイルは丸ごと書き換えられる。**書き込みコストがテーブル全体のサイズに
-比例したまま**で、「履歴量から切り離す」という恒久対応の狙いは半分しか達成できていない。
+**残っているのは JEPX 側の既存テーブル移行のみ。** `provision_table()` は新規作成時にしか
+partition spec を渡さず、既存テーブルの spec 差分は警告ログのみで自動 evolve しない
+（意図的な設計。`update_spec()` しても既存データファイルは旧レイアウトのまま残るため）。
+実測で JEPX silver 3テーブルは依然 `spec: []`（未パーティション）のまま。
+
+そのため JEPX の区間 `overwrite` の削除側は各データファイルの min/max メトリクスでしか
+枝刈りできず、窓の境界をまたぐファイルは丸ごと書き換えられる。**書き込みコストがテーブル全体の
+サイズに比例したまま**で、「履歴量から切り離す」という恒久対応の狙いは半分しか達成できていない。
 
 実測（全年度実行の直後 = 全22年度が2〜3ファイルに同居した最悪配置で、年度スコープ実行）:
 9.3秒 / ピークRSS 1.7GB。現時点では耐えるが、履歴が伸びれば線形に悪化する。
 
-- [ ] `provision_table()` でスキーマCSVの `partition_transform` を partition spec に反映する
-- [ ] 既存 silver テーブルの移行方針を決める（`update_spec()` での spec 進化か、作り直しか）
+- [x] `provision_table()` でスキーマCSVの `partition_transform` を partition spec に反映する
+- [ ] 既存 JEPX silver テーブルの移行方針を決める（`update_spec()` での spec 進化か、作り直しか）
   - spec を進化させても既存データファイルは旧レイアウトのまま残るため、
     再書き込みが必要かを判断する
 - [ ] 移行後に同じ最悪配置で再実測し、ファイル書き換えが起きなくなったことを確認する

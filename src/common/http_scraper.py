@@ -37,9 +37,19 @@ class BaseHttpScraper(ABC):
     def build_request(self, target_at: datetime) -> RequestSpec:
         """Build an HTTP request specification for the target time."""
 
-    def fetch_response(self, target_at: datetime) -> requests.Response:
-        """Execute request and return the raw response."""
-        spec = self.build_request(target_at)
+    def prepare(self, target_at: datetime) -> None:
+        """Perform preparatory requests before build_request() is called.
+
+        Default is a no-op. Scrapers that must establish session state
+        (cookies, disclaimer agreement, form tokens) before the main
+        request can be built should override this and issue requests
+        through self.session; build_request() then only needs to
+        construct the final RequestSpec.
+        """
+        return None
+
+    def _execute(self, spec: RequestSpec) -> requests.Response:
+        """Execute a pre-built RequestSpec and return the raw response."""
         response = self.session.request(
             method=spec.method,
             url=spec.url,
@@ -50,6 +60,12 @@ class BaseHttpScraper(ABC):
         )
         response.raise_for_status()
         return response
+
+    def fetch_response(self, target_at: datetime) -> requests.Response:
+        """Execute request and return the raw response."""
+        self.prepare(target_at)
+        spec = self.build_request(target_at)
+        return self._execute(spec)
 
     def fetch(self, target_at: datetime) -> bytes:
         """Execute request and return response bytes."""

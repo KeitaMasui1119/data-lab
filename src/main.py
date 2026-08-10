@@ -1,8 +1,6 @@
 import argparse
 import logging
-import os
-import subprocess
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -10,26 +8,39 @@ from common.iceberg import get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
-from pipeline.bronze.migrate_occto_data import migrate_occto_data
+from orchestration.pl_occto_unit_generation_actuals import (
+    run_occto_orchestrated_pipeline,
+)
 from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
 )
-from pipeline.bronze.source_to_bronze_occto import ingest_occto_unit_generation
+from pipeline.bronze.source_to_bronze_occto_unit_generation_actuals import (
+    ingest_occto_unit_generation,
+)
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
     scrape_jepx_spot_price_raw,
     scrape_jepx_to_rustfs,
 )
-from pipeline.raw.source_to_raw_occto import (
-    OCCTOUnitGenerationConfig,
+from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     OCCTOUnitGenerationScraper,
-    scrape_occto_to_rustfs,
+    resolve_default_target_date,
+    scrape_occto_unit_generation_raw,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     DEFAULT_BRONZE_LOCATION,
     DEFAULT_SILVER_SCHEMA_DIR,
     run_bronze_to_silver_jepx_spot_price,
+)
+from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
+    DEFAULT_BRONZE_LOCATION as OCCTO_DEFAULT_BRONZE_LOCATION,
+)
+from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
+    DEFAULT_SILVER_SCHEMA_DIR as OCCTO_DEFAULT_SILVER_SCHEMA_DIR,
+)
+from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
+    run_bronze_to_silver_occto_unit_generation,
 )
 from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
@@ -271,14 +282,18 @@ def main():
     )
     occto_bronze_parser.add_argument(
         "--object-key",
-        required=True,
         help="Source object key in raw layer"
-        " (e.g. raw/occto/unit_generation/ユニット別発電実績_xxx.csv)",
+        " (e.g. raw/occto/unit_generation/target_date=.../ingested_at=.../<file>.csv)."
+        " Required unless --use-ingestion-log is set",
     )
     occto_bronze_parser.add_argument(
         "--source-file-name",
-        help="Source file name stored in source_data"
-        " (default: last segment of object-key)",
+        help="Source file name stored in source_data (default: object-key in full)",
+    )
+    occto_bronze_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD. Required when --use-ingestion-log is"
+        " set and --object-key is omitted",
     )
     occto_bronze_parser.add_argument(
         "--catalog",
@@ -301,30 +316,121 @@ def main():
         action="store_true",
         help="Allow append even if source_data already exists",
     )
+    occto_bronze_parser.add_argument(
+        "--use-ingestion-log",
+        action="store_true",
+        help="Resolve latest raw snapshot from metadata ingestion log",
+    )
+    occto_bronze_parser.add_argument(
+        "--require-unprocessed",
+        action="store_true",
+        help="When using ingestion log, select only unprocessed latest snapshot",
+    )
 
-    occto_migrate_parser = subparsers.add_parser(
-        "migrate-occto-to-rustfs",
-        help="Migrate OCCTO source CSV files from local data to RustFS raw/occto",
+    occto_silver_parser = subparsers.add_parser(
+        "ingest-occto-bronze-to-silver",
+        help="Transform OCCTO bronze unit generation actuals into silver",
     )
-    occto_migrate_parser.add_argument(
-        "--local-dir",
-        default="/workspace/data/occto",
-        help="Local directory containing OCCTO CSV files",
+    occto_silver_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
     )
-    occto_migrate_parser.add_argument(
+    occto_silver_parser.add_argument(
+        "--bronze-location",
+        default=OCCTO_DEFAULT_BRONZE_LOCATION,
+        help="Bronze table location scanned by DuckDB",
+    )
+    occto_silver_parser.add_argument(
+        "--schema-dir",
+        default=OCCTO_DEFAULT_SILVER_SCHEMA_DIR,
+        help="Directory containing the silver schema CSV files",
+    )
+    occto_silver_parser.add_argument(
+        "--target-date",
+        help="Limit the run to one target_date in YYYY-MM-DD"
+        " (default: rebuild the full range staged from bronze)",
+    )
+    occto_silver_parser.add_argument(
+        "--from-date",
+        help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
+    )
+    occto_silver_parser.add_argument(
+        "--to-date",
+        help="End of a target_date range in YYYY-MM-DD"
+        " (default: same as --from-date/--target-date)",
+    )
+
+    occto_orchestrator_parser = subparsers.add_parser(
+        "run-occto-orchestrator",
+        help="Run ADF-like OCCTO end-to-end orchestrator",
+    )
+    occto_orchestrator_parser.add_argument(
         "--bucket",
         default="jp-power-grid-dev",
-        help="Destination bucket name (default: jp-power-grid-dev)",
+        help="Source/target bucket name (default: jp-power-grid-dev)",
     )
-    occto_migrate_parser.add_argument(
-        "--s3-prefix",
-        default="raw/occto",
-        help="Destination S3 prefix (default: raw/occto)",
+    occto_orchestrator_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD (default: previous day in Asia/Tokyo)",
     )
-    occto_migrate_parser.add_argument(
-        "--keep-local",
+    occto_orchestrator_parser.add_argument(
+        "--to-date",
+        help=(
+            "End of target date range in YYYY-MM-DD for a multi-day fetch "
+            "(default: same as --target-date, i.e. a single day)"
+        ),
+    )
+    occto_orchestrator_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--bronze-table",
+        default="bronze.occto_unit_generation_actuals",
+        help="Target bronze Iceberg table identifier",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--bronze-schema-path",
+        default=(
+            "/workspace/configuration/iceberg/schema/bronze/"
+            "occto_unit_generation_actuals.csv"
+        ),
+        help="Bronze schema CSV path",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--allow-duplicate-source",
         action="store_true",
-        help="Keep the local directory after upload",
+        help="Allow append even if source_data already exists",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--bronze-location",
+        default=OCCTO_DEFAULT_BRONZE_LOCATION,
+        help="Bronze table location scanned by the silver transform",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--silver-schema-dir",
+        default=OCCTO_DEFAULT_SILVER_SCHEMA_DIR,
+        help="Directory containing the silver schema CSV files",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--silver-from-date",
+        help=(
+            "Start of the silver step's target_date range in YYYY-MM-DD "
+            "(default: the range that was just ingested)"
+        ),
+    )
+    occto_orchestrator_parser.add_argument(
+        "--silver-to-date",
+        help="End of the silver step's target_date range in YYYY-MM-DD"
+        " (default: same as --silver-from-date)",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--silver-all-dates",
+        action="store_true",
+        help="Rebuild every target_date in the silver step"
+        " instead of just the range ingested",
     )
 
     occto_scrape_parser = subparsers.add_parser(
@@ -341,25 +447,11 @@ def main():
         help="Target date in YYYY-MM-DD (default: previous day in Asia/Tokyo)",
     )
     occto_scrape_parser.add_argument(
-        "--download-url",
+        "--to-date",
         help=(
-            "OCCTO CSV download endpoint URL "
-            "(default: OCCTO_DOWNLOAD_CSV_URL environment variable)"
+            "End of target date range in YYYY-MM-DD for a multi-day fetch "
+            "(default: same as --target-date, i.e. a single day)"
         ),
-    )
-    occto_scrape_parser.add_argument(
-        "--referer",
-        help="Optional Referer header value",
-    )
-    occto_scrape_parser.add_argument(
-        "--date-param-name",
-        default="targetDate",
-        help="Query parameter name used for target date (default: targetDate)",
-    )
-    occto_scrape_parser.add_argument(
-        "--date-format",
-        default="%Y-%m-%d",
-        help="Date format for query parameter and file name (default: %%Y-%%m-%%d)",
     )
 
     silver_parser = subparsers.add_parser(
@@ -400,21 +492,6 @@ def main():
         "--fiscal-year",
         type=int,
         help="Limit the run to one fiscal year (default: rebuild every year)",
-    )
-
-    occto_dbt_parser = subparsers.add_parser(
-        "run-occto-silver-dbt",
-        help="Run dbt staging and silver models for OCCTO using DuckDB",
-    )
-    occto_dbt_parser.add_argument(
-        "--select",
-        default="tag:occto",
-        help="dbt select expression (default: tag:occto)",
-    )
-    occto_dbt_parser.add_argument(
-        "--full-refresh",
-        action="store_true",
-        help="Run dbt with --full-refresh",
     )
 
     args = parser.parse_args()
@@ -591,81 +668,78 @@ def main():
             )
 
     if args.command == "ingest-occto-raw-to-bronze":
-        object_key = args.object_key
-        source_file_name = (
-            args.source_file_name or object_key.rsplit("/", maxsplit=1)[-1]
-        )
-
-        rustfs = RustFSClient()
-        row_count = ingest_occto_unit_generation(
-            client=rustfs,
-            bucket_name=args.bucket,
-            object_key=object_key,
-            source_file_name=source_file_name,
-            catalog_name=args.catalog,
-            table_identifier=args.table,
-            schema_path=args.schema_path,
-            skip_if_exists=not args.allow_duplicate_source,
-        )
-        logger.info(
-            "Ingestion completed: table=%s, source=%s, rows=%s",
-            args.table,
-            source_file_name,
-            row_count,
-        )
-
-    if args.command == "migrate-occto-to-rustfs":
-        migrated_count = migrate_occto_data(
-            local_dir=args.local_dir,
-            bucket_name=args.bucket,
-            s3_prefix=args.s3_prefix,
-            delete_after=not args.keep_local,
-        )
-        logger.info(
-            "OCCTO migration completed: bucket=%s, prefix=%s, files=%s",
-            args.bucket,
-            args.s3_prefix,
-            migrated_count,
-        )
-
-    if args.command == "scrape-occto":
-        download_url = args.download_url or os.getenv("OCCTO_DOWNLOAD_CSV_URL")
-        if not download_url:
-            parser.error(
-                "OCCTO download URL is required. "
-                "Provide --download-url or set OCCTO_DOWNLOAD_CSV_URL."
-            )
-
+        target_date = None
         if args.target_date:
             try:
                 target_date = date.fromisoformat(args.target_date)
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
-        else:
-            jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
-            target_date = (jst_now - timedelta(days=1)).date()
+        elif args.use_ingestion_log and args.object_key is None:
+            parser.error(
+                "--target-date is required when --use-ingestion-log is set "
+                "without --object-key"
+            )
 
         rustfs = RustFSClient()
-        scraper_config = OCCTOUnitGenerationConfig(
-            base_url=download_url,
-            referer=args.referer,
-            date_param_name=args.date_param_name,
-            date_format=args.date_format,
+        row_count = ingest_occto_unit_generation(
+            client=rustfs,
+            bucket_name=args.bucket,
+            object_key=args.object_key,
+            source_file_name=args.source_file_name,
+            catalog_name=args.catalog,
+            table_identifier=args.table,
+            schema_path=args.schema_path,
+            skip_if_exists=not args.allow_duplicate_source,
+            target_date=target_date,
+            use_ingestion_log=args.use_ingestion_log,
+            require_unprocessed=args.require_unprocessed,
+            update_ingestion_log_status=args.use_ingestion_log,
         )
-        scraper = OCCTOUnitGenerationScraper(config=scraper_config)
+        logger.info(
+            "Ingestion completed: table=%s, rows=%s",
+            args.table,
+            row_count,
+        )
+
+    if args.command == "scrape-occto":
+        if args.target_date:
+            try:
+                from_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+        else:
+            from_date = resolve_default_target_date(datetime.now(UTC))
+
+        to_date = None
+        if args.to_date:
+            try:
+                to_date = date.fromisoformat(args.to_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
+
+        rustfs = RustFSClient()
+        scraper = OCCTOUnitGenerationScraper()
         try:
-            result = scrape_occto_to_rustfs(
+            result = scrape_occto_unit_generation_raw(
                 storage_client=rustfs,
                 scraper=scraper,
                 bucket_name=args.bucket,
-                target_at=target_date,
+                from_date=from_date,
+                to_date=to_date,
             )
-            logger.info(
-                "Uploaded OCCTO raw file to s3://%s/%s (%s bytes)",
-                result.bucket_name,
-                result.object_key,
-                result.size_bytes,
-            )
+            if result.skipped:
+                logger.info(
+                    "OCCTO scrape skipped (no change): target_date=%s, sha256=%.8s",
+                    result.from_date,
+                    result.sha256,
+                )
+            else:
+                logger.info(
+                    "OCCTO snapshot saved: target_date=%s, sha256=%.8s, prefix=%s",
+                    result.from_date,
+                    result.sha256,
+                    result.snapshot_prefix,
+                )
         finally:
             scraper.close()
 
@@ -706,27 +780,85 @@ def main():
                 write.rows_written,
             )
 
-    if args.command == "run-occto-silver-dbt":
-        project_dir = Path("/workspace/src/dbt/jepx_power")
-        profiles_dir = project_dir
+    if args.command == "ingest-occto-bronze-to-silver":
+        from_date = None
+        to_date = None
+        if args.from_date:
+            try:
+                from_date = date.fromisoformat(args.from_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --from-date value: {args.from_date} ({exc})")
+            if args.to_date:
+                try:
+                    to_date = date.fromisoformat(args.to_date)
+                except ValueError as exc:
+                    parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
+            else:
+                to_date = from_date
+        elif args.target_date:
+            try:
+                from_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+            to_date = from_date
 
-        dbt_command = [
-            "uv",
-            "run",
-            "dbt",
-            "run",
-            "--project-dir",
-            str(project_dir),
-            "--profiles-dir",
-            str(profiles_dir),
-            "--select",
-            args.select,
-        ]
-        if args.full_refresh:
-            dbt_command.append("--full-refresh")
+        result = run_bronze_to_silver_occto_unit_generation(
+            catalog_name=args.catalog,
+            bronze_location=args.bronze_location,
+            schema_dir=args.schema_dir,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        logger.info(
+            "OCCTO bronze-to-silver completed: execution_id=%s, dropped=%s, "
+            "daily_amount_mismatch=%s",
+            result.execution_id,
+            result.dropped_row_count,
+            result.daily_amount_mismatch,
+        )
+        logger.info(
+            " - table=%s, written=%s",
+            result.write.table_identifier,
+            result.write.rows_written,
+        )
 
-        logger.info("Executing dbt OCCTO command: %s", " ".join(dbt_command))
-        subprocess.run(dbt_command, check=True)
+    if args.command == "run-occto-orchestrator":
+        if args.silver_all_dates and (args.silver_from_date or args.silver_to_date):
+            parser.error(
+                "--silver-all-dates rebuilds every date and would discard the "
+                "range named by --silver-from-date/--silver-to-date; pass only one"
+            )
+
+        from_date = date.fromisoformat(args.target_date) if args.target_date else None
+        to_date = date.fromisoformat(args.to_date) if args.to_date else None
+        silver_from_date = (
+            date.fromisoformat(args.silver_from_date) if args.silver_from_date else None
+        )
+        silver_to_date = (
+            date.fromisoformat(args.silver_to_date) if args.silver_to_date else None
+        )
+
+        results = run_occto_orchestrated_pipeline(
+            bucket_name=args.bucket,
+            from_date=from_date,
+            to_date=to_date,
+            catalog_name=args.catalog,
+            bronze_table_identifier=args.bronze_table,
+            bronze_schema_path=args.bronze_schema_path,
+            allow_duplicate_source=args.allow_duplicate_source,
+            bronze_location=args.bronze_location,
+            silver_schema_dir=args.silver_schema_dir,
+            silver_from_date=silver_from_date,
+            silver_to_date=silver_to_date,
+            silver_all_dates=args.silver_all_dates,
+        )
+        for result in results:
+            logger.info(
+                "Orchestrator step result: step=%s, status=%s, detail=%s",
+                result.name,
+                result.status,
+                result.detail,
+            )
 
 
 if __name__ == "__main__":

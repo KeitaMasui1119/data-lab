@@ -25,14 +25,11 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from dataclasses import dataclass
 from datetime import date
-from urllib.parse import urlparse
 
 import duckdb
 import polars as pl
-from pyiceberg.catalog import Catalog
 from pyiceberg.expressions import (
     And,
     BooleanExpression,
@@ -42,8 +39,14 @@ from pyiceberg.expressions import (
     LiteralPredicate,
 )
 
-from common.iceberg import get_catalog, provision_table
-from common.pipeline_utilities import add_metadata
+from common.duckdb_utils import create_duckdb_connection
+from common.iceberg import get_catalog
+from common.silver_write import (
+    SilverWriteResult,
+    column_bound,
+    ensure_unique_keys,
+    write_silver_table,
+)
 from common.utilities import gen_uuid
 
 logger = logging.getLogger(__name__)
@@ -84,7 +87,6 @@ MAX_TIME_CODE = 48
 # fractional part from being silently discarded.
 PRICE_TYPE = "DECIMAL(32, 3)"
 FISCAL_YEAR_START_MONTH = 4
-SILVER_STATUS_LOADED = "loaded"
 
 AREA_NAMES = (
     "hokkaido",
@@ -112,64 +114,12 @@ BLOCK_COLUMNS = (
 
 
 @dataclass(frozen=True)
-class SilverWriteResult:
-    """Outcome of writing one silver table."""
-
-    table_identifier: str
-    rows_written: int
-
-
-@dataclass(frozen=True)
 class BronzeToSilverResult:
     """Outcome of one bronze-to-silver run."""
 
     execution_id: str
     writes: list[SilverWriteResult]
     dropped_row_count: int
-
-
-def _split_endpoint(endpoint_url: str) -> tuple[str, bool]:
-    """Split an endpoint URL into a DuckDB host:port and a TLS flag."""
-    parsed = urlparse(endpoint_url)
-    if parsed.netloc:
-        return parsed.netloc, parsed.scheme == "https"
-    return endpoint_url, False
-
-
-def create_duckdb_connection(*, configure_s3: bool = True) -> duckdb.DuckDBPyConnection:
-    """Open a DuckDB connection prepared for reading the bronze Iceberg table.
-
-    ``icu`` is statically linked into DuckDB and auto-loads, so no extension
-    install is needed for ``AT TIME ZONE``. Pass ``configure_s3=False`` to
-    read from a locally registered relation instead of object storage.
-    """
-    conn = duckdb.connect()
-    if not configure_s3:
-        return conn
-
-    conn.execute("INSTALL httpfs; LOAD httpfs;")
-    conn.execute("INSTALL iceberg; LOAD iceberg;")
-    conn.execute("SET unsafe_enable_version_guessing = true;")
-
-    endpoint_url = os.environ.get("AWS_ENDPOINT_URL")
-    if not endpoint_url:
-        raise ValueError("AWS_ENDPOINT_URL is required to read the bronze table")
-    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
-    if not access_key or not secret_key:
-        raise ValueError(
-            "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required "
-            "to read the bronze table"
-        )
-
-    endpoint, use_ssl = _split_endpoint(endpoint_url)
-    conn.execute("SET s3_endpoint = ?;", [endpoint])
-    conn.execute("SET s3_use_ssl = ?;", [use_ssl])
-    conn.execute("SET s3_url_style = 'path';")
-    conn.execute("SET s3_region = ?;", [os.environ.get("AWS_REGION", "us-east-1")])
-    conn.execute("SET s3_access_key_id = ?;", [access_key])
-    conn.execute("SET s3_secret_access_key = ?;", [secret_key])
-    return conn
 
 
 def _build_fiscal_year_filter(fiscal_year: int | None) -> str:
@@ -360,15 +310,6 @@ def extract_area_frame(conn: duckdb.DuckDBPyConnection) -> pl.DataFrame:
     """).pl()
 
 
-def _align_to_target_schema(frame: pl.DataFrame, target_field_names: list[str]):
-    """Add any missing target columns as nulls and order columns to match."""
-    aligned = frame
-    for field_name in target_field_names:
-        if field_name not in aligned.columns:
-            aligned = aligned.with_columns(pl.lit(None).alias(field_name))
-    return aligned.select(target_field_names)
-
-
 def resolve_staged_delivery_range(
     conn: duckdb.DuckDBPyConnection,
 ) -> tuple[date, date] | None:
@@ -386,14 +327,8 @@ def resolve_staged_delivery_range(
 def delivery_date_bound(
     predicate: type[LiteralPredicate], boundary: date
 ) -> BooleanExpression:
-    """Build one delivery-date comparison against ``boundary``.
-
-    PyIceberg predicates accept a column name and a plain Python value at
-    runtime, but pyright type-checks the ``__init__`` Pydantic synthesizes from
-    the model fields rather than the hand-written one, and rejects both
-    arguments. Wrapping the call keeps that suppression to a single site.
-    """
-    return predicate(DELIVERY_DATE_COLUMN, boundary)  # pyright: ignore[reportCallIssue]
+    """Build one delivery-date comparison against ``boundary``."""
+    return column_bound(DELIVERY_DATE_COLUMN, predicate, boundary)
 
 
 def build_delivery_window(
@@ -424,76 +359,6 @@ def build_delivery_window(
     return And(
         left=delivery_date_bound(GreaterThanOrEqual, earliest),
         right=delivery_date_bound(LessThanOrEqual, latest),
-    )
-
-
-def ensure_unique_keys(
-    frame: pl.DataFrame,
-    *,
-    key_cols: tuple[str, ...],
-    table_identifier: str,
-) -> None:
-    """Reject frames holding more than one row per business key.
-
-    ``upsert()`` refused duplicate source keys outright. Replacing a window
-    would instead write them straight through, so the guard has to be explicit
-    now that the write no longer performs the match itself.
-    """
-    duplicate_count = frame.height - frame.select(key_cols).n_unique()
-    if duplicate_count:
-        raise ValueError(
-            f"Refusing to write {table_identifier}: found {duplicate_count} "
-            f"duplicate rows for key {key_cols}"
-        )
-
-
-def write_silver_table(
-    catalog: Catalog,
-    *,
-    table_identifier: str,
-    schema_path: str,
-    frame: pl.DataFrame,
-    key_cols: tuple[str, ...],
-    overwrite_filter: BooleanExpression | None,
-    execution_id: str,
-) -> SilverWriteResult:
-    """Replace one silver table's target window, stamping the audit columns."""
-    provision_table(catalog, table_identifier, schema_path)
-    table = catalog.load_table(table_identifier)
-
-    if frame.is_empty():
-        logger.info("Skipped %s because there are no valid rows", table_identifier)
-        return SilverWriteResult(table_identifier, rows_written=0)
-
-    ensure_unique_keys(frame, key_cols=key_cols, table_identifier=table_identifier)
-
-    if overwrite_filter is None:
-        raise ValueError(
-            f"Refusing to write {table_identifier} without a delivery window; "
-            "a non-empty frame must always resolve to one"
-        )
-
-    stamped = add_metadata(
-        frame.with_columns(pl.lit(SILVER_STATUS_LOADED).alias("status")),
-        execution_id=execution_id,
-    )
-
-    target_schema = table.schema().as_arrow()
-    aligned = _align_to_target_schema(stamped, [field.name for field in target_schema])
-    table.overwrite(
-        aligned.to_arrow().cast(target_schema),
-        overwrite_filter=overwrite_filter,
-    )
-
-    row_count = aligned.height
-    logger.info(
-        "Replaced the target window of %s with %s rows",
-        table_identifier,
-        row_count,
-    )
-    return SilverWriteResult(
-        table_identifier=table_identifier,
-        rows_written=row_count,
     )
 
 

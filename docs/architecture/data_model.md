@@ -61,30 +61,31 @@ Define namespace, primary keys, and partition design for all tables across layer
 
 ---
 
-### 2. OCCTO Power Plant
+### 2. OCCTO Unit Generation Actuals
 
-**Source**: OCCTO 発電所データ
+**Source**: OCCTO 発電実績公表システム（ユニット別発電実績）
 
-| Layer  | Table Name              |
-|--------|------------------------|
-| Bronze | bronze.occto_power_plant |
-| Silver | silver.occto_power_plant |
+| Layer  | Table Name                              |
+|--------|------------------------------------------|
+| Bronze | bronze.occto_unit_generation_actuals      |
+| Silver | silver.occto_unit_generation_actuals      |
 
 **Primary Keys**
 
-| Column       | Type   | Description  |
-|--------------|--------|--------------|
-| area_code    | String | エリアコード  |
-| plant_id     | String | 発電所ID      |
-| plant_number | String | 発電所番号    |
-| record_date  | Date   | 実績日        |
+| Layer  | Columns                                                        | Description |
+|--------|-----------------------------------------------------------------|--------------|
+| Bronze | power_plant_code, unit_name, target_date                        | 発電所コード・ユニット名・対象日。`unit_name`は空文字になるユニット（単機発電所）が実在するため`COALESCE(unit_name, '')`で正規化してからキーに使う |
+| Silver | power_plant_code, unit_name, target_date, time_code              | Bronzeのキーに30分コマ（1〜48、開始時刻基準）を加えたlong粒度のキー |
+
+`area`・`power_plant_name`・`power_generation_method_and_fuel_type`は`power_plant_code`に従属する属性であり、キーには含めない。改訂公表（同一対象日の再公表）は`updated_datetime`で最新版を`ORDER BY updated_datetime DESC`選択する（版管理列であってキーではない）。
 
 **Partition Design**
 
 | Layer  | Partition Column | Transform | Reason           |
 |--------|-----------------|-----------|------------------|
-| Bronze | ingestion_date  | Year      | パイプライン管理目的 |
-| Silver | record_date     | Year      | 実績日での絞り込み  |
+| Silver | target_date     | Day       | long化により年間約2,600万行規模になるため、日次実行が1パーティションのみを置換できるよう`day`単位にする（`year`だと日次実行のたびに年間ファイル全体を書き換えてしまう） |
+
+Bronzeは全列string・横持ち48コマのまま保持し、Silverへの変換（unpivot・型付け・`time_code`導出）はPython + DuckDB + PyIcebergで行う（dbtは使わない）。詳細は`docs/tasks/plan_occto_pipeline.md`を参照。
 
 ---
 
@@ -202,4 +203,7 @@ Silver層から参照するマッピングテーブル。
 - [ ] 電力各社の需給データの対象会社を確定する
 - [ ] 気象庁APIの地域コード体系を確認する
 - [ ] 株価インデックスの対象ティッカーを確定する
-- [ ] OCCTOのplant_idとplant_numberの一意性を確認する
+- [x] ~~OCCTOのplant_idとplant_numberの一意性を確認する~~ →
+      実データ（1日・全国471レコード）で`(power_plant_code, unit_name, target_date)`の重複ゼロを確認し、
+      `area`をキーに含める必要はないと判断。2024-03-25〜2026-08-09の実データ backfill（約42万bronze行、
+      約1,968万silver行）でも重複キー違反は発生していない。
