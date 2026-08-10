@@ -430,6 +430,23 @@ def test_unpivot_produces_48_rows_per_valid_source_row(conn) -> None:
     assert sorted(frame["time_code"].to_list()) == list(range(1, 49))
 
 
+def test_unpivot_keeps_a_row_for_a_slot_that_is_individually_null(conn) -> None:
+    """A single missing slot (not all 48 -- that's all_timeslots_null) is
+    real OCCTO data, not a violation. DuckDB's UNPIVOT drops NULL cells
+    unless told INCLUDE NULLS, which silently dropped that time_code's row
+    instead of keeping it with generation_kwh=NULL; confirmed against real
+    backfilled data where ~4,000 individual slots were missing this way."""
+    _register_bronze(conn, [_bronze_row(**{"timeslot_01_00": None})])
+
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+    frame = extract_unit_generation_frame(conn)
+
+    assert frame.height == 48
+    row = frame.filter(pl.col("time_code") == 2)
+    assert row.height == 1
+    assert row["generation_kwh"][0] is None
+
+
 def test_unpivot_excludes_rows_with_violations(conn) -> None:
     _register_bronze(
         conn,

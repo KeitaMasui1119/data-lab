@@ -241,7 +241,8 @@ def extract_unit_generation_frame(conn: duckdb.DuckDBPyConnection) -> pl.DataFra
         ),
         unpivoted AS (
             SELECT * FROM source
-            UNPIVOT (generation_kwh FOR timeslot_column IN ({timeslot_columns}))
+            UNPIVOT INCLUDE NULLS
+                (generation_kwh FOR timeslot_column IN ({timeslot_columns}))
         ),
         with_time_code AS (
             SELECT
