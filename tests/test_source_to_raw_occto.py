@@ -24,6 +24,7 @@ from pipeline.raw.source_to_raw_occto import (
     OCCTOUnitGenerationConfig,
     OCCTOUnitGenerationScraper,
     _resolve_manifest_key,
+    resolve_default_target_date,
     scrape_occto_unit_generation_raw,
 )
 
@@ -38,6 +39,20 @@ def _mock_session_returning(body: bytes = CSV_BODY) -> MagicMock:
     response.raise_for_status.return_value = None
     session.request.return_value = response
     return session
+
+
+# ---------------------------------------------------------------------------
+# resolve_default_target_date() — shared by scrape-occto CLI and the
+# orchestrator so both default to the same "yesterday in JST" target date
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_default_target_date_is_yesterday_in_jst():
+    from zoneinfo import ZoneInfo
+
+    jst_now = datetime(2026, 8, 10, 2, 0, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+
+    assert resolve_default_target_date(jst_now) == date(2026, 8, 9)
 
 
 # ---------------------------------------------------------------------------

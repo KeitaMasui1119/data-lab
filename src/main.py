@@ -1,6 +1,6 @@
 import argparse
 import logging
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -20,6 +20,7 @@ from pipeline.raw.source_to_raw_jepx_spot_price import (
 )
 from pipeline.raw.source_to_raw_occto import (
     OCCTOUnitGenerationScraper,
+    resolve_default_target_date,
     scrape_occto_unit_generation_raw,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
@@ -630,8 +631,7 @@ def main():
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
         else:
-            jst_now = datetime.now(ZoneInfo("Asia/Tokyo"))
-            from_date = (jst_now - timedelta(days=1)).date()
+            from_date = resolve_default_target_date(datetime.now(UTC))
 
         to_date = None
         if args.to_date:
