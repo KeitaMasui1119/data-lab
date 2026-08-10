@@ -8,6 +8,7 @@ from common.iceberg import get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
+from orchestration.occto_pipeline import run_occto_orchestrated_pipeline
 from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
@@ -354,6 +355,78 @@ def main():
         "--to-date",
         help="End of a target_date range in YYYY-MM-DD"
         " (default: same as --from-date/--target-date)",
+    )
+
+    occto_orchestrator_parser = subparsers.add_parser(
+        "run-occto-orchestrator",
+        help="Run ADF-like OCCTO end-to-end orchestrator",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Source/target bucket name (default: jp-power-grid-dev)",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD (default: previous day in Asia/Tokyo)",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--to-date",
+        help=(
+            "End of target date range in YYYY-MM-DD for a multi-day fetch "
+            "(default: same as --target-date, i.e. a single day)"
+        ),
+    )
+    occto_orchestrator_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--bronze-table",
+        default="bronze.occto_unit_generation_actuals",
+        help="Target bronze Iceberg table identifier",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--bronze-schema-path",
+        default=(
+            "/workspace/configuration/iceberg/schema/bronze/"
+            "occto_unit_generation_actuals.csv"
+        ),
+        help="Bronze schema CSV path",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--allow-duplicate-source",
+        action="store_true",
+        help="Allow append even if source_data already exists",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--bronze-location",
+        default=OCCTO_DEFAULT_BRONZE_LOCATION,
+        help="Bronze table location scanned by the silver transform",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--silver-schema-dir",
+        default=OCCTO_DEFAULT_SILVER_SCHEMA_DIR,
+        help="Directory containing the silver schema CSV files",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--silver-from-date",
+        help=(
+            "Start of the silver step's target_date range in YYYY-MM-DD "
+            "(default: the range that was just ingested)"
+        ),
+    )
+    occto_orchestrator_parser.add_argument(
+        "--silver-to-date",
+        help="End of the silver step's target_date range in YYYY-MM-DD"
+        " (default: same as --silver-from-date)",
+    )
+    occto_orchestrator_parser.add_argument(
+        "--silver-all-dates",
+        action="store_true",
+        help="Rebuild every target_date in the silver step"
+        " instead of just the range ingested",
     )
 
     occto_scrape_parser = subparsers.add_parser(
@@ -744,6 +817,44 @@ def main():
             result.write.table_identifier,
             result.write.rows_written,
         )
+
+    if args.command == "run-occto-orchestrator":
+        if args.silver_all_dates and (args.silver_from_date or args.silver_to_date):
+            parser.error(
+                "--silver-all-dates rebuilds every date and would discard the "
+                "range named by --silver-from-date/--silver-to-date; pass only one"
+            )
+
+        from_date = date.fromisoformat(args.target_date) if args.target_date else None
+        to_date = date.fromisoformat(args.to_date) if args.to_date else None
+        silver_from_date = (
+            date.fromisoformat(args.silver_from_date) if args.silver_from_date else None
+        )
+        silver_to_date = (
+            date.fromisoformat(args.silver_to_date) if args.silver_to_date else None
+        )
+
+        results = run_occto_orchestrated_pipeline(
+            bucket_name=args.bucket,
+            from_date=from_date,
+            to_date=to_date,
+            catalog_name=args.catalog,
+            bronze_table_identifier=args.bronze_table,
+            bronze_schema_path=args.bronze_schema_path,
+            allow_duplicate_source=args.allow_duplicate_source,
+            bronze_location=args.bronze_location,
+            silver_schema_dir=args.silver_schema_dir,
+            silver_from_date=silver_from_date,
+            silver_to_date=silver_to_date,
+            silver_all_dates=args.silver_all_dates,
+        )
+        for result in results:
+            logger.info(
+                "Orchestrator step result: step=%s, status=%s, detail=%s",
+                result.name,
+                result.status,
+                result.detail,
+            )
 
 
 if __name__ == "__main__":
