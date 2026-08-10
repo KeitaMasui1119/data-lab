@@ -162,23 +162,25 @@ Every fiscal year is upserted by default. Narrow the run to one year with:
 uv run python src/main.py ingest-jepx-bronze-to-silver --fiscal-year 2026
 ```
 
-### 6) Build OCCTO silver layer with DuckDB + dbt
+### 6) Build OCCTO silver layer with Python + DuckDB + PyIceberg
 
-Run OCCTO staging and silver models from the OCCTO bronze table:
-
-```bash
-uv run python src/main.py run-occto-silver-dbt
-```
-
-Optional full refresh:
+Transform OCCTO bronze unit generation actuals into the silver Iceberg table:
 
 ```bash
-uv run python src/main.py run-occto-silver-dbt --full-refresh
+uv run python src/main.py ingest-occto-bronze-to-silver
 ```
 
-This command reads `bronze.occto_unit_generation_actuals`, materializes
-`main_staging.stg_occto_unit_generation_actuals`, and then writes
-`main_silver.silver_occto_unit_generation_actuals` in DuckDB.
+Optionally scope the run to a target_date or range:
+
+```bash
+uv run python src/main.py ingest-occto-bronze-to-silver --target-date 2026-08-07
+uv run python src/main.py ingest-occto-bronze-to-silver --from-date 2026-08-01 --to-date 2026-08-07
+```
+
+This command reads `bronze.occto_unit_generation_actuals`, unpivots the 48
+timeslot columns into one row per unit per 30-minute slot, and writes
+`silver.occto_unit_generation_actuals` via a window (`target_date`) replace,
+the same DuckDB + PyIceberg approach as JEPX's silver layer (no dbt).
 
 ## Bronze Table Schema
 
@@ -282,5 +284,5 @@ uv run ruff check <changed paths>
 - JEPX scraping to RustFS raw: implemented
 - Bronze table provisioning for JEPX spot price: implemented
 - Raw-to-bronze ingestion with duplicate guard: implemented
-- OCCTO raw-to-bronze ingestion and bronze-to-silver dbt pipeline: implemented
+- OCCTO raw-to-bronze and bronze-to-silver pipeline (Python + DuckDB + PyIceberg): implemented
 - Silver/Gold pipeline steps: in progress

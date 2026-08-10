@@ -1,6 +1,5 @@
 import argparse
 import logging
-import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -9,7 +8,6 @@ from common.iceberg import get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
-from pipeline.bronze.migrate_occto_data import migrate_occto_data
 from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
@@ -357,31 +355,6 @@ def main():
         " (default: same as --from-date/--target-date)",
     )
 
-    occto_migrate_parser = subparsers.add_parser(
-        "migrate-occto-to-rustfs",
-        help="Migrate OCCTO source CSV files from local data to RustFS raw/occto",
-    )
-    occto_migrate_parser.add_argument(
-        "--local-dir",
-        default="/workspace/data/occto",
-        help="Local directory containing OCCTO CSV files",
-    )
-    occto_migrate_parser.add_argument(
-        "--bucket",
-        default="jp-power-grid-dev",
-        help="Destination bucket name (default: jp-power-grid-dev)",
-    )
-    occto_migrate_parser.add_argument(
-        "--s3-prefix",
-        default="raw/occto",
-        help="Destination S3 prefix (default: raw/occto)",
-    )
-    occto_migrate_parser.add_argument(
-        "--keep-local",
-        action="store_true",
-        help="Keep the local directory after upload",
-    )
-
     occto_scrape_parser = subparsers.add_parser(
         "scrape-occto",
         help="Download OCCTO unit generation CSV and upload to RustFS raw layer",
@@ -441,21 +414,6 @@ def main():
         "--fiscal-year",
         type=int,
         help="Limit the run to one fiscal year (default: rebuild every year)",
-    )
-
-    occto_dbt_parser = subparsers.add_parser(
-        "run-occto-silver-dbt",
-        help="Run dbt staging and silver models for OCCTO using DuckDB",
-    )
-    occto_dbt_parser.add_argument(
-        "--select",
-        default="tag:occto",
-        help="dbt select expression (default: tag:occto)",
-    )
-    occto_dbt_parser.add_argument(
-        "--full-refresh",
-        action="store_true",
-        help="Run dbt with --full-refresh",
     )
 
     args = parser.parse_args()
@@ -665,20 +623,6 @@ def main():
             row_count,
         )
 
-    if args.command == "migrate-occto-to-rustfs":
-        migrated_count = migrate_occto_data(
-            local_dir=args.local_dir,
-            bucket_name=args.bucket,
-            s3_prefix=args.s3_prefix,
-            delete_after=not args.keep_local,
-        )
-        logger.info(
-            "OCCTO migration completed: bucket=%s, prefix=%s, files=%s",
-            args.bucket,
-            args.s3_prefix,
-            migrated_count,
-        )
-
     if args.command == "scrape-occto":
         if args.target_date:
             try:
@@ -800,28 +744,6 @@ def main():
             result.write.table_identifier,
             result.write.rows_written,
         )
-
-    if args.command == "run-occto-silver-dbt":
-        project_dir = Path("/workspace/src/dbt/jepx_power")
-        profiles_dir = project_dir
-
-        dbt_command = [
-            "uv",
-            "run",
-            "dbt",
-            "run",
-            "--project-dir",
-            str(project_dir),
-            "--profiles-dir",
-            str(profiles_dir),
-            "--select",
-            args.select,
-        ]
-        if args.full_refresh:
-            dbt_command.append("--full-refresh")
-
-        logger.info("Executing dbt OCCTO command: %s", " ".join(dbt_command))
-        subprocess.run(dbt_command, check=True)
 
 
 if __name__ == "__main__":
