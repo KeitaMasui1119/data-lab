@@ -87,7 +87,7 @@
 
 ### タスク
 
-- [x] OCCTO オーケストレーターを実装する（`src/orchestration/occto_pipeline.py`）
+- [x] OCCTO オーケストレーターを実装する（`src/orchestration/pl_occto_unit_generation_actuals.py`）
       → 完了。`run-occto-orchestrator` CLI を追加。共通の `PipelineStepResult` は
       `src/orchestration/pipeline_result.py` に切り出し、JEPX/OCCTO 両オーケストレーターで共有。
       詳細は `docs/tasks/plan_occto_pipeline.md` Phase 5-3 を参照

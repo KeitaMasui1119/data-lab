@@ -17,7 +17,7 @@ import polars as pl
 import pytest
 from pyiceberg.expressions import And, GreaterThanOrEqual, LessThanOrEqual
 
-from pipeline.silver.bronze_to_silver_occto_unit_generation import (
+from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
     STAGING_RELATION,
     TIMESLOT_COLUMNS,
     build_staging_relation,

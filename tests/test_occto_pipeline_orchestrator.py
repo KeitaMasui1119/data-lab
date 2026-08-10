@@ -4,7 +4,7 @@ from datetime import date
 from types import SimpleNamespace
 from typing import Any
 
-from orchestration import occto_pipeline
+from orchestration import pl_occto_unit_generation_actuals as occto_pipeline
 
 BRONZE_SCHEMA_PATH = (
     "/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv"

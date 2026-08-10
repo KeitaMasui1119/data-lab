@@ -1,7 +1,7 @@
 """Shared result type for orchestrated pipeline steps.
 
 Extracted from jepx_pipeline.py: it has nothing JEPX-specific in it, and
-occto_pipeline.py needs the same shape rather than a copy.
+pl_occto_unit_generation_actuals.py needs the same shape rather than a copy.
 """
 
 from __future__ import annotations
