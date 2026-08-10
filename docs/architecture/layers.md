@@ -102,4 +102,15 @@ BronzeテーブルやSilverテーブルは変換や読み込み処理が入る�
 
 ## Partitioning / Granularity View
 
+| Dataset | Layer  | Granularity | Partition Column | Transform |
+|---|---|---|---|---|
+| JEPX | Silver | 1 row = delivery_date × time_code × area | delivery_date | (none yet — see `docs/tasks/tasks.md` §8.1) |
+| OCCTO | Bronze | 1 row = power_plant_code × unit_name × target_date (wide, 48 timeslot columns) | (none) | (none) |
+| OCCTO | Silver | 1 row = power_plant_code × unit_name × target_date × time_code (long, unpivoted) | target_date | day |
+
+OCCTO silverは`day(target_date)`でパーティションを切る。long化により年間約2,600万行規模になるため、
+`year`だと日次実行のたびに年間ファイル全体を書き換えてしまう。`day`にすることで、日次実行の書き込み
+コストが1パーティション（1日分）に留まり、蓄積した履歴量に依存しなくなる。詳細は
+`docs/tasks/plan_occto_pipeline.md` Phase 1／Phase 4-6 を参照。
+
 ## Evolution Policy
