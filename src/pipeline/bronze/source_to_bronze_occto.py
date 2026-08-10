@@ -70,6 +70,18 @@ def resolve_raw_object_from_ingestion_log(
     return object_key, object_key
 
 
+def _normalize_unit_name(df: pl.DataFrame) -> pl.DataFrame:
+    """Fill null unit_name with ''.
+
+    OCCTO omits ユニット名 for single-unit plants (observed for
+    power_plant_code=52271, 電源開発 手取川第一), which polars parses as
+    null. Bronze's unit_name is part of the natural key and is
+    is_identifier=TRUE, required=TRUE, so a null value would fail PyArrow's
+    schema cast on append; '' is a valid, distinct key value instead.
+    """
+    return df.with_columns(pl.col("unit_name").fill_null(""))
+
+
 def mark_ingestion_log_processed(
     client: RustFSClient,
     bucket_name: str,
@@ -160,6 +172,7 @@ def ingest_occto_unit_generation(
 
     select_exprs = build_schema_exprs(schema_path)
     cast_df = raw_df.select(select_exprs)
+    cast_df = _normalize_unit_name(cast_df)
 
     cast_df = cast_df.with_columns(
         pl.lit(source_file_name).alias("source_data"),

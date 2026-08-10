@@ -17,6 +17,7 @@ import pytest
 
 from pipeline.bronze.source_to_bronze_occto import (
     INGESTION_LOG_KEY,
+    _normalize_unit_name,
     _resolve_effective_source_file_name,
     mark_ingestion_log_processed,
     resolve_raw_object_from_ingestion_log,
@@ -76,6 +77,30 @@ def test_source_file_name_uses_explicit_override_when_given():
     assert _resolve_effective_source_file_name(object_key, "custom-label") == (
         "custom-label"
     )
+
+
+# ---------------------------------------------------------------------------
+# unit_name normalization — single-unit plants omit it in the real CSV (e.g.
+# power_plant_code=52271, 電源開発 手取川第一), but bronze's unit_name is
+# is_identifier=TRUE, required=TRUE, so a raw null must become '' before the
+# frame is appended or PyArrow's schema cast rejects it.
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_unit_name_fills_null_with_empty_string():
+    df = pl.DataFrame({"unit_name": [None, "１号機"]})
+
+    result = _normalize_unit_name(df)
+
+    assert result["unit_name"].to_list() == ["", "１号機"]
+
+
+def test_normalize_unit_name_leaves_non_null_values_untouched():
+    df = pl.DataFrame({"unit_name": ["１号機", "２号機"]})
+
+    result = _normalize_unit_name(df)
+
+    assert result["unit_name"].to_list() == ["１号機", "２号機"]
 
 
 # ---------------------------------------------------------------------------
