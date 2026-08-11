@@ -150,7 +150,7 @@ replay_strategy.md 通り Bronze からの再構築で行う）。Bronze テー�
 **実装**: PyIceberg 0.11.1 の `table.maintenance.expire_snapshots()` は snapshot
 メタデータの削除のみ行い、それによって不要になった物理ファイルの削除
 （orphan file removal）は行わない（PySpark 等にある同等機能が PyIceberg には無い）ため、
-`src/common/iceberg_maintenance.py` に自前で実装した：
+`src/common/iceberg/maintenance.py` に自前で実装した：
 
 - `expire_old_snapshots()` — `expire_snapshots().older_than(...)` のラッパー。
   branch HEAD（現行 snapshot）は cutoff より古くても常に保護されることを
@@ -187,7 +187,7 @@ FY2005–FY2026 バックフィル時に発生した障害の恒久対応（`ups
 
 以下は解決前の状況の記録。移行手順と実測結果はチェックリストを参照。
 
-**現状の問題（コード側は解決済み）。** `provision_table()`（`src/common/iceberg.py`）は
+**現状の問題（コード側は解決済み）。** `provision_table()`（`src/common/iceberg/catalog.py`）は
 `create_table()` に partition spec を渡しておらず、スキーマCSVの `partition_transform` 列は
 完全に無視されていた。→ **`ba66297`（`docs/tasks/plan_occto_pipeline.md` Phase 1）で解決済み。**
 `build_partition_spec()` がスキーマCSVの `partition_transform` を読み、新規テーブル作成時に
@@ -211,7 +211,7 @@ partition spec を渡さず、既存テーブルの spec 差分は警告ログ�
 - [x] ~~既存 JEPX silver テーブルの移行方針を決める（`update_spec()` での spec 進化か、作り直しか）~~ →
       解決済み。3テーブルとも `delivery_date` に `year` のみ（`area_name` は付与しない。エリア横断
       クエリの方が多い想定のため、列統計によるファイルスキップに任せる方針）。移行手順は
-      2ステップ：①`evolve_partition_spec()`（`src/common/iceberg.py`、新規CLI
+      2ステップ：①`evolve_partition_spec()`（`src/common/iceberg/catalog.py`、新規CLI
       `evolve-silver-partition-spec`）で `update_spec()` によりメタデータのみ追加（データ再書き込み
       不要）。②既存データファイルは旧レイアウトのまま残るため、`ingest-jepx-bronze-to-silver`
       （`--fiscal-year` 省略で全年度）を1回実行し、全履歴を新パーティション配置で書き直した。

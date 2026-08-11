@@ -1,10 +1,13 @@
-src/dbt101/logs/dbt.log
 src/stg/data_lake/*
 src/prd/data_lake/*
 .secrets/
 data/*
 .env
-./pipeline.log
+
+# Log files. `./pipeline.log` used to sit here but git never matches a
+# `./`-prefixed pattern, so pipeline.log ended up tracked; src/setup/provision.py
+# writes it into whatever directory it is run from.
+*.log
 
 # Coverage & test artifacts
 .coverage

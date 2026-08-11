@@ -7,10 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from common.schema_builder import build_partition_spec, build_table_schema
+from common.iceberg.schema import build_partition_spec, build_table_schema
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = ROOT / "configuration/iceberg/schema"
+
+BRONZE_SCHEMA_CSVS = sorted((SCHEMA_DIR / "bronze").glob("*.csv"))
+REPO_SCHEMA_CSVS = BRONZE_SCHEMA_CSVS + sorted((SCHEMA_DIR / "silver").glob("*.csv"))
 
 CSV_HEADER = [
     "field_id",
@@ -150,8 +153,41 @@ def test_build_partition_spec_assigns_sequential_field_ids_from_start(
 
 @pytest.mark.parametrize(
     "csv_path",
-    sorted((SCHEMA_DIR / "bronze").glob("*.csv"))
-    + sorted((SCHEMA_DIR / "silver").glob("*.csv")),
+    REPO_SCHEMA_CSVS,
+    ids=lambda path: str(path.relative_to(SCHEMA_DIR)),
+)
+def test_every_repo_schema_csv_uses_the_standard_header(csv_path: Path) -> None:
+    """The schema CSVs are the source of truth, so their shape is a contract.
+
+    build_table_schema() reads these columns by name; a renamed or reordered
+    header would break every table that file provisions.
+    """
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        header = next(csv.reader(handle))
+
+    assert header == CSV_HEADER
+
+
+@pytest.mark.parametrize(
+    "csv_path",
+    BRONZE_SCHEMA_CSVS,
+    ids=lambda path: str(path.relative_to(SCHEMA_DIR)),
+)
+def test_every_bronze_schema_csv_declares_only_string_columns(csv_path: Path) -> None:
+    """Bronze preserves source values verbatim; casting happens in silver.
+
+    Declaring a non-string type here would make ingestion drop or mangle rows
+    the source actually sent, which is exactly what bronze exists to avoid.
+    """
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        declared_types = {row["type"] for row in csv.DictReader(handle)}
+
+    assert declared_types == {"string"}
+
+
+@pytest.mark.parametrize(
+    "csv_path",
+    REPO_SCHEMA_CSVS,
     ids=lambda path: str(path.relative_to(SCHEMA_DIR)),
 )
 def test_every_repo_schema_csv_produces_a_valid_partition_spec(csv_path: Path) -> None:

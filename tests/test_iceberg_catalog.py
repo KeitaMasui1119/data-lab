@@ -15,7 +15,7 @@ import pyarrow as pa
 from pyiceberg.catalog import Catalog
 from pyiceberg.catalog.sql import SqlCatalog
 
-from common.iceberg import evolve_partition_spec, provision_table
+from common.iceberg.catalog import evolve_partition_spec, provision_table
 
 CSV_HEADER = [
     "field_id",

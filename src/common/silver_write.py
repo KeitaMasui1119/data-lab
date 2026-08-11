@@ -20,7 +20,7 @@ import polars as pl
 from pyiceberg.catalog import Catalog
 from pyiceberg.expressions import BooleanExpression, LiteralPredicate
 
-from common.iceberg import provision_table
+from common.iceberg.catalog import provision_table
 from common.pipeline_utilities import add_metadata
 
 logger = logging.getLogger(__name__)

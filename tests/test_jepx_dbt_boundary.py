@@ -1,47 +1,43 @@
+"""Guards that JEPX stays on the Python transform path and never returns to dbt.
+
+JEPX silver moved from dbt models to Python + DuckDB + PyIceberg; the dbt
+project is kept only as a shell for a possible future gold layer. These tests
+fail if a JEPX dbt model reappears or if the docs start advertising the
+retired dbt commands again.
+"""
+
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-JEPX_BRONZE_SCHEMA = ROOT / "configuration/iceberg/schema/bronze/jepx_spot_price.csv"
-JEPX_DBT_MODEL_DIR = ROOT / "src/dbt/jepx_power/models"
-
+DBT_PROJECT_DIR = ROOT / "src/dbt/jepx_power"
 README = ROOT / "README.md"
 
 
-def _read_csv_rows(path: Path) -> list[list[str]]:
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        return list(csv.reader(handle))
-
-
-def test_jepx_bronze_schema_has_expected_columns() -> None:
-    rows = _read_csv_rows(JEPX_BRONZE_SCHEMA)
-
-    assert rows[0] == [
-        "field_id",
-        "name",
-        "type",
-        "is_identifier",
-        "required",
-        "doc",
-        "partition_transform",
-        "source_name",
-        "comment",
-    ]
-    assert rows[1][1] == "delivery_date"
-    assert rows[1][2] == "string"
-    assert rows[2][1] == "time_code"
-    assert rows[2][2] == "string"
-    assert rows[-1][1] == "block_purchase_contracted_volume"
-
-
 def test_jepx_has_no_dbt_models() -> None:
-    """JEPX is transformed in Python, so no JEPX dbt model may remain."""
-    jepx_models = list(JEPX_DBT_MODEL_DIR.rglob("*jepx*.sql"))
+    """No .sql model may exist anywhere in the dbt project.
 
-    assert jepx_models == []
+    The dbt project directory is asserted to exist first on purpose. The
+    previous version of this test globbed src/dbt/jepx_power/models, a
+    directory that no longer exists, and Path.rglob on a missing directory
+    returns nothing -- so it passed no matter what, and would have kept
+    passing even if the whole dbt project were deleted.
+    """
+    assert DBT_PROJECT_DIR.is_dir(), (
+        f"{DBT_PROJECT_DIR} is missing, so this test would silently pass "
+        "without checking anything. Update the path or drop the test."
+    )
+
+    # target/ holds dbt build artifacts (gitignored), not authored models.
+    models = [
+        path
+        for path in DBT_PROJECT_DIR.rglob("*.sql")
+        if "target" not in path.relative_to(DBT_PROJECT_DIR).parts
+    ]
+
+    assert models == []
 
 
 def test_readme_mentions_jepx_silver_command() -> None:
