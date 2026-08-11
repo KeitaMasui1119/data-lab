@@ -1,10 +1,15 @@
 import argparse
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from common.iceberg import evolve_partition_spec, get_catalog, provision_table
+from common.iceberg_maintenance import (
+    delete_orphan_data_files,
+    expire_old_snapshots,
+    find_orphan_data_files,
+)
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
@@ -488,6 +493,45 @@ def main():
         help="Directory containing silver schema CSV files",
     )
 
+    expire_snapshots_parser = subparsers.add_parser(
+        "expire-silver-snapshots",
+        help=(
+            "Expire silver table snapshots older than a cutoff and report/"
+            "delete the data files that become orphaned as a result "
+            "(see docs/tasks/tasks.md section 7)"
+        ),
+    )
+    expire_snapshots_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    expire_snapshots_parser.add_argument(
+        "--schema-dir",
+        default="/workspace/configuration/iceberg/schema/silver",
+        help="Directory containing silver schema CSV files",
+    )
+    expire_snapshots_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Bucket holding the table data files (default: jp-power-grid-dev)",
+    )
+    expire_snapshots_parser.add_argument(
+        "--older-than-days",
+        type=int,
+        default=7,
+        help="Expire snapshots older than this many days (default: 7)",
+    )
+    expire_snapshots_parser.add_argument(
+        "--delete",
+        action="store_true",
+        help=(
+            "Actually delete orphaned data files. Without this flag, orphans "
+            "are only found and reported (dry run); snapshot expiration "
+            "itself still runs either way."
+        ),
+    )
+
     jepx_silver_parser = subparsers.add_parser(
         "ingest-jepx-bronze-to-silver",
         help="Transform JEPX bronze spot prices into silver Iceberg tables",
@@ -798,6 +842,52 @@ def main():
                 evolved += 1
 
         logger.info("Evolved partition spec for %s silver tables", evolved)
+
+    if args.command == "expire-silver-snapshots":
+        schema_dir = Path(args.schema_dir)
+        if not schema_dir.exists():
+            parser.error(f"Schema directory does not exist: {schema_dir}")
+
+        schema_files = sorted(schema_dir.glob("*.csv"))
+        if not schema_files:
+            parser.error(f"No schema CSV files found in: {schema_dir}")
+
+        catalog = get_catalog(args.catalog)
+        rustfs = RustFSClient()
+        cutoff = datetime.now(UTC) - timedelta(days=args.older_than_days)
+
+        total_expired = 0
+        total_orphans = 0
+        total_deleted = 0
+        for schema_file in schema_files:
+            table_identifier = f"silver.{schema_file.stem}"
+            expired = expire_old_snapshots(catalog, table_identifier, cutoff)
+            total_expired += len(expired)
+
+            orphans = find_orphan_data_files(
+                catalog, table_identifier, rustfs, args.bucket
+            )
+            total_orphans += len(orphans)
+            if not orphans:
+                continue
+
+            if args.delete:
+                deleted = delete_orphan_data_files(rustfs, args.bucket, orphans)
+                total_deleted += deleted
+            else:
+                logger.info(
+                    "DRY RUN: %s orphaned file(s) for '%s' would be deleted "
+                    "(pass --delete to actually remove them)",
+                    len(orphans),
+                    table_identifier,
+                )
+
+        logger.info(
+            "expire-silver-snapshots done: expired=%s, orphaned=%s, deleted=%s",
+            total_expired,
+            total_orphans,
+            total_deleted,
+        )
 
     if args.command == "ingest-jepx-bronze-to-silver":
         result = run_bronze_to_silver_jepx_spot_price(

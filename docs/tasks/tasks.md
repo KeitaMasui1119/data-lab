@@ -129,6 +129,50 @@
 - [ ] RustFS の Docker イメージバージョンを確定する（`compose.yaml`）
 - [ ] SQLite カタログファイル（`catalog/dlh_dev.db`）のバックアップ方針を決める
 - [ ] Devcontainer のボリュームマウント設定を確認する
+- [x] ~~Silver テーブルの snapshot 保持ポリシーを実装する（orphan ファイル削除）~~ →
+      実装・実行済み。詳細は本セクション末尾の注記を参照。
+
+---
+
+### Silver snapshot 保持ポリシー（実装・実行済み）
+
+**問題**: Iceberg の `overwrite()` はマニフェストから古いファイルの参照を外すだけで、
+物理ファイルは削除しない（タイムトラベル用に過去 snapshot が参照し続けるため）。
+
+**方針**: `docs/architecture/replay_strategy.md` は「Silver の復旧は Bronze からの
+再構築が正の手順」と定めており（snapshot ロールバックは正式な復旧経路ではない）、
+Silver 自身の snapshot 履歴を長期保持する必要性は薄い。よって Silver テーブルの
+snapshot 保持期間は**直近7日分のみ**とする（直近の誤実行をロールバックできる程度の
+運用上のバッファであり、正式な復旧手段ではない。それより古い障害復旧は
+replay_strategy.md 通り Bronze からの再構築で行う）。Bronze テーブルの保持方針は
+別途検討（本タスクのスコープ外）。
+
+**実装**: PyIceberg 0.11.1 の `table.maintenance.expire_snapshots()` は snapshot
+メタデータの削除のみ行い、それによって不要になった物理ファイルの削除
+（orphan file removal）は行わない（PySpark 等にある同等機能が PyIceberg には無い）ため、
+`src/common/iceberg_maintenance.py` に自前で実装した：
+
+- `expire_old_snapshots()` — `expire_snapshots().older_than(...)` のラッパー。
+  branch HEAD（現行 snapshot）は cutoff より古くても常に保護されることを
+  ローカルカタログで確認済み。
+- `find_orphan_data_files()` — expire 後に**残った全 snapshot**（current だけでなく）の
+  マニフェストが参照するファイル集合の和集合を取り、ストレージ上の実ファイル一覧との
+  差分を返す。生存中の非current snapshotが参照するファイルを誤って orphan 扱いしない
+  ことをテストで担保。
+- `delete_orphan_data_files()` — 実際の物理削除（S3 DeleteObjects、1000件単位でバッチ）。
+- CLI: `expire-silver-snapshots`（`--older-than-days`既定7、`--delete`未指定ならdry run）。
+  `provision-silver-tables` 等と同様スキーマディレクトリ全走査のため、実行対象は
+  silver配下の全テーブル（OCCTOも含む）になる点に注意。
+
+**実行結果・訂正**: 実装前に「3テーブル合計99ファイル・約65MBがorphan」と見積もったが、
+これは current snapshot のみとストレージを比較した誤った測定だった（生存中の他snapshotが
+参照するファイルも誤ってorphanとカウントしていた）。全snapshot横断で正しく計算した結果、
+JEPXの3テーブル（base/block/area）の**真のorphanは合計7ファイル**（base 3, block 3,
+area 1、ディレクトリプレースホルダー1件含む）で、これを実際に削除した。削除後も
+current snapshotのファイル数・行数（base/block 374,400行、area 3,364,896行）は
+削除前と完全一致することを確認済み。なお同時に実行したdry runで OCCTO
+（`silver.occto_unit_generation_actuals`）に315件のorphanが見つかったが、
+今回はJEPXのみを対象とする判断のため未削除のまま残している。
 
 ---
 
