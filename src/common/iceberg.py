@@ -68,6 +68,44 @@ def delete_table(catalog: Catalog, table_name: str, purge: bool = False) -> None
         logger.error("Failed to drop table: %s", error)
 
 
+def evolve_partition_spec(
+    catalog: Catalog, identifier: str, schema_csv_path: str
+) -> list[str]:
+    """Add any partition fields the schema CSV declares but the live table lacks.
+
+    provision_table() only applies partition_transform to brand-new tables and
+    just warns on drift for existing ones (see docs/tasks/tasks.md §8.1),
+    because adding a partition field is a metadata-only change: existing data
+    files stay in their old (often unpartitioned) layout, and only files
+    written after this call follow the new spec. Repartitioning historical
+    data still requires rewriting it, e.g. a full-refresh silver run.
+
+    Returns the list of column names newly added to the partition spec.
+    """
+    table = catalog.load_table(identifier)
+    target_schema = build_table_schema(schema_csv_path)
+    target_spec = build_partition_spec(schema_csv_path, target_schema)
+
+    existing_source_ids = {field.source_id for field in table.spec().fields}
+
+    added: list[str] = []
+    for target_field in target_spec.fields:
+        if target_field.source_id in existing_source_ids:
+            continue
+        column_name = target_schema.find_field(target_field.source_id).name
+        with table.update_spec() as update:
+            update.add_field(column_name, target_field.transform)
+        table = catalog.load_table(identifier)
+        added.append(column_name)
+
+    if added:
+        logger.info("Evolved partition spec for '%s': added %s", identifier, added)
+    else:
+        logger.info("Partition spec for '%s' already matches schema CSV", identifier)
+
+    return added
+
+
 def provision_table(catalog: Catalog, identifier: str, schema_csv_path: str) -> None:
     """Create or evolve an Iceberg table based on a schema CSV."""
     parts = identifier.split(".")
@@ -116,7 +154,11 @@ def provision_table(catalog: Catalog, identifier: str, schema_csv_path: str) -> 
         else:
             logger.info("No schema changes detected")
 
-        if existing_table.spec() != new_partition_spec:
+        # Compare fields only, not the full spec (which includes spec_id):
+        # evolve_partition_spec() commits via update_spec(), which bumps
+        # spec_id even when the resulting fields match the CSV exactly, so a
+        # spec_id-inclusive comparison would warn on every write forever.
+        if existing_table.spec().fields != new_partition_spec.fields:
             logger.warning(
                 "Partition spec drift for '%s': schema CSV wants %s but table "
                 "has %s. provision_table() does not evolve partition specs "

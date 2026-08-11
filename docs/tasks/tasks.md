@@ -139,7 +139,9 @@ FY2005–FY2026 バックフィル時に発生した障害の恒久対応（`ups
 [`docs/reports/reports_20260808_10c4679e-4370-49d3-9b8c-92f890c5eade.md`](../reports/reports_20260808_10c4679e-4370-49d3-9b8c-92f890c5eade.md)
 を参照。コミットは `25c385a`。
 
-### 8.1 Silver テーブルへのパーティション適用（優先度: 高）
+### 8.1 Silver テーブルへのパーティション適用（優先度: 高、解決済み）
+
+以下は解決前の状況の記録。移行手順と実測結果はチェックリストを参照。
 
 **現状の問題（コード側は解決済み）。** `provision_table()`（`src/common/iceberg.py`）は
 `create_table()` に partition spec を渡しておらず、スキーマCSVの `partition_transform` 列は
@@ -162,10 +164,22 @@ partition spec を渡さず、既存テーブルの spec 差分は警告ログ�
 9.3秒 / ピークRSS 1.7GB。現時点では耐えるが、履歴が伸びれば線形に悪化する。
 
 - [x] `provision_table()` でスキーマCSVの `partition_transform` を partition spec に反映する
-- [ ] 既存 JEPX silver テーブルの移行方針を決める（`update_spec()` での spec 進化か、作り直しか）
-  - spec を進化させても既存データファイルは旧レイアウトのまま残るため、
-    再書き込みが必要かを判断する
-- [ ] 移行後に同じ最悪配置で再実測し、ファイル書き換えが起きなくなったことを確認する
+- [x] ~~既存 JEPX silver テーブルの移行方針を決める（`update_spec()` での spec 進化か、作り直しか）~~ →
+      解決済み。3テーブルとも `delivery_date` に `year` のみ（`area_name` は付与しない。エリア横断
+      クエリの方が多い想定のため、列統計によるファイルスキップに任せる方針）。移行手順は
+      2ステップ：①`evolve_partition_spec()`（`src/common/iceberg.py`、新規CLI
+      `evolve-silver-partition-spec`）で `update_spec()` によりメタデータのみ追加（データ再書き込み
+      不要）。②既存データファイルは旧レイアウトのまま残るため、`ingest-jepx-bronze-to-silver`
+      （`--fiscal-year` 省略で全年度）を1回実行し、全履歴を新パーティション配置で書き直した。
+      実行結果：base/block 各374,400行、area 3,364,896行、計約12秒。各テーブルとも
+      FY2005〜FY2026の22ファイル（1ファイル/年度）に分割された（従来は2〜3ファイルに同居）。
+      副産物として、spec evolution後は `provision_table()` の drift 警告が spec_id の違いだけで
+      誤検知することが判明し、`fields` 比較に修正（回帰テスト
+      `test_provision_table_does_not_warn_after_evolve_partition_spec` 追加）。
+- [x] ~~移行後に同じ最悪配置で再実測し、ファイル書き換えが起きなくなったことを確認する~~ →
+      確認済み。単一年度スコープ実行（`--fiscal-year 2026`）の前後でファイルパスを比較し、
+      22ファイル中 **変更は対象年度の1ファイルのみ**、残り21ファイルは完全に不変だったことを実測。
+      書き込みコストがテーブル全体の履歴量ではなく対象年度のみに比例するようになったことを確認。
 
 ### 8.2 新しいガードのテスト追加（優先度: 中）
 

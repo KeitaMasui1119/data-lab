@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from common.iceberg import get_catalog, provision_table
+from common.iceberg import evolve_partition_spec, get_catalog, provision_table
 from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
@@ -469,6 +469,25 @@ def main():
         help="Directory containing silver schema CSV files",
     )
 
+    evolve_spec_parser = subparsers.add_parser(
+        "evolve-silver-partition-spec",
+        help=(
+            "Add partition fields declared in schema CSVs to existing silver "
+            "tables (metadata only; does not repartition existing data files, "
+            "see docs/tasks/tasks.md section 8.1)"
+        ),
+    )
+    evolve_spec_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    evolve_spec_parser.add_argument(
+        "--schema-dir",
+        default="/workspace/configuration/iceberg/schema/silver",
+        help="Directory containing silver schema CSV files",
+    )
+
     jepx_silver_parser = subparsers.add_parser(
         "ingest-jepx-bronze-to-silver",
         help="Transform JEPX bronze spot prices into silver Iceberg tables",
@@ -760,6 +779,25 @@ def main():
             provisioned += 1
 
         logger.info("Provisioned silver tables: %s", provisioned)
+
+    if args.command == "evolve-silver-partition-spec":
+        schema_dir = Path(args.schema_dir)
+        if not schema_dir.exists():
+            parser.error(f"Schema directory does not exist: {schema_dir}")
+
+        schema_files = sorted(schema_dir.glob("*.csv"))
+        if not schema_files:
+            parser.error(f"No schema CSV files found in: {schema_dir}")
+
+        catalog = get_catalog(args.catalog)
+        evolved = 0
+        for schema_file in schema_files:
+            table_identifier = f"silver.{schema_file.stem}"
+            added = evolve_partition_spec(catalog, table_identifier, str(schema_file))
+            if added:
+                evolved += 1
+
+        logger.info("Evolved partition spec for %s silver tables", evolved)
 
     if args.command == "ingest-jepx-bronze-to-silver":
         result = run_bronze_to_silver_jepx_spot_price(
