@@ -27,8 +27,16 @@
 ### タスク
 
 - [ ] 各社のファイル形式・カラム構成を調査し、スキーマCSV（`configuration/iceberg/schema/bronze/`）を定義する
+      → 北陸電力（パイロット）は完了。`configuration/iceberg/schema/bronze/hokuriku_denki_yohou.csv`
+      （716列＋監査列5、`build_table_schema()`/`build_partition_spec()`で検証済み）。詳細は
+      `docs/architecture/data_model.md` 3.1 を参照。フォーマットは会社ごとに
+      「リッチなスナップショット形式」（北陸・沖縄・関西）と「単純な実績のみの時系列」
+      （東京電力・中部電力・中国電力等）の2系統に分かれることが判明したため、他社は個別調査が必要。
 - [ ] ローカルファイルを Raw（RustFS）にアップロードするスクリプトを実装する
 - [ ] Raw → Bronze Ingestion を実装する（`src/pipeline/bronze/`）
+      → 北陸電力は`build_schema_exprs()`（1 CSVカラム→1ターゲット列の単純リネーム）がそのまま使えない
+      （ソースが複数セクションのレポート形式で、716列は日次1行に展開する専用パーサが必要）。
+      実装時は専用パーサを書く前提で見積もる。
 - [ ] Bronze → Silver dbt モデルを実装する（`src/dbt/jepx_power/models/silver/`）
 - [ ] 各社オーケストレーターを実装する（`src/orchestration/`）
 - [ ] `src/main.py` にコマンドを追加する
