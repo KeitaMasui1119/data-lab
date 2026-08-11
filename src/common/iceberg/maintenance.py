@@ -14,11 +14,28 @@ from __future__ import annotations
 from datetime import datetime
 
 from pyiceberg.catalog import Catalog
+from pyiceberg.table import Table
+from pyiceberg.utils.datetime import datetime_to_millis
 
 from common.logging_utils import get_logger
 from common.storage_client import RustFSClient
 
 logger = get_logger(__name__)
+
+
+def _expirable_snapshot_ids(table: Table, older_than: datetime) -> list[int]:
+    """Snapshot IDs older than the cutoff that are not pinned by a ref.
+
+    Mirrors what ExpireSnapshots.older_than() would select, computed up front
+    so a run with nothing to expire can skip committing entirely.
+    """
+    protected = {ref.snapshot_id for ref in table.metadata.refs.values()}
+    cutoff_ms = datetime_to_millis(older_than)
+    return sorted(
+        snapshot.snapshot_id
+        for snapshot in table.snapshots()
+        if snapshot.timestamp_ms < cutoff_ms and snapshot.snapshot_id not in protected
+    )
 
 
 def expire_old_snapshots(
@@ -28,23 +45,28 @@ def expire_old_snapshots(
 
     Metadata-only: does not touch data files. Returns the expired snapshot
     IDs.
+
+    Commits only when something will actually expire. PyIceberg writes a new
+    table metadata version on every commit(), even one that removes no
+    snapshots, so committing unconditionally would bump all four silver
+    tables on every scheduled run that had no work to do.
     """
     table = catalog.load_table(identifier)
-    before_ids = {snapshot.snapshot_id for snapshot in table.snapshots()}
+    expirable = _expirable_snapshot_ids(table, older_than)
 
-    table.maintenance.expire_snapshots().older_than(older_than).commit()
+    if not expirable:
+        logger.info("No snapshots older than %s for '%s'", older_than, identifier)
+        return []
+
+    table.maintenance.expire_snapshots().by_ids(expirable).commit()
 
     table = catalog.load_table(identifier)
-    after_ids = {snapshot.snapshot_id for snapshot in table.snapshots()}
-    expired = sorted(before_ids - after_ids)
+    remaining_ids = {snapshot.snapshot_id for snapshot in table.snapshots()}
+    expired = sorted(set(expirable) - remaining_ids)
 
-    if expired:
-        logger.info(
-            "Expired %s snapshot(s) for '%s': %s", len(expired), identifier, expired
-        )
-    else:
-        logger.info("No snapshots older than %s for '%s'", older_than, identifier)
-
+    logger.info(
+        "Expired %s snapshot(s) for '%s': %s", len(expired), identifier, expired
+    )
     return expired
 
 

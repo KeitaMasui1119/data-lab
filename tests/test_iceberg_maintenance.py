@@ -90,6 +90,44 @@ def test_expire_old_snapshots_keeps_everything_when_cutoff_predates_all_snapshot
     assert len(list(table.snapshots())) == 3
 
 
+def test_expire_old_snapshots_writes_no_metadata_when_nothing_expires(
+    tmp_path: Path,
+) -> None:
+    """A run with nothing to expire must not commit at all.
+
+    PyIceberg writes a new table metadata version on every commit(), even one
+    that removes no snapshots, so committing unconditionally would bump every
+    silver table's metadata on each scheduled run that had no work to do.
+    """
+    catalog, table = _local_table(tmp_path)
+    for day in range(1, 4):
+        _append_row(table, day)
+    location_before = catalog.load_table("silver.x").metadata_location
+
+    expire_old_snapshots(
+        cast(Catalog, catalog), "silver.x", datetime.now(UTC) - timedelta(days=365)
+    )
+
+    assert catalog.load_table("silver.x").metadata_location == location_before
+
+
+def test_expire_old_snapshots_writes_metadata_once_when_something_expires(
+    tmp_path: Path,
+) -> None:
+    """The counterpart guard: a run with real work still commits exactly once."""
+    catalog, table = _local_table(tmp_path)
+    for day in range(1, 4):
+        _append_row(table, day)
+    location_before = catalog.load_table("silver.x").metadata_location
+
+    expired = expire_old_snapshots(
+        cast(Catalog, catalog), "silver.x", datetime.now(UTC) + timedelta(seconds=1)
+    )
+
+    assert expired
+    assert catalog.load_table("silver.x").metadata_location != location_before
+
+
 class _FakeArrowResult:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
