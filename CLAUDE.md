@@ -30,6 +30,10 @@ uv run python src/main.py ingest-jepx-bronze-to-silver
 uv run python src/main.py ingest-occto-bronze-to-silver
 ```
 
+## Git Workflow
+
+Before any work that edits files, create and switch to a feature branch first — never edit files directly on `main`. This applies even to small follow-up changes (doc fixes, one-off scripts, migrations) made later in the same session, not just the first task of a session.
+
 ## Architecture
 
 This is a medallion data platform for Japanese power market data. Storage is RustFS (S3-compatible), tables are PyIceberg, transforms use Polars and DuckDB, and an empty dbt project is kept in reserve for the optional gold layer.
