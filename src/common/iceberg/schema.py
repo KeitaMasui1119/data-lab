@@ -1,3 +1,11 @@
+"""Build PyIceberg schemas and partition specs from the schema CSV files.
+
+`configuration/iceberg/schema/` is the source of truth for every table's
+columns; this module is the only place that parses those CSVs into PyIceberg
+types, and it injects the shared audit columns (field_id 9001-9005) that
+every table carries.
+"""
+
 import csv
 import logging
 import os

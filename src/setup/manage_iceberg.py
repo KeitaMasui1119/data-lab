@@ -1,6 +1,6 @@
 import argparse
 
-from common.iceberg import (
+from common.iceberg.catalog import (
     build_namespace,
     delete_namespace,
     delete_table,

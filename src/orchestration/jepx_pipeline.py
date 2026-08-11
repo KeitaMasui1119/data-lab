@@ -15,10 +15,10 @@ import logging
 import subprocess
 from pathlib import Path
 
-from common.jepx_common import resolve_target_at
 from common.storage_client import RustFSClient
 from orchestration.pipeline_result import PipelineStepResult
 from pipeline.bronze.source_to_bronze_jepx_spot_price import ingest_jepx_spot_summary
+from pipeline.jepx_common import resolve_target_at
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
     scrape_jepx_spot_price_raw,

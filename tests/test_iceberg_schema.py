@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from common.schema_builder import build_partition_spec, build_table_schema
+from common.iceberg.schema import build_partition_spec, build_table_schema
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = ROOT / "configuration/iceberg/schema"

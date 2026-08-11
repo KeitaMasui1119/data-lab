@@ -9,11 +9,7 @@ import polars as pl
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
-from common.iceberg import get_catalog
-from common.jepx_common import (
-    resolve_spot_summary_object_key,
-    resolve_target_at,
-)
+from common.iceberg.catalog import get_catalog
 from common.pipeline_utilities import add_metadata, build_schema_exprs
 from common.raw_ingestion_log import (
     DEFAULT_INGESTION_LOG_KEY,
@@ -22,6 +18,10 @@ from common.raw_ingestion_log import (
 )
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
+from pipeline.jepx_common import (
+    resolve_spot_summary_object_key,
+    resolve_target_at,
+)
 
 # ログ設定
 logging.basicConfig(

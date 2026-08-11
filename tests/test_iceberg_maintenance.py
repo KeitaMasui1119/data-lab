@@ -21,7 +21,7 @@ from pyiceberg.catalog.sql import SqlCatalog
 from pyiceberg.schema import Schema
 from pyiceberg.types import DateType, NestedField
 
-from common.iceberg_maintenance import (
+from common.iceberg.maintenance import (
     delete_orphan_data_files,
     expire_old_snapshots,
     find_orphan_data_files,

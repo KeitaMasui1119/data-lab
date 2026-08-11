@@ -4,7 +4,7 @@ from pathlib import Path
 from pyiceberg.catalog import load_catalog
 from pyiceberg.exceptions import NamespaceAlreadyExistsError, NoSuchTableError
 
-from common.schema_builder import build_table_schema
+from common.iceberg.schema import build_table_schema
 
 # ログの中央集権設定(ここで出力形式を固定する)
 logging.basicConfig(

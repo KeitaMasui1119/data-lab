@@ -40,7 +40,7 @@ from pyiceberg.expressions import (
 )
 
 from common.duckdb_utils import create_duckdb_connection
-from common.iceberg import get_catalog
+from common.iceberg.catalog import get_catalog
 from common.silver_write import (
     SilverWriteResult,
     column_bound,
