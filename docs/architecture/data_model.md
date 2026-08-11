@@ -89,36 +89,48 @@ Bronzeは全列string・横持ち48コマのまま保持し、Silverへの変換
 
 ---
 
-### 3. Utility Demand / Forecast
+### 3. Utility Demand / Forecast（でんき予報）
 
-**Source**: 各電力会社公開データ（需給・電気予報）
+**Source**: 各電力会社公開データ（でんき予報）
 
-各電力会社ごとに独立したテーブルとして管理する。
+各電力会社ごとに独立したテーブルとして管理する。当初案（`record_date, time_slot`の共通2列PK）は
+実ファイルを調査した結果成立しないことが判明し、以下の通り改訂した。`data/electric_forecast/`
+配下を調査すると、電力会社ごとに大きく2種類のフォーマットが存在する：
 
-| Layer  | Table Name              | Company   |
-|--------|------------------------|-----------|
-| Bronze | bronze.tepco_demand     | 東京電力   |
-| Silver | silver.tepco_demand     | 東京電力   |
-| Bronze | bronze.kepco_demand     | 関西電力   |
-| Silver | silver.kepco_demand     | 関西電力   |
-| Bronze | bronze.chubu_demand     | 中部電力   |
-| Silver | silver.chubu_demand     | 中部電力   |
+- **リッチなスナップショット形式**（北陸・沖縄・関西で確認）：1日1ファイル、複数セクション構成
+  （ピーク時供給力・予備率のサマリブロック×4種類、毎時の実績/予測/使用率/供給力テーブル、
+  翌日予想ブロック、5分間隔の実績＋太陽光テーブル）。実績に加え予測値・使用率・供給力を含む、
+  本来の「でんき予報」に相当するデータ。
+- **単純な実績のみの時系列**（東京電力・中部電力・中国電力等の過去アーカイブ）：`DATE,TIME,実績(万kW)`
+  のみのフラットな時系列。予測・使用率・供給力データはない。
 
-> 他の電力会社も同様の命名規則で追加する。
+このため「各社共通の2列PK」は成立せず、フォーマットごと（場合によっては会社ごと）に個別のBronzeスキーマが必要。
 
-**Primary Keys（各社共通）**
+#### 3.1 Hokuriku（北陸電力）— リッチなスナップショット形式、パイロット実装済み
 
-| Column      | Type   | Description       |
-|-------------|--------|-------------------|
-| record_date | Date   | 実績日             |
-| time_slot   | Int    | コマ番号（1〜48）   |
+| Layer  | Table Name                  |
+|--------|------------------------------|
+| Bronze | bronze.hokuriku_denki_yohou  |
 
-**Partition Design**
+**設計**: ソースファイル（`juyo_05_YYYYMMDD.csv`）はセクションごとに粒度が異なる
+（日次サマリ1行／毎時24行／5分間隔288行）複数セクション構成のレポートファイル。
+Bronzeではファイル全体を`target_date`単位で1行に横持ちフラット化する（OCCTOの
+48コマ列パターンを踏襲し、毎時×4指標×24=96列、5分間隔×2指標×288=576列、
+日次サマリ約20列×2（当日／翌日）を横持ち）。列数716（＋監査列5）。
+スキーマCSV: `configuration/iceberg/schema/bronze/hokuriku_denki_yohou.csv`。
 
-| Layer  | Partition Column | Transform | Reason           |
-|--------|-----------------|-----------|------------------|
-| Bronze | ingestion_date  | Year      | パイプライン管理目的 |
-| Silver | record_date     | Year      | 実績日での絞り込み  |
+**Primary Keys**
+
+| Layer  | Columns     | Description |
+|--------|-------------|--------------|
+| Bronze | target_date | ファイル名由来の対象日（ファイル内にDATE列はあるがセクションごとに分散しており行の一意キーにはならない）。同日内の複数回更新は`file_updated_at`と`source_data`（スナップショットのオブジェクトキー）で追跡し、Silverで最新版を選択する想定。 |
+
+**Partition Design**: 現時点で未設定（既存のOCCTO/JEPX Bronzeスキーマも
+`partition_transform`は未使用のため、方針が定まるまで踏襲）。
+
+**未解決**: 東京電力・関西電力・北海道電力など他社への横展開（フォーマット調査未了）。
+リッチ形式とシンプル形式のどちらを各社で採用するかは会社ごとに個別判断が必要。Raw取り込み・
+Bronze取り込みスクリプト・Silver変換は未実装（スキーマのみ確定）。
 
 ---
 
@@ -200,7 +212,9 @@ Silver層から参照するマッピングテーブル。
 
 ## Open Questions
 
-- [ ] 電力各社の需給データの対象会社を確定する
+- [x] ~~電力各社の需給データの対象会社を確定する~~ →
+      北陸電力をパイロットとして確定（[3.1](#31-hokuriku北陸電力-リッチなスナップショット形式パイロット実装済み)参照）。
+      他社（東京・関西・北海道等）は個別調査が必要で未確定。
 - [ ] 気象庁APIの地域コード体系を確認する
 - [ ] 株価インデックスの対象ティッカーを確定する
 - [x] ~~OCCTOのplant_idとplant_numberの一意性を確認する~~ →
