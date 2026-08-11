@@ -15,9 +15,18 @@ DuckDB で bronze Iceberg テーブルを直接 `iceberg_scan` し、変換後�
 |---|---|
 | dbt との関係 | **Python に一本化。** JEPX の dbt staging / silver モデルは削除する（dbt プロジェクト自体は OCCTO が使うので残す） |
 | テーブル構成 | **現行の3分割を維持**（`silver.jepx_spot_price_base` / `_area` / `_block`）。doc の単一テーブル案は採用しない |
-| upsert 方式 | PyIceberg ネイティブ `Table.upsert(df, join_cols=[...])`（方式A / doc §6） |
-| 実行範囲 | **全期間 upsert が既定。** 日次とフルリフレッシュは同一コードパスで、差は WHERE 句のみ（doc §5） |
+| upsert 方式 | ~~PyIceberg ネイティブ `Table.upsert(df, join_cols=[...])`（方式A / doc §6）~~ **→ 後日覆った（下記注記参照）** |
+| 実行範囲 | ~~**全期間 upsert が既定。** 日次とフルリフレッシュは同一コードパスで、差は WHERE 句のみ（doc §5）~~ **→ 後日覆った（下記注記参照）** |
 | quarantine | **今回のスコープ外（Phase 4）。** ただし Phase 2 で `violations` 列を作り、除外件数をログ・戻り値に出すところまでは実装する |
+
+> **注記（このタスク完了後に発生した変更）**: 上記2行はこのタスク当時の決定であり、当時のコードはその通り実装された。
+> しかしFY2005–FY2026バックフィル時に `Table.upsert()` がターゲットテーブル全体を match predicate でスキャンする実装だったため、
+> JEPXのareaテーブルが数百万行に達した時点でメモリを枯渇させる障害が発生した。恒久対応として `upsert` は区間 `overwrite`
+> （対象の `delivery_date` ウィンドウを削除して再書き込みする方式）へ置き換えられている（コミット `5525fab` / PR #72、
+> 経緯は `docs/reports/reports_20260808_10c4679e-4370-49d3-9b8c-92f890c5eade.md` を参照）。実行範囲についても、
+> 単体コマンド `ingest-jepx-bronze-to-silver` は現在も「フラグ省略時は全期間」だが、`run-jepx-orchestrator` は
+> 「取り込んだ会計年度のみ」がデフォルトに変わり、全期間再構築には `--silver-all-fiscal-years` が必要になった
+> （`docs/tasks/tasks.md` セクション8参照）。現在の実装は `src/pipeline/silver/bronze_to_silver_jepx_spot_price.py` を参照。
 
 ## 現状の問題（この実装で解消する）
 

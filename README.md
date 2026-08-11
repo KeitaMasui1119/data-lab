@@ -149,18 +149,27 @@ uv run python src/main.py provision-silver-tables \
 ### 5) Build the JEPX silver layer
 
 Transform the JEPX bronze table into the base, block and area silver tables.
-DuckDB casts and deduplicates the rows and PyIceberg upserts the result, so
+DuckDB casts and deduplicates the rows, then PyIceberg replaces (overwrites)
+the `delivery_date` window covered by the run -- not an upsert -- so
 re-running the command is safe:
 
 ```bash
 uv run python src/main.py ingest-jepx-bronze-to-silver
 ```
 
-Every fiscal year is upserted by default. Narrow the run to one year with:
+Without `--fiscal-year`, this command rebuilds every fiscal year currently in
+bronze. Narrow the run to one year with:
 
 ```bash
 uv run python src/main.py ingest-jepx-bronze-to-silver --fiscal-year 2026
 ```
+
+`run-jepx-orchestrator` (the end-to-end pipeline) scopes silver differently:
+by default it rebuilds only the fiscal year it just ingested, not every year,
+because rebuilding everything on every run made the write cost grow with the
+table's full history rather than with new data. Pass
+`--silver-all-fiscal-years` there to force a full rebuild across every year,
+or `--silver-fiscal-year <year>` to target one explicitly.
 
 ### 6) Build OCCTO silver layer with Python + DuckDB + PyIceberg
 

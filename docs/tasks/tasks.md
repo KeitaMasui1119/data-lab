@@ -191,20 +191,25 @@ partition spec を渡さず、既存テーブルの spec 差分は警告ログ�
       `parser.error` で弾かれることのテスト（`src/main.py` と
       `src/orchestration/jepx_pipeline.py` の2箇所）
 
-### 8.3 ドキュメントの追従（優先度: 中）
+### 8.3 ドキュメントの追従（優先度: 中、解決済み）
 
-- [ ] `README.md`（152行目付近）が旧仕様のまま。「PyIceberg upserts the result」
+- [x] ~~`README.md`（152行目付近）が旧仕様のまま。「PyIceberg upserts the result」
       「Every fiscal year is upserted by default」という記述を実態に合わせ、
-      `--silver-all-fiscal-years` を追記する。**オーケストレーターの既定が
-      「全年度」から「取り込んだ会計年度」に変わったため、運用者が最初に読むこのファイルの
-      更新が最優先**
-- [ ] `docs/architecture/metadata_columns.md` の削除方針（67行目付近
-      「Physical deletion is avoided... Logical deletion is applied via `is_deleted`」）が
-      区間物理削除する新実装と矛盾している。方針を改めるか、Silver 書き込みの例外を明記する
-- [ ] `docs/tasks/tasks_bts_jepx_sp.md` の「確定済みの設計判断（再検討不要）」表にある
+      `--silver-all-fiscal-years` を追記する。~~ →
+      「5) Build the JEPX silver layer」節を書き換え、区間overwrite方式である旨と、
+      `ingest-jepx-bronze-to-silver`（無指定なら全年度）と`run-jepx-orchestrator`
+      （既定は取り込んだ会計年度のみ、`--silver-all-fiscal-years`/`--silver-fiscal-year`で変更）
+      の既定挙動の違いを明記した。
+- [x] ~~`docs/architecture/metadata_columns.md` の削除方針が区間物理削除する新実装と矛盾している。~~ →
+      「Implementation Status」節を新設し、Silver専用列（`record_ingestion_time`/
+      `record_updated_time`/`is_deleted`）とupsert前提のステータス遷移・削除方針は
+      JEPX/OCCTOどちらも未実装であることを明記。「Deletion Policy」節にも、実装済みの
+      区間物理削除（overwrite）方式との違いを注記した。
+- [x] ~~`docs/tasks/tasks_bts_jepx_sp.md` の「確定済みの設計判断（再検討不要）」表にある
       `upsert 方式: PyIceberg ネイティブ Table.upsert` と
-      `実行範囲: 全期間 upsert が既定` は、どちらも今回の変更で覆っている。
-      完了済みタスクの記録だが、読んだ人が誤解するため注記を入れる
+      `実行範囲: 全期間 upsert が既定` は、どちらも今回の変更で覆っている。~~ →
+      該当2行を取り消し線付きで残し、後日`upsert`→区間`overwrite`へ置き換わった経緯
+      （コミット`5525fab`/PR #72、障害の詳細、`run-jepx-orchestrator`の既定変更）を注記として追加。
 
 ### 8.4 実行結果判定の厳格化（優先度: 中）
 

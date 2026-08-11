@@ -26,6 +26,34 @@ Attached to every Bronze and Silver table.
 
 ---
 
+## Implementation Status
+
+The Common Metadata Columns above (`source`, `status`, `ingestion_time`,
+`ingestion_date`, `execution_id`) are implemented and match the audit fields
+`build_table_schema()` injects into every Bronze table.
+
+The Silver-only design in the rest of this document (upsert, `is_deleted`
+soft delete, `loaded` → `updated` status transitions) is **not implemented by
+either Silver pipeline built so far**. JEPX (`bronze_to_silver_jepx_spot_price.py`)
+and OCCTO (`bronze_to_silver_occto_unit_generation_actuals.py`) both write
+Silver via a window `overwrite()` instead: PyIceberg's `Table.upsert()`
+scanned the whole target table with a match predicate over every source key,
+which exhausted memory once the JEPX area table reached a few million rows.
+The replacement deletes and re-appends the affected date window in one pass
+rather than matching row by row, so in practice:
+
+- Neither Silver table carries `record_ingestion_time`, `record_updated_time`,
+  or `is_deleted` -- stale rows inside a replaced window are deleted
+  physically, not flagged.
+- There is no `updated` status transition; a rewritten window's rows are
+  simply written fresh with the Common Metadata Columns above.
+
+Whether to build a future upsert-based Silver table on the design below, or
+drop it in favor of window-overwrite everywhere, is still open -- see
+`docs/tasks/tasks.md` section 4.
+
+---
+
 ## Silver-Only Metadata Columns
 
 Attached to Silver tables only.
@@ -64,6 +92,11 @@ Silver upsert success (existing record)
 ---
 
 ## Deletion Policy
+
+> This is the upsert-model policy; see "Implementation Status" above. JEPX
+> and OCCTO Silver do the opposite on purpose -- they physically delete and
+> rewrite the affected date window every run, which is what bounds their
+> write cost to the window instead of the table's full history.
 
 - Physical deletion is avoided to minimize Iceberg file rewrites.
 - Logical deletion is applied via `is_deleted` flag (Silver only).
