@@ -129,6 +129,42 @@
 - [ ] RustFS の Docker イメージバージョンを確定する（`compose.yaml`）
 - [ ] SQLite カタログファイル（`catalog/dlh_dev.db`）のバックアップ方針を決める
 - [ ] Devcontainer のボリュームマウント設定を確認する
+- [ ] Silver テーブルの snapshot 保持ポリシーを実装する（orphan ファイル削除）
+      → 方針は決定済み、実装は未着手。詳細は本セクション末尾の注記を参照。
+
+---
+
+### Silver snapshot 保持ポリシー（方針決定・実装未着手）
+
+**問題**: Iceberg の `overwrite()` はマニフェストから古いファイルの参照を外すだけで、
+物理ファイルは削除しない（タイムトラベル用に過去 snapshot が参照し続けるため）。
+JEPX silver パーティション移行（セクション8.1）の実測で、3テーブル合計 **99ファイル・
+約65MB が orphan 化**していることを確認した（`silver.jepx_spot_price_base` は
+snapshot が41個に蓄積）。OCCTO silver も同じ区間 overwrite 方式のため、同様の
+orphan 蓄積が起きている想定。
+
+**方針**: `docs/architecture/replay_strategy.md` は「Silver の復旧は Bronze からの
+再構築が正の手順」と定めており（snapshot ロールバックは正式な復旧経路ではない）、
+Silver 自身の snapshot 履歴を長期保持する必要性は薄い。よって：
+
+- Silver テーブルの snapshot 保持期間は **直近7日分のみ**とする（直近の誤実行を
+  ロールバックできる程度の運用上のバッファであり、正式な復旧手段ではない）。
+  それより古い障害復旧は replay_strategy.md 通り Bronze からの再構築で行う。
+- Bronze テーブルの保持方針は別途検討（本タスクのスコープ外。Bronze は
+  Raw からの再構築が可能だが、日常的な変換入力として実質的に使われ続けるため
+  Silver と同列に短期で expire すべきかは要議論）。
+
+**未実装**: PyIceberg 0.11.1 の `table.maintenance.expire_snapshots()` は
+snapshot メタデータの削除のみ行い、それによって不要になった物理ファイルの削除
+（orphan file removal）は行わない（PySpark 等にある同等機能が PyIceberg には無い）。
+そのため以下を自前で実装する必要がある：
+
+- [ ] `expire_snapshots().older_than(...)` で7日より古い snapshot を expire する
+      ユーティリティ（`common/iceberg.py` 想定）
+- [ ] expire 後、残った全 snapshot のマニフェストが参照するファイル集合とストレージ上の
+      実ファイル一覧の差分を取り、orphan ファイルを物理削除するスクリプト
+- [ ] 上記2つを CLI コマンド化し（例: `expire-silver-snapshots`）、定期実行の運用方法
+      （オーケストレーターに組み込むか、別ジョブにするか）を決める
 
 ---
 
