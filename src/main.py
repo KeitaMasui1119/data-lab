@@ -780,29 +780,33 @@ def main():
             except ValueError as exc:
                 parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
 
+        effective_to = to_date or from_date
         rustfs = RustFSClient()
         scraper = OCCTOUnitGenerationScraper()
         try:
-            result = scrape_occto_unit_generation_raw(
-                storage_client=rustfs,
-                scraper=scraper,
-                bucket_name=args.bucket,
-                from_date=from_date,
-                to_date=to_date,
-            )
-            if result.skipped:
-                logger.info(
-                    "OCCTO scrape skipped (no change): target_date=%s, sha256=%.8s",
-                    result.from_date,
-                    result.sha256,
+            current = from_date
+            while current <= effective_to:
+                result = scrape_occto_unit_generation_raw(
+                    storage_client=rustfs,
+                    scraper=scraper,
+                    bucket_name=args.bucket,
+                    from_date=current,
+                    to_date=current,
                 )
-            else:
-                logger.info(
-                    "OCCTO snapshot saved: target_date=%s, sha256=%.8s, prefix=%s",
-                    result.from_date,
-                    result.sha256,
-                    result.snapshot_prefix,
-                )
+                if result.skipped:
+                    logger.info(
+                        "OCCTO scrape skipped (no change): target_date=%s, sha256=%.8s",
+                        result.from_date,
+                        result.sha256,
+                    )
+                else:
+                    logger.info(
+                        "OCCTO snapshot saved: target_date=%s, sha256=%.8s, prefix=%s",
+                        result.from_date,
+                        result.sha256,
+                        result.snapshot_prefix,
+                    )
+                current += timedelta(days=1)
         finally:
             scraper.close()
 

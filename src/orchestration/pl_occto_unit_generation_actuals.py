@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from common.storage_client import RustFSClient
 from orchestration.pipeline_result import PipelineStepResult
@@ -106,90 +106,97 @@ def run_occto_orchestrated_pipeline(
     silver_to_date: date | None,
     silver_all_dates: bool = False,
 ) -> list[PipelineStepResult]:
-    """Run the OCCTO workflow in dependency order."""
+    """Run the OCCTO workflow in dependency order.
+
+    Raw scraping and bronze ingestion run once per calendar day in the
+    from_date..to_date range (single-day windows keep per-date snapshots
+    and manifest hashes accurate). Silver runs once at the end for the
+    full ingested range so all days share one window-replace operation.
+    """
     results: list[PipelineStepResult] = []
 
     resolved_from_date = from_date or resolve_default_target_date(datetime.now(UTC))
     resolved_to_date = to_date or resolved_from_date
 
     rustfs = RustFSClient()
-
     scraper = OCCTOUnitGenerationScraper()
     try:
-        snapshot_result = scrape_occto_unit_generation_raw(
-            storage_client=rustfs,
-            scraper=scraper,
-            bucket_name=bucket_name,
-            from_date=resolved_from_date,
-            to_date=resolved_to_date,
-        )
+        current = resolved_from_date
+        while current <= resolved_to_date:
+            snapshot_result = scrape_occto_unit_generation_raw(
+                storage_client=rustfs,
+                scraper=scraper,
+                bucket_name=bucket_name,
+                from_date=current,
+                to_date=current,
+            )
+
+            if snapshot_result.skipped:
+                results.append(
+                    PipelineStepResult(
+                        name="source_to_raw",
+                        status="skipped",
+                        detail=(
+                            "No snapshot change detected. "
+                            f"from_date={snapshot_result.from_date}, "
+                            f"sha256={snapshot_result.sha256[:8]}"
+                        ),
+                    )
+                )
+            else:
+                results.append(
+                    PipelineStepResult(
+                        name="source_to_raw",
+                        status="success",
+                        detail=(
+                            "Saved snapshot and updated metadata catalog. "
+                            f"from_date={snapshot_result.from_date}, "
+                            f"prefix={snapshot_result.snapshot_prefix}"
+                        ),
+                    )
+                )
+
+            try:
+                row_count = ingest_occto_unit_generation(
+                    client=rustfs,
+                    bucket_name=bucket_name,
+                    object_key=None,
+                    source_file_name=None,
+                    catalog_name=catalog_name,
+                    table_identifier=bronze_table_identifier,
+                    schema_path=bronze_schema_path,
+                    skip_if_exists=not allow_duplicate_source,
+                    target_date=current,
+                    use_ingestion_log=True,
+                    require_unprocessed=True,
+                    update_ingestion_log_status=True,
+                )
+                results.append(
+                    PipelineStepResult(
+                        name="raw_to_bronze",
+                        status="success",
+                        detail=f"table={bronze_table_identifier}, rows={row_count}",
+                    )
+                )
+            except ValueError as error:
+                results.append(
+                    PipelineStepResult(
+                        name="raw_to_bronze",
+                        status="skipped",
+                        detail=str(error),
+                    )
+                )
+
+            current += timedelta(days=1)
     finally:
         scraper.close()
-
-    if snapshot_result.skipped:
-        results.append(
-            PipelineStepResult(
-                name="source_to_raw",
-                status="skipped",
-                detail=(
-                    "No snapshot change detected. "
-                    f"from_date={snapshot_result.from_date}, "
-                    f"to_date={snapshot_result.to_date}, "
-                    f"sha256={snapshot_result.sha256[:8]}"
-                ),
-            )
-        )
-    else:
-        results.append(
-            PipelineStepResult(
-                name="source_to_raw",
-                status="success",
-                detail=(
-                    "Saved snapshot and updated metadata catalog. "
-                    f"from_date={snapshot_result.from_date}, "
-                    f"to_date={snapshot_result.to_date}, "
-                    f"prefix={snapshot_result.snapshot_prefix}"
-                ),
-            )
-        )
-
-    try:
-        row_count = ingest_occto_unit_generation(
-            client=rustfs,
-            bucket_name=bucket_name,
-            object_key=None,
-            source_file_name=None,
-            catalog_name=catalog_name,
-            table_identifier=bronze_table_identifier,
-            schema_path=bronze_schema_path,
-            skip_if_exists=not allow_duplicate_source,
-            target_date=snapshot_result.from_date,
-            use_ingestion_log=True,
-            require_unprocessed=True,
-            update_ingestion_log_status=True,
-        )
-        results.append(
-            PipelineStepResult(
-                name="raw_to_bronze",
-                status="success",
-                detail=f"table={bronze_table_identifier}, rows={row_count}",
-            )
-        )
-    except ValueError as error:
-        results.append(
-            PipelineStepResult(
-                name="raw_to_bronze",
-                status="skipped",
-                detail=str(error),
-            )
-        )
 
     silver_window = resolve_silver_target_date_window(
         silver_from_date=silver_from_date,
         silver_to_date=silver_to_date,
         silver_all_dates=silver_all_dates,
-        snapshot_from_date=snapshot_result.from_date,
-        snapshot_to_date=snapshot_result.to_date,
+        snapshot_from_date=resolved_from_date,
+        snapshot_to_date=resolved_to_date,
     )
     results.append(
         run_bronze_to_silver_step(
