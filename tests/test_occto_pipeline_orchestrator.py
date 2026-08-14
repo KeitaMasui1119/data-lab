@@ -228,6 +228,83 @@ def test_run_occto_orchestrated_pipeline_skips_raw_to_bronze_when_no_unprocessed
     assert len(silver_calls) == 1
 
 
+def test_run_occto_orchestrated_pipeline_loops_per_day_for_multi_day_range(
+    monkeypatch,
+) -> None:
+    """For a 3-day range each day should trigger its own scrape and bronze call;
+    silver runs once at the end covering the full from..to window."""
+
+    class DummyScraper:
+        def close(self) -> None:
+            return None
+
+    scrape_calls: list[dict[str, object]] = []
+    ingest_calls: list[dict[str, object]] = []
+    silver_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(occto_pipeline, "RustFSClient", lambda: "rustfs-client")
+    monkeypatch.setattr(
+        occto_pipeline, "OCCTOUnitGenerationScraper", lambda: DummyScraper()
+    )
+
+    def fake_scrape(**kwargs: object) -> object:
+        scrape_calls.append(kwargs)
+        d = kwargs["from_date"]
+        return SimpleNamespace(
+            skipped=False,
+            from_date=d,
+            to_date=d,
+            sha256="abc12345",
+            snapshot_prefix=f"raw/.../target_date={d}/ingested_at=...",
+        )
+
+    def fake_ingest(**kwargs: object) -> int:
+        ingest_calls.append(kwargs)
+        return 48
+
+    def fake_silver_step(**kwargs: object) -> object:
+        silver_calls.append(kwargs)
+        return occto_pipeline.PipelineStepResult(
+            name="bronze_to_silver", status="success", detail="ok"
+        )
+
+    monkeypatch.setattr(occto_pipeline, "scrape_occto_unit_generation_raw", fake_scrape)
+    monkeypatch.setattr(occto_pipeline, "ingest_occto_unit_generation", fake_ingest)
+    monkeypatch.setattr(occto_pipeline, "run_bronze_to_silver_step", fake_silver_step)
+
+    results = occto_pipeline.run_occto_orchestrated_pipeline(
+        **_pipeline_kwargs(from_date=date(2026, 8, 7), to_date=date(2026, 8, 9))
+    )
+
+    # scrape called once per day, each with a single-day window
+    assert len(scrape_calls) == 3
+    assert [c["from_date"] for c in scrape_calls] == [
+        date(2026, 8, 7),
+        date(2026, 8, 8),
+        date(2026, 8, 9),
+    ]
+    assert all(c["to_date"] == c["from_date"] for c in scrape_calls)
+
+    # bronze called once per day
+    assert len(ingest_calls) == 3
+    assert [c["target_date"] for c in ingest_calls] == [
+        date(2026, 8, 7),
+        date(2026, 8, 8),
+        date(2026, 8, 9),
+    ]
+
+    # silver called once with the full ingested range
+    assert len(silver_calls) == 1
+    assert silver_calls[0]["from_date"] == date(2026, 8, 7)
+    assert silver_calls[0]["to_date"] == date(2026, 8, 9)
+
+    # result list: 3×(source_to_raw + raw_to_bronze) + 1×bronze_to_silver
+    result_names = [r.name for r in results]
+    assert result_names.count("source_to_raw") == 3
+    assert result_names.count("raw_to_bronze") == 3
+    assert result_names.count("bronze_to_silver") == 1
+
+
 def test_run_occto_orchestrated_pipeline_defaults_from_date_to_yesterday_jst(
     monkeypatch,
 ) -> None:
