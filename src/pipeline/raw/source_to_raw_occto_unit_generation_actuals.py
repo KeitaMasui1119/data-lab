@@ -1,10 +1,11 @@
 """OCCTO source-to-raw scraping and upload workflow.
 
-OCCTO's public disclosure system requires a 3-step requests.Session flow
-(GET home -> POST disclaimer agreement -> GET CSV download) rather than a
-single request. See docs/tasks/plan_occto_pipeline.md Phase 0 for the full
-reverse-engineered details, including the disclaimer checkbox's inverted
-`agreed` value.
+OCCTO's public disclosure system requires a 4-step requests.Session flow:
+  GET home → POST disclaimer-agree/next (agreed=0) → POST /info/hks/search
+  → GET downloadCsv
+Cookie alone is not enough; the server requires the search POST to establish
+state before the CSV download will succeed (502 otherwise).
+See docs/tasks/occto_pipeline_ingestion.md for the reverse-engineered details.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ HOME_URL = "https://hatsuden-kokai.occto.or.jp/hks-web-public/home"
 DISCLAIMER_AGREE_URL = (
     "https://hatsuden-kokai.occto.or.jp/hks-web-public/disclaimer-agree/next"
 )
+SEARCH_URL = "https://hatsuden-kokai.occto.or.jp/hks-web-public/info/hks/search"
 DOWNLOAD_CSV_URL = (
     "https://hatsuden-kokai.occto.or.jp/hks-web-public/info/hks/downloadCsv"
 )
@@ -173,6 +175,7 @@ class OCCTOUnitGenerationConfig:
 
     home_url: str = HOME_URL
     disclaimer_agree_url: str = DISCLAIMER_AGREE_URL
+    search_url: str = SEARCH_URL
     download_csv_url: str = DOWNLOAD_CSV_URL
     area_codes: tuple[str, ...] = ALL_AREA_CODES
     method_codes: tuple[str, ...] = ALL_METHOD_CODES
@@ -216,6 +219,19 @@ class OCCTOUnitGenerationScraper(BaseHttpScraper):
             timeout=self.timeout_seconds,
         )
 
+    def _build_search_request(self, from_date: date, to_date: date) -> RequestSpec:
+        """POST /info/hks/search — must precede downloadCsv to set server-side state."""
+        data: dict[str, object] = {
+            "htdnsCd": "",
+            "htdnsNm": "",
+            "unitNm": "",
+            "areaCheckbox": list(self.config.area_codes),
+            "hatudenHosikiCheckbox": list(self.config.method_codes),
+            "tgtDateDateFrom": from_date.strftime(self.config.date_format),
+            "tgtDateDateTo": to_date.strftime(self.config.date_format),
+        }
+        return RequestSpec(method="POST", url=self.config.search_url, data=data)
+
     def _build_download_request(self, from_date: date, to_date: date) -> RequestSpec:
         params: dict[str, object] = {
             "htdnsCd": "",
@@ -237,9 +253,10 @@ class OCCTOUnitGenerationScraper(BaseHttpScraper):
     def scrape(
         self, from_date: date, to_date: date | None = None
     ) -> OCCTOScrapedRawObject:
-        """Run the full 3-step flow and return the downloaded CSV bytes."""
+        """Run the full 4-step flow and return the downloaded CSV bytes."""
         to_date = to_date or from_date
         self.prepare(datetime.combine(from_date, datetime.min.time(), tzinfo=UTC))
+        self._execute(self._build_search_request(from_date, to_date))
         spec = self._build_download_request(from_date, to_date)
         response = self._execute(spec)
 

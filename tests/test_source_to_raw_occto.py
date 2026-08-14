@@ -1,9 +1,9 @@
 """Unit tests for the OCCTO source-to-raw scraping workflow.
 
-Covers the real 3-step session flow confirmed in
-docs/tasks/plan_occto_pipeline.md Phase 0 (GET home -> POST
-disclaimer-agree/next with agreed=0 -> GET downloadCsv), and the
-snapshot/ingestion-log write path modeled on the JEPX equivalent.
+Covers the real 4-step session flow (GET home -> POST disclaimer-agree/next
+with agreed=0 -> POST /info/hks/search -> GET downloadCsv) documented in
+docs/tasks/occto_pipeline_ingestion.md, and the snapshot/ingestion-log write
+path modeled on the JEPX equivalent.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     DISCLAIMER_AGREED_VALUE,
     DOWNLOAD_CSV_URL,
     HOME_URL,
+    SEARCH_URL,
     OCCTOScrapedRawObject,
     OCCTOUnitGenerationConfig,
     OCCTOUnitGenerationScraper,
@@ -144,14 +145,15 @@ def test_scrape_returns_range_file_name_when_to_date_differs():
     assert scraped.file_name == "ユニット別発電実績_2026-08-01_2026-08-07.csv"
 
 
-def test_scrape_calls_prepare_before_download_request():
+def test_scrape_calls_prepare_search_then_download_in_order():
     calls: list[str] = []
     session = MagicMock()
     session.get.side_effect = lambda *a, **k: calls.append("get")
     session.post.side_effect = lambda *a, **k: calls.append("post")
 
     def _record_request(*args, **kwargs):
-        calls.append("download")
+        url = kwargs.get("url", args[0] if args else "")
+        calls.append("search" if SEARCH_URL in url else "download")
         response = MagicMock()
         response.content = CSV_BODY
         response.raise_for_status.return_value = None
@@ -162,7 +164,24 @@ def test_scrape_calls_prepare_before_download_request():
 
     scraper.scrape(TARGET_DATE)
 
-    assert calls == ["get", "post", "download"]
+    assert calls == ["get", "post", "search", "download"]
+
+
+def test_scrape_posts_search_with_date_and_filter_params():
+    session = _mock_session_returning()
+    scraper = OCCTOUnitGenerationScraper(session=session)
+
+    scraper.scrape(TARGET_DATE)
+
+    # session.request is called twice: search (POST) then download (GET).
+    # call_args_list[0] is the search call.
+    search_call = session.request.call_args_list[0]
+    assert search_call.kwargs["method"] == "POST"
+    assert search_call.kwargs["url"] == SEARCH_URL
+    assert search_call.kwargs["data"]["tgtDateDateFrom"] == "2026/08/07"
+    assert search_call.kwargs["data"]["tgtDateDateTo"] == "2026/08/07"
+    assert search_call.kwargs["data"]["areaCheckbox"] == list(ALL_AREA_CODES)
+    assert search_call.kwargs["data"]["hatudenHosikiCheckbox"] == list(ALL_METHOD_CODES)
 
 
 # ---------------------------------------------------------------------------
