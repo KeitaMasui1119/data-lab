@@ -93,6 +93,14 @@ Bronzeは全列string・横持ち48コマのまま保持し、Silverへの変換
 
 **Source**: 各電力会社公開データ（でんき予報）
 
+でんき予報サイトで取得できるデータは大きく3分類に分かれる。英訳は以下の通り統一する：
+
+| 分類 | 英訳 |
+|------|------|
+| 電力使用状況 | `power_usage` |
+| 需給実績 | `supply_demand_actuals` |
+| 系統の需給 | `grid_supply_demand` |
+
 各電力会社ごとに独立したテーブルとして管理する。当初案（`record_date, time_slot`の共通2列PK）は
 実ファイルを調査した結果成立しないことが判明し、以下の通り改訂した。`data/electric_forecast/`
 配下を調査すると、電力会社ごとに大きく2種類のフォーマットが存在する：
@@ -100,24 +108,25 @@ Bronzeは全列string・横持ち48コマのまま保持し、Silverへの変換
 - **リッチなスナップショット形式**（北陸・沖縄・関西で確認）：1日1ファイル、複数セクション構成
   （ピーク時供給力・予備率のサマリブロック×4種類、毎時の実績/予測/使用率/供給力テーブル、
   翌日予想ブロック、5分間隔の実績＋太陽光テーブル）。実績に加え予測値・使用率・供給力を含む、
-  本来の「でんき予報」に相当するデータ。
+  上表の「電力使用状況（`power_usage`）」に相当するデータ。
 - **単純な実績のみの時系列**（東京電力・中部電力・中国電力等の過去アーカイブ）：`DATE,TIME,実績(万kW)`
   のみのフラットな時系列。予測・使用率・供給力データはない。
 
 このため「各社共通の2列PK」は成立せず、フォーマットごと（場合によっては会社ごと）に個別のBronzeスキーマが必要。
+「需給実績（`supply_demand_actuals`）」「系統の需給（`grid_supply_demand`）」は未調査・未実装（`docs/tasks/tasks.md`参照）。
 
-#### 3.1 Hokuriku（北陸電力）— リッチなスナップショット形式、パイロット実装済み
+#### 3.1 Hokuriku（北陸電力）— 電力使用状況（`power_usage`）、リッチなスナップショット形式、パイロット実装済み
 
-| Layer  | Table Name                  |
-|--------|------------------------------|
-| Bronze | bronze.hokuriku_denki_yohou  |
+| Layer  | Table Name                 |
+|--------|-----------------------------|
+| Bronze | bronze.hokuriku_power_usage |
 
 **設計**: ソースファイル（`juyo_05_YYYYMMDD.csv`）はセクションごとに粒度が異なる
 （日次サマリ1行／毎時24行／5分間隔288行）複数セクション構成のレポートファイル。
 Bronzeではファイル全体を`target_date`単位で1行に横持ちフラット化する（OCCTOの
 48コマ列パターンを踏襲し、毎時×4指標×24=96列、5分間隔×2指標×288=576列、
 日次サマリ約20列×2（当日／翌日）を横持ち）。列数716（＋監査列5）。
-スキーマCSV: `configuration/iceberg/schema/bronze/hokuriku_denki_yohou.csv`。
+スキーマCSV: `configuration/iceberg/schema/bronze/hokuriku_power_usage.csv`。
 
 **Primary Keys**
 
