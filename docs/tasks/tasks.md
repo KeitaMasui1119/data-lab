@@ -62,10 +62,15 @@
       Bronzeの3テーブルに1:1対応する3つのSilverテーブル（`silver.power_usage_hokuriku_{daily_summary,hourly,interval5}`）。
       `hourly`/`interval5`はOCCTOの48コマUNPIVOTパターンを指標ごとに個別UNPIVOT→再JOINする形に拡張。
       `src/main.py`の`ingest-power-usage-hokuriku-bronze-to-silver`コマンドも実装済み。
-      実データ全件（2,082日分）で変換・値検証済み。他社は未着手。
+      実データ全件（2,082日分）で変換・値検証済み。
+      → 東北・中国・四国電力（supply_demand_actuals）も完了。`bronze_to_silver_supply_demand_actuals.py`
+      （こちらも3社共通のパラメータ化モジュール）。BronzeがすでにDATE,TIME1行=1レコードのため
+      UNPIVOT不要、型付けと`hour_of_day`/`delivery_datetime`導出のみ。CLI:
+      `ingest-supply-demand-actuals-bronze-to-silver --company ...`。実データ（2026-08-14分）で
+      検証済み。他社は未着手。
 - [ ] 各社オーケストレーターを実装する（`src/orchestration/`）
-      → 北陸電力power_usageはRaw→Bronze→Silverが個別コマンドとして実装済みだが、
-      1コマンドで通しで実行するオーケストレーターは未実装。
+      → 北陸電力power_usage・東北/中国/四国電力supply_demand_actualsともRaw→Bronze→Silverが
+      個別コマンドとして実装済みだが、1コマンドで通しで実行するオーケストレーターは未実装。
 - [ ] `src/main.py` にコマンドを追加する
 
 ---

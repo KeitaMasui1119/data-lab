@@ -73,6 +73,9 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
 from pipeline.silver.bronze_to_silver_power_usage_hokuriku import (
     run_bronze_to_silver_power_usage_hokuriku,
 )
+from pipeline.silver.bronze_to_silver_supply_demand_actuals import (
+    run_bronze_to_silver_supply_demand_actuals,
+)
 from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
 logging.basicConfig(
@@ -445,6 +448,36 @@ def main():
         "--allow-duplicate-target-date",
         action="store_true",
         help="Allow append even if this target_date already has rows in bronze",
+    )
+
+    supply_demand_actuals_silver_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-bronze-to-silver",
+        help="Transform one company's supply_demand_actuals bronze table into silver",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--company",
+        required=True,
+        choices=sorted(SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS),
+        help="Company code",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--target-date",
+        help="Limit the run to one target_date in YYYY-MM-DD"
+        " (default: rebuild the full range staged from bronze)",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--from-date",
+        help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--to-date",
+        help="End of a target_date range in YYYY-MM-DD"
+        " (default: same as --from-date/--target-date)",
     )
 
     power_usage_hokuriku_silver_parser = subparsers.add_parser(
@@ -1314,6 +1347,45 @@ def main():
                 silver_write.table_identifier,
                 silver_write.rows_written,
             )
+
+    if args.command == "ingest-supply-demand-actuals-bronze-to-silver":
+        from_date = None
+        to_date = None
+        if args.from_date:
+            try:
+                from_date = date.fromisoformat(args.from_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --from-date value: {args.from_date} ({exc})")
+            if args.to_date:
+                try:
+                    to_date = date.fromisoformat(args.to_date)
+                except ValueError as exc:
+                    parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
+            else:
+                to_date = from_date
+        elif args.target_date:
+            try:
+                from_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+            to_date = from_date
+
+        supply_demand_actuals_silver_result = (
+            run_bronze_to_silver_supply_demand_actuals(
+                company=args.company,
+                catalog_name=args.catalog,
+                from_date=from_date,
+                to_date=to_date,
+            )
+        )
+        logger.info(
+            "supply_demand_actuals[%s] bronze-to-silver completed: "
+            "execution_id=%s, table=%s, written=%s",
+            args.company,
+            supply_demand_actuals_silver_result.execution_id,
+            supply_demand_actuals_silver_result.write.table_identifier,
+            supply_demand_actuals_silver_result.write.rows_written,
+        )
 
     if args.command == "run-occto-orchestrator":
         if args.silver_all_dates and (args.silver_from_date or args.silver_to_date):
