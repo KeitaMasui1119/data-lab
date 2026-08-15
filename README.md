@@ -15,14 +15,21 @@ Current implementation emphasizes:
 The project follows a medallion architecture.
 
 - Raw: source files stored as-is in object storage
-- Bronze: schema-conformed Iceberg tables with metadata columns
-- Silver/Gold: planned downstream layers
+- Bronze: schema-conformed Iceberg tables (string-typed, source structure preserved, audit metadata columns)
+- Silver: DuckDB-transformed, typed, deduplicated Iceberg tables written via a window-replace (not upsert)
+- Gold: planned, not yet implemented
 
-Current primary data flow:
+Datasets implemented so far, each following Raw -> Bronze -> Silver:
 
-1. Scrape JEPX spot summary CSV from the website
-2. Save file to `s3://jp-power-grid-dev/raw/jepx/spot_summary/`
-3. Ingest raw CSV into `bronze.jepx_spot_price`
+| Dataset | Source | Bronze | Silver |
+|---|---|---|---|
+| JEPX spot price | JEPX website | `bronze.jepx_spot_price` | `silver.jepx_spot_price` (base/block/area) |
+| OCCTO unit generation actuals | OCCTO disclosure system | `bronze.occto_unit_generation_actuals` | `silver.occto_unit_generation_actuals` |
+| Hokuriku power_usage (でんき予報) | rikuden.co.jp daily snapshot CSV | `bronze.power_usage_hokuriku_{daily_summary,hourly,interval5}` | `silver.power_usage_hokuriku_{daily_summary,hourly,interval5}` |
+| supply_demand_actuals (需給実績) | Tohoku/Chugoku/Shikoku yearly actuals CSV | `bronze.supply_demand_actuals_{tohoku,chugoku,shikoku}` | `silver.supply_demand_actuals_{tohoku,chugoku,shikoku}` |
+
+See `docs/architecture/data_model.md` for the full table/column design and
+`docs/tasks/tasks.md` for what is implemented vs. still open per company.
 
 ## Storage Layout
 
@@ -43,9 +50,10 @@ Primary bucket layout:
 - Python 3.13+
 - RustFS (S3-compatible object storage)
 - PyIceberg
-- Polars
+- Polars (Bronze layer: cast + metadata)
+- DuckDB (Silver layer: cast, dedupe, unpivot where needed)
 - uv (dependency management)
-- Ruff (linting/format)
+- Ruff (linting/format), Pyright (type checking), pytest (tests)
 
 ## Environment Setup
 
@@ -191,52 +199,105 @@ timeslot columns into one row per unit per 30-minute slot, and writes
 `silver.occto_unit_generation_actuals` via a window (`target_date`) replace,
 the same DuckDB + PyIceberg approach as JEPX's silver layer (no dbt).
 
-## Bronze Table Schema
+### 7) OCCTO: scrape and raw-to-bronze
 
-JEPX spot price schema is managed from:
-
-- `configuration/iceberg/schema/bronze/jepx_spot_price.csv`
-
-Iceberg table creation (if needed):
+OCCTO requires a 4-step session flow (GET home -> POST disclaimer-agree ->
+POST search -> GET downloadCsv), handled internally by the scraper:
 
 ```bash
-uv run python src/catalog/manage_iceberg.py \
-	--catalog dlh_dev table create \
-	--name bronze.jepx_spot_price \
-	--csv /workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv
+uv run python src/main.py scrape-occto --target-date 2026-08-14
+uv run python src/main.py ingest-occto-raw-to-bronze \
+	--object-key raw/occto/unit_generation/target_date=2026-08-14/ingested_at=.../file.csv \
+	--target-date 2026-08-14
 ```
+
+`--target-date` defaults to the previous day in Asia/Tokyo (OCCTO publishes
+each day's actuals ~15:30 JST the following day). `run-occto-orchestrator`
+runs scrape -> bronze -> silver end to end for one day or a range.
+
+### 8) Hokuriku power_usage (でんき予報)
+
+Hokuriku's daily snapshot CSV is a multi-section report (today/next-day
+peak-summary blocks, an hourly table, a 5-minute-interval table). Bronze
+splits it into 3 tables instead of one wide table, and silver mirrors that
+1:1 (unpivoting the hourly/interval5 tables, casting the rest):
+
+```bash
+uv run python src/main.py scrape-power-usage-hokuriku --target-date 2026-08-14
+uv run python src/main.py ingest-power-usage-hokuriku-raw-to-bronze \
+	--object-key raw/power_usage/hokuriku/target_date=2026-08-14/ingested_at=.../juyo_05_20260814.csv \
+	--target-date 2026-08-14
+uv run python src/main.py ingest-power-usage-hokuriku-bronze-to-silver --target-date 2026-08-14
+```
+
+`--target-date` defaults to the previous day in Asia/Tokyo -- today's
+snapshot is still live/incomplete (a mid-day fetch has empty values for
+hours that have not elapsed yet); a date's data is only fully finalized
+shortly after midnight JST the following day.
+
+### 9) supply_demand_actuals (需給実績): Tohoku / Chugoku / Shikoku
+
+Unlike Hokuriku, these sources publish one cumulative CSV per calendar
+year (growing by a day's rows daily) rather than a per-day file, so the
+raw scraper downloads the whole current year and bronze ingestion filters
+it down to one `target_date`'s rows. One shared, `--company`-parameterized
+module covers all 3 companies (their mechanics are identical apart from
+URL and Shikoku's extra supply-capacity column):
+
+```bash
+uv run python src/main.py scrape-supply-demand-actuals --company tohoku --target-date 2026-08-14
+uv run python src/main.py ingest-supply-demand-actuals-raw-to-bronze \
+	--company tohoku \
+	--object-key raw/supply_demand_actuals/tohoku/year=2026/ingested_at=.../juyo_2026_tohoku.csv \
+	--target-date 2026-08-14
+uv run python src/main.py ingest-supply-demand-actuals-bronze-to-silver --company tohoku --target-date 2026-08-14
+```
+
+`--company` accepts `tohoku`, `chugoku`, or `shikoku`. Tokyo/TEPCO is not
+yet implemented -- its current year's actuals archive is not published
+live; only a Hokuriku-style rich snapshot (`juyo-d1-j.csv`) is available
+for it, which needs a different extraction approach.
+
+## Bronze Table Schema
+
+`configuration/iceberg/schema/{bronze,silver}/` is the source of truth for
+every table's columns (`field_id,name,type,is_identifier,required,doc,
+partition_transform,source_name,comment`). Examples:
+
+- `configuration/iceberg/schema/bronze/jepx_spot_price.csv`
+- `configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv`
+- `configuration/iceberg/schema/bronze/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`
+- `configuration/iceberg/schema/bronze/supply_demand_actuals_{tokyo,tohoku,chugoku,shikoku}.csv`
+
+Iceberg table creation/evolution (if needed) via the admin CLI:
+
+```bash
+uv run python -m setup.manage_iceberg table \
+	--name bronze.jepx_spot_price \
+	--csv /workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv \
+	create
+```
+
+`--catalog` (default `dlh_dev`) goes before the `table` subcommand; `create`
+is idempotent (diffs and evolves an existing table's schema, additive only
+-- column removals only warn, never drop).
 
 ## Code Structure
 
-- `src/main.py`: thin orchestrator (execution flow only)
-- `src/orchestration/`: pipeline-level orchestration entrypoints (planned)
-- `src/pipeline/scraper/`: scraping modules (shared + source-specific)
-- `src/pipeline/ingestion/`: raw to Iceberg ingestion steps
-- `src/catalog/`: Iceberg catalog and table management
-- `src/utility/`: reusable transformation helpers
-
-## Target Source Layout (Current Design)
-
-The project is being standardized around medallion-aware module boundaries.
-
-- `src/common/`
-	- Shared reusable components used across pipelines.
-	- The extra `module` directory is not required in the target layout.
-- `src/pipeline/`
-	- `raw/`: `source_to_raw_<pipeline>.py`
-	- `bronze/`: `raw_to_bronze_<pipeline>.py`, `source_to_bronze_<pipeline>.py`
-	- `silver/`: `bronze_to_silver_<pipeline>.py`
-	- `gold/`: `silver_to_gold_<pipeline>.py`, `vw_silver_to_gold_<pipeline>.py`
-- `src/orchestration/`
-	- End-to-end orchestration files named `pl_<pipeline>.py`.
-	- Example: `pl_jepx.py` calls each layer in order
-		(`source/raw -> bronze -> silver -> gold`).
-
-Execution model:
-
-- `src/main.py` remains the single CLI entrypoint.
-- `src/main.py` calls `src/orchestration/pl_<pipeline>.py` to run full ingestion
-	pipelines end-to-end.
+- `src/main.py`: thin CLI orchestrator (argparse subcommands, execution flow only)
+- `src/orchestration/`: end-to-end pipeline orchestrators (currently JEPX and OCCTO; `pl_<pipeline>.py`)
+- `src/pipeline/raw/`: HTTP scraping and raw-layer upload (`source_to_raw_<pipeline>.py`)
+- `src/pipeline/bronze/`: raw-to-bronze ingestion (`source_to_bronze_<pipeline>.py`)
+- `src/pipeline/silver/`: bronze-to-silver DuckDB transforms (`bronze_to_silver_<pipeline>.py`)
+- `src/pipeline/gold/`: reserved for a future dbt-based gold layer (empty)
+- `src/pipeline/jepx_common.py`: JEPX-specific shared helpers (fiscal-year resolution, etc.)
+- `src/common/`: dataset-agnostic shared primitives (`BaseHttpScraper`, `RustFSClient`,
+	Polars/DuckDB utilities, the window-replace silver write path, `common/iceberg/`
+	catalog+schema+maintenance helpers) -- anything dataset-specific belongs under `src/pipeline/` instead
+- `src/setup/`: infra provisioning (bucket creation, `manage_iceberg.py` admin CLI)
+- `src/dbt/jepx_power/`: dbt project kept in reserve for a possible future gold layer (no models currently)
+- `src/Jupyter/`: scraping prototypes and ad-hoc analysis notebooks (not part of the production path)
+- `tests/`: pytest unit tests, one file per `src/pipeline/**` module
 
 ## Development Environment Snapshot
 
@@ -245,10 +306,10 @@ This workspace is a local data lakehouse practice environment focused on Japanes
 Current environment facts:
 
 - OS: Debian GNU/Linux 13 (trixie)
-- Kernel: Linux 6.6.87.2-microsoft-standard-WSL2
+- Kernel: Linux 6.18.33.2-microsoft-standard-WSL2
 - Shell: zsh
 - Python requirement: 3.13+
-- uv: 0.11.8
+- uv: 0.12.4
 - git: 2.47.3
 
 Notes:
@@ -275,7 +336,9 @@ Implementation guidance:
 - Keep orchestration thin and push business logic into testable modules.
 - Use the Bronze layer for string-preserving ingestion only.
 - Use the Silver layer for casting, timestamp derivation, and deduplication.
-- Prefer hierarchical Iceberg namespaces such as `bronze.jepx.spot_price`.
+- Namespace tables as `{layer}.{table_name}` (e.g. `bronze.jepx_spot_price`,
+	`silver.power_usage_hokuriku_hourly`) -- flat, underscore-joined names, not
+	nested namespaces.
 
 ## Development Rules
 
@@ -290,8 +353,15 @@ uv run ruff check <changed paths>
 
 ## Current Status Snapshot
 
-- JEPX scraping to RustFS raw: implemented
-- Bronze table provisioning for JEPX spot price: implemented
-- Raw-to-bronze ingestion with duplicate guard: implemented
-- OCCTO raw-to-bronze and bronze-to-silver pipeline (Python + DuckDB + PyIceberg): implemented
-- Silver/Gold pipeline steps: in progress
+- JEPX: raw -> bronze -> silver (base/block/area), end-to-end orchestrator: implemented
+- OCCTO: raw -> bronze -> silver, end-to-end orchestrator: implemented
+- Hokuriku power_usage（電力使用状況／でんき予報）: raw -> bronze (3-table split) -> silver:
+	implemented; backfilled against 2,082 real historical snapshots
+- supply_demand_actuals（需給実績）for Tohoku/Chugoku/Shikoku: raw -> bronze -> silver:
+	implemented; Tokyo/TEPCO not yet implemented (needs a different extraction
+	approach -- see `docs/architecture/data_model.md` 3.2)
+- End-to-end orchestrator for power_usage_hokuriku / supply_demand_actuals
+	(each step currently run as separate CLI commands): not yet implemented
+- Other utility companies (Kansai, Hokkaido, Okinawa, Chubu, Kyushu) and the
+	`grid_supply_demand`（系統の需給）category: not yet investigated
+- Gold layer: not yet implemented
