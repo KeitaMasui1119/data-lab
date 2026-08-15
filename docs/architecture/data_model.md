@@ -210,17 +210,17 @@ Bronzeは年間CSV全体ではなく、`target_date`（デフォルト: JSTで�
 重複排除は`source_data`ではなく`(company, target_date)`の存在チェック（年次スナップショットは実行の
 たびに異なるオブジェクトキーになるため）。
 
-実装: Rawは会社ごとに独立したモジュール
-（`src/pipeline/raw/source_to_raw_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`、
-`power_usage_hokuriku`と同じ「1社1ファイル」方針）。Bronzeは
-`src/pipeline/bronze/source_to_bronze_supply_demand_actuals.py`（3社共通のパラメータ化モジュール、
-URLと列構成以外はほぼ同一の仕組みのためBronze/Silverは会社ごとにファイルを分けていない）。CLI:
+実装: RawとBronzeはともに会社ごとに独立したモジュール
+（`src/pipeline/raw/source_to_raw_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`・
+`src/pipeline/bronze/source_to_bronze_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`、
+`power_usage_hokuriku`と同じ「1社1ファイル」方針。当初はBronzeも3社共通のパラメータ化モジュール
+だったが、Rawの分割に合わせて統一）。CLI:
 `scrape-supply-demand-actuals-{tohoku,chugoku,shikoku}`・
-`ingest-supply-demand-actuals-raw-to-bronze --company ... --target-date ...`。
+`ingest-supply-demand-actuals-raw-to-bronze-{tohoku,chugoku,shikoku} --target-date ...`。
 実データ（2026-08-14分、3社）でRaw保存・Bronze取り込みまで動作確認済み。
 
 **Silver**: `src/pipeline/silver/bronze_to_silver_supply_demand_actuals.py`
-（こちらもRaw/Bronzeと同じ3社共通のパラメータ化モジュール）。Bronzeが既に`(target_date, target_time)`
+（こちらは3社共通のパラメータ化モジュールのまま。Bronzeが既に`(target_date, target_time)`
 1行=1レコードのため、`power_usage_hokuriku`のhourly/interval5と違いUNPIVOTは不要で、型付けと
 `hour_of_day`／`delivery_datetime`（JST→UTC変換）の導出のみ。同一`(target_date, hour_of_day)`の
 複数リビジョンは`ingestion_time`最新優先でデデュープしてから`write_silver_table()`のwindow-replace

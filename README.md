@@ -240,29 +240,30 @@ shortly after midnight JST the following day.
 Unlike Hokuriku, these sources publish one cumulative CSV per calendar
 year (growing by a day's rows daily) rather than a per-day file, so the
 raw scraper downloads the whole current year and bronze ingestion filters
-it down to one `target_date`'s rows. Raw is one independent module per
-company (`source_to_raw_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`,
-same "one company, one file" convention as Hokuriku); bronze and silver
-stay as one shared, `--company`-parameterized module each, since their
-mechanics are identical apart from URL and Shikoku's extra
-supply-capacity column:
+it down to one `target_date`'s rows. Raw and bronze are each one
+independent module per company
+(`source_to_raw_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`,
+`source_to_bronze_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`,
+same "one company, one file" convention as Hokuriku); silver stays as one
+shared, `--company`-parameterized module, since its mechanics are
+identical across companies apart from Shikoku's extra supply-capacity
+column:
 
 ```bash
 uv run python src/main.py scrape-supply-demand-actuals-tohoku --target-date 2026-08-14
-uv run python src/main.py ingest-supply-demand-actuals-raw-to-bronze \
-	--company tohoku \
+uv run python src/main.py ingest-supply-demand-actuals-raw-to-bronze-tohoku \
 	--object-key raw/supply_demand_actuals/tohoku/year=2026/ingested_at=.../juyo_2026_tohoku.csv \
 	--target-date 2026-08-14
 uv run python src/main.py ingest-supply-demand-actuals-bronze-to-silver --company tohoku --target-date 2026-08-14
 ```
 
-Company-specific scrape commands: `scrape-supply-demand-actuals-tohoku`,
-`-chugoku`, `-shikoku`. `ingest-supply-demand-actuals-{raw-to-bronze,
-bronze-to-silver}` take `--company` (`tohoku`/`chugoku`/`shikoku`).
-Tokyo/TEPCO is not yet implemented -- its current year's actuals archive
-is not published live; only a Hokuriku-style rich snapshot
-(`juyo-d1-j.csv`) is available for it, which needs a different extraction
-approach.
+Company-specific commands: `scrape-supply-demand-actuals-{tohoku,chugoku,
+shikoku}` and `ingest-supply-demand-actuals-raw-to-bronze-{tohoku,chugoku,
+shikoku}`. `ingest-supply-demand-actuals-bronze-to-silver` still takes
+`--company` (`tohoku`/`chugoku`/`shikoku`). Tokyo/TEPCO is not yet
+implemented -- its current year's actuals archive is not published live;
+only a Hokuriku-style rich snapshot (`juyo-d1-j.csv`) is available for
+it, which needs a different extraction approach.
 
 ## Bronze Table Schema
 

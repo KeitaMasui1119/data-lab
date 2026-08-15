@@ -25,11 +25,14 @@ from pipeline.bronze.source_to_bronze_occto_unit_generation_actuals import (
 from pipeline.bronze.source_to_bronze_power_usage_hokuriku import (
     ingest_power_usage_hokuriku,
 )
-from pipeline.bronze.source_to_bronze_supply_demand_actuals import (
-    BRONZE_CONFIGS as SUPPLY_DEMAND_ACTUALS_BRONZE_CONFIGS,
+from pipeline.bronze.source_to_bronze_supply_demand_actuals_chugoku import (
+    ingest_supply_demand_actuals_chugoku,
 )
-from pipeline.bronze.source_to_bronze_supply_demand_actuals import (
-    ingest_supply_demand_actuals,
+from pipeline.bronze.source_to_bronze_supply_demand_actuals_shikoku import (
+    ingest_supply_demand_actuals_shikoku,
+)
+from pipeline.bronze.source_to_bronze_supply_demand_actuals_tohoku import (
+    ingest_supply_demand_actuals_tohoku,
 )
 from pipeline.jepx_common import resolve_target_at
 from pipeline.raw.source_to_raw_jepx_spot_price import (
@@ -426,46 +429,56 @@ def main():
         help="When using ingestion log, select only unprocessed latest snapshot",
     )
 
-    supply_demand_actuals_bronze_parser = subparsers.add_parser(
-        "ingest-supply-demand-actuals-raw-to-bronze",
-        help="Ingest one target_date's rows from a supply_demand_actuals raw year CSV",
+    def _add_sda_bronze_arguments(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--bucket",
+            default="jp-power-grid-dev",
+            help="Source bucket name (default: jp-power-grid-dev)",
+        )
+        parser.add_argument(
+            "--object-key",
+            required=True,
+            help="Source object key in raw layer"
+            " (e.g. raw/supply_demand_actuals/tohoku/year=.../"
+            "ingested_at=.../<file>.csv)",
+        )
+        parser.add_argument(
+            "--source-file-name",
+            help="Source file name stored in source_data (default: object-key in full)",
+        )
+        parser.add_argument(
+            "--target-date",
+            required=True,
+            help="Target date in YYYY-MM-DD (the day to extract from the year CSV)",
+        )
+        parser.add_argument(
+            "--catalog",
+            default="dlh_dev",
+            help="Iceberg catalog name (default: dlh_dev)",
+        )
+        parser.add_argument(
+            "--allow-duplicate-target-date",
+            action="store_true",
+            help="Allow append even if this target_date already has rows in bronze",
+        )
+
+    sda_tohoku_bronze_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-raw-to-bronze-tohoku",
+        help="Ingest one target_date's rows from Tohoku's raw actuals CSV",
     )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--company",
-        required=True,
-        choices=sorted(SUPPLY_DEMAND_ACTUALS_BRONZE_CONFIGS),
-        help="Company code",
+    _add_sda_bronze_arguments(sda_tohoku_bronze_parser)
+
+    sda_chugoku_bronze_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-raw-to-bronze-chugoku",
+        help="Ingest one target_date's rows from Chugoku's raw actuals CSV",
     )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--bucket",
-        default="jp-power-grid-dev",
-        help="Source bucket name (default: jp-power-grid-dev)",
+    _add_sda_bronze_arguments(sda_chugoku_bronze_parser)
+
+    sda_shikoku_bronze_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-raw-to-bronze-shikoku",
+        help="Ingest one target_date's rows from Shikoku's raw actuals CSV",
     )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--object-key",
-        required=True,
-        help="Source object key in raw layer"
-        " (e.g. raw/supply_demand_actuals/tohoku/year=.../ingested_at=.../<file>.csv)",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--source-file-name",
-        help="Source file name stored in source_data (default: object-key in full)",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--target-date",
-        required=True,
-        help="Target date in YYYY-MM-DD (the day to extract from the year CSV)",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--catalog",
-        default="dlh_dev",
-        help="Iceberg catalog name (default: dlh_dev)",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--allow-duplicate-target-date",
-        action="store_true",
-        help="Allow append even if this target_date already has rows in bronze",
-    )
+    _add_sda_bronze_arguments(sda_shikoku_bronze_parser)
 
     supply_demand_actuals_silver_parser = subparsers.add_parser(
         "ingest-supply-demand-actuals-bronze-to-silver",
@@ -1248,17 +1261,16 @@ def main():
         finally:
             scraper.close()
 
-    if args.command == "ingest-supply-demand-actuals-raw-to-bronze":
+    if args.command == "ingest-supply-demand-actuals-raw-to-bronze-tohoku":
         try:
             target_date = date.fromisoformat(args.target_date)
         except ValueError as exc:
             parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
 
         rustfs = RustFSClient()
-        row_count = ingest_supply_demand_actuals(
+        row_count = ingest_supply_demand_actuals_tohoku(
             client=rustfs,
             bucket_name=args.bucket,
-            company=args.company,
             object_key=args.object_key,
             target_date=target_date,
             source_file_name=args.source_file_name,
@@ -1266,8 +1278,51 @@ def main():
             skip_if_exists=not args.allow_duplicate_target_date,
         )
         logger.info(
-            "Ingestion completed: company=%s, target_date=%s, rows=%s",
-            args.company,
+            "Ingestion completed: company=tohoku, target_date=%s, rows=%s",
+            target_date,
+            row_count,
+        )
+
+    if args.command == "ingest-supply-demand-actuals-raw-to-bronze-chugoku":
+        try:
+            target_date = date.fromisoformat(args.target_date)
+        except ValueError as exc:
+            parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+
+        rustfs = RustFSClient()
+        row_count = ingest_supply_demand_actuals_chugoku(
+            client=rustfs,
+            bucket_name=args.bucket,
+            object_key=args.object_key,
+            target_date=target_date,
+            source_file_name=args.source_file_name,
+            catalog_name=args.catalog,
+            skip_if_exists=not args.allow_duplicate_target_date,
+        )
+        logger.info(
+            "Ingestion completed: company=chugoku, target_date=%s, rows=%s",
+            target_date,
+            row_count,
+        )
+
+    if args.command == "ingest-supply-demand-actuals-raw-to-bronze-shikoku":
+        try:
+            target_date = date.fromisoformat(args.target_date)
+        except ValueError as exc:
+            parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+
+        rustfs = RustFSClient()
+        row_count = ingest_supply_demand_actuals_shikoku(
+            client=rustfs,
+            bucket_name=args.bucket,
+            object_key=args.object_key,
+            target_date=target_date,
+            source_file_name=args.source_file_name,
+            catalog_name=args.catalog,
+            skip_if_exists=not args.allow_duplicate_target_date,
+        )
+        logger.info(
+            "Ingestion completed: company=shikoku, target_date=%s, rows=%s",
             target_date,
             row_count,
         )
