@@ -47,8 +47,15 @@
       URLは`https://www.rikuden.co.jp/nw/denki-yoho/csv/juyo_05_{YYYYMMDD}.csv`）と、
       `src/main.py`の`scrape-power-usage-hokuriku`/`ingest-power-usage-hokuriku-raw-to-bronze`
       コマンドも実装済み。他社は未着手。
-- [ ] Bronze → Silver dbt モデルを実装する（`src/dbt/jepx_power/models/silver/`）
+- [ ] Bronze → Silver 変換を実装する（JEPX/OCCTOに倣いPython+DuckDB+PyIcebergで実装、dbtは使わない）
+      → 北陸電力は完了。`src/pipeline/silver/bronze_to_silver_power_usage_hokuriku.py`。
+      Bronzeの3テーブルに1:1対応する3つのSilverテーブル（`silver.power_usage_hokuriku_{daily_summary,hourly,interval5}`）。
+      `hourly`/`interval5`はOCCTOの48コマUNPIVOTパターンを指標ごとに個別UNPIVOT→再JOINする形に拡張。
+      `src/main.py`の`ingest-power-usage-hokuriku-bronze-to-silver`コマンドも実装済み。
+      実データ全件（2,082日分）で変換・値検証済み。他社は未着手。
 - [ ] 各社オーケストレーターを実装する（`src/orchestration/`）
+      → 北陸電力power_usageはRaw→Bronze→Silverが個別コマンドとして実装済みだが、
+      1コマンドで通しで実行するオーケストレーターは未実装。
 - [ ] `src/main.py` にコマンドを追加する
 
 ---

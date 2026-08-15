@@ -115,7 +115,7 @@ Bronzeは全列string・横持ち48コマのまま保持し、Silverへの変換
 このため「各社共通の2列PK」は成立せず、フォーマットごと（場合によっては会社ごと）に個別のBronzeスキーマが必要。
 「需給実績（`supply_demand_actuals`）」「系統の需給（`grid_supply_demand`）」は未調査・未実装（`docs/tasks/tasks.md`参照）。
 
-#### 3.1 Hokuriku（北陸電力）— 電力使用状況（`power_usage`）、リッチなスナップショット形式、Raw/Bronze実装済み
+#### 3.1 Hokuriku（北陸電力）— 電力使用状況（`power_usage`）、リッチなスナップショット形式、Raw/Bronze/Silver実装済み
 
 **Source URL**: `https://www.rikuden.co.jp/nw/denki-yoho/csv/juyo_05_{YYYYMMDD}.csv`
 （単純GET、セッション事前準備不要。2020-04-01以降のみ提供）。過去のスクレイピングプロトタイプ
@@ -162,9 +162,21 @@ OCCTO/JEPXと同じ設計）。`scrape-power-usage-hokuriku`の`--target-date`�
 （実測: 当日午後に取得すると残り時間帯・翌日予想ブロックが空文字になる）で、対象日のデータは
 翌日午前0時過ぎ（実測UPDATE時刻: 例`2020/04/02 00:10 UPDATE`）にならないと確定しないため。
 
+**Silver**: Bronzeの3テーブルに1:1対応する3テーブル（`silver.power_usage_hokuriku_{daily_summary,hourly,interval5}`）。
+`daily_summary`はunpivotなしで型付けのみ（容量/需要→long、%→double、時間帯・更新日時系は
+文字列のまま）。`hourly`/`interval5`はOCCTOの48コマUNPIVOTパターンを踏襲しつつ、1コマに
+複数指標（毎時4種／5分間隔2種）があるため指標ごとに個別UNPIVOTしてから`(target_date, コマ)`で
+再JOINする。3テーブルとも`target_date`の複数リビジョンは`file_updated_at`最新優先で1件に
+デデュープしてから書き込む（`common/silver_write.py`のwindow-replaceを再利用）。
+実データ全件（2,082日分）で変換・値検証済み（コンマパディング区切り年代・当日未確定空値・
+404破損ファイルの欠落日、いずれも想定通り反映）。パーティションはJEPXと同じ`year`
+（OCCTOのようなday分割が必要な行数規模ではないため）。CLI:
+`src/main.py`の`ingest-power-usage-hokuriku-bronze-to-silver`。
+スキーマCSV: `configuration/iceberg/schema/silver/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`。
+
 **未解決**: 東京電力・関西電力・北海道電力など他社への横展開（フォーマット調査未了）。
-リッチ形式とシンプル形式のどちらを各社で採用するかは会社ごとに個別判断が必要。Silver変換
-（粒度ごとの正規化）は未実装。
+リッチ形式とシンプル形式のどちらを各社で採用するかは会社ごとに個別判断が必要。オーケストレーター
+（Raw→Bronze→Silverを1コマンドで実行）は未実装。
 
 ---
 

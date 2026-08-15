@@ -57,6 +57,9 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
 from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
     run_bronze_to_silver_occto_unit_generation,
 )
+from pipeline.silver.bronze_to_silver_power_usage_hokuriku import (
+    run_bronze_to_silver_power_usage_hokuriku,
+)
 from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
 logging.basicConfig(
@@ -388,6 +391,35 @@ def main():
         "--require-unprocessed",
         action="store_true",
         help="When using ingestion log, select only unprocessed latest snapshot",
+    )
+
+    power_usage_hokuriku_silver_parser = subparsers.add_parser(
+        "ingest-power-usage-hokuriku-bronze-to-silver",
+        help="Transform Hokuriku power_usage bronze tables into silver",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--schema-dir",
+        default="/workspace/configuration/iceberg/schema/silver",
+        help="Directory containing the silver schema CSV files",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--target-date",
+        help="Limit the run to one target_date in YYYY-MM-DD"
+        " (default: rebuild the full range staged from bronze)",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--from-date",
+        help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--to-date",
+        help="End of a target_date range in YYYY-MM-DD"
+        " (default: same as --from-date/--target-date)",
     )
 
     occto_silver_parser = subparsers.add_parser(
@@ -1102,6 +1134,45 @@ def main():
             result.write.table_identifier,
             result.write.rows_written,
         )
+
+    if args.command == "ingest-power-usage-hokuriku-bronze-to-silver":
+        from_date = None
+        to_date = None
+        if args.from_date:
+            try:
+                from_date = date.fromisoformat(args.from_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --from-date value: {args.from_date} ({exc})")
+            if args.to_date:
+                try:
+                    to_date = date.fromisoformat(args.to_date)
+                except ValueError as exc:
+                    parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
+            else:
+                to_date = from_date
+        elif args.target_date:
+            try:
+                from_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+            to_date = from_date
+
+        power_usage_hokuriku_silver_result = run_bronze_to_silver_power_usage_hokuriku(
+            catalog_name=args.catalog,
+            schema_dir=args.schema_dir,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        logger.info(
+            "Hokuriku power_usage bronze-to-silver completed: execution_id=%s",
+            power_usage_hokuriku_silver_result.execution_id,
+        )
+        for silver_write in power_usage_hokuriku_silver_result.writes.values():
+            logger.info(
+                " - table=%s, written=%s",
+                silver_write.table_identifier,
+                silver_write.rows_written,
+            )
 
     if args.command == "run-occto-orchestrator":
         if args.silver_all_dates and (args.silver_from_date or args.silver_to_date):

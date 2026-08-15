@@ -1,0 +1,6 @@
+field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
+1,target_date,date,TRUE,TRUE,Target date,year,target_date,
+2,slot_index,int,TRUE,TRUE,5-minute slot index within the day (0-287),,,"Derived from the bronze interval5_HH_MM_* column's position (0 = 00:00, 287 = 23:55)"
+3,delivery_datetime,timestamptz,FALSE,TRUE,Delivery datetime derived from target_date and slot_index (JST),,,
+4,actual_demand,long,FALSE,FALSE,"5-min actual demand (10,000 kW)",,interval5_HH_MM_actual_demand,
+5,solar_generation_actual,long,FALSE,FALSE,"5-min solar generation actual (10,000 kW)",,interval5_HH_MM_solar_generation_actual,
