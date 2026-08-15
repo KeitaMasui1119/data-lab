@@ -32,7 +32,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SCHEMA_DIR = "/workspace/configuration/iceberg/schema/bronze"
+SCHEMA_DIR = "/workspace/configuration/iceberg/schema/bronze/power_usage_hokuriku"
 DATASET_NAME = "power_usage_hokuriku"
 INGESTION_LOG_KEY = DEFAULT_INGESTION_LOG_KEY
 

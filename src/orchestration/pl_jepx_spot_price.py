@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DBT_PROJECT_DIR = Path("/workspace/src/dbt/jepx_power")
 DEFAULT_SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv"
+    "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv"
 )
 
 

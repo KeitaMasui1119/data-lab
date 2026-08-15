@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 TABLE_IDENTIFIER = "bronze.supply_demand_actuals_shikoku"
 SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/bronze/supply_demand_actuals_shikoku.csv"
+    "/workspace/configuration/iceberg/schema/bronze/supply_demand_actuals/"
+    "supply_demand_actuals_shikoku.csv"
 )
 HEADER_SKIP_ROWS = 2  # "<UPDATE line>\n\nDATE,TIME,...,供給力想定値(万kW)"
 

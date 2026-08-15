@@ -267,19 +267,21 @@ it, which needs a different extraction approach.
 
 `configuration/iceberg/schema/{bronze,silver}/` is the source of truth for
 every table's columns (`field_id,name,type,is_identifier,required,doc,
-partition_transform,source_name,comment`). Examples:
+partition_transform,source_name,comment`). Each dataset has its own
+subfolder (filenames unchanged); `provision-silver-tables` and friends walk
+these directories recursively. Examples:
 
-- `configuration/iceberg/schema/bronze/jepx_spot_price.csv`
-- `configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv`
-- `configuration/iceberg/schema/bronze/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`
-- `configuration/iceberg/schema/bronze/supply_demand_actuals_{tokyo,tohoku,chugoku,shikoku}.csv`
+- `configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv`
+- `configuration/iceberg/schema/bronze/occto_unit_generation_actuals/occto_unit_generation_actuals.csv`
+- `configuration/iceberg/schema/bronze/power_usage_hokuriku/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`
+- `configuration/iceberg/schema/bronze/supply_demand_actuals/supply_demand_actuals_{tokyo,tohoku,chugoku,shikoku}.csv`
 
 Iceberg table creation/evolution (if needed) via the admin CLI:
 
 ```bash
 uv run python -m setup.manage_iceberg table \
 	--name bronze.jepx_spot_price \
-	--csv /workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv \
+	--csv /workspace/configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv \
 	create
 ```
 

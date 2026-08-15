@@ -53,7 +53,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CATALOG_NAME = "dlh_dev"
 DEFAULT_BRONZE_LOCATION = "s3://jp-power-grid-dev/bronze/jepx_spot_price"
-DEFAULT_SILVER_SCHEMA_DIR = "/workspace/configuration/iceberg/schema/silver"
+DEFAULT_SILVER_SCHEMA_DIR = (
+    "/workspace/configuration/iceberg/schema/silver/jepx_spot_price"
+)
 
 STAGING_RELATION = "jepx_silver_staging"
 

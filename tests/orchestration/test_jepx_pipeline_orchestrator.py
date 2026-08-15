@@ -19,8 +19,9 @@ sys.modules[SPEC.name] = jepx_pipeline
 SPEC.loader.exec_module(jepx_pipeline)
 
 BRONZE_SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv"
+    "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv"
 )
+SILVER_SCHEMA_DIR = "/workspace/configuration/iceberg/schema/silver/jepx_spot_price"
 DBT_DIR = Path("/workspace/src/dbt/jepx_power")
 
 
@@ -36,7 +37,7 @@ def _pipeline_kwargs(**overrides: object) -> dict[str, object]:
         "dbt_project_dir": DBT_DIR,
         "dbt_profiles_dir": DBT_DIR,
         "bronze_location": "s3://jp-power-grid-dev/bronze/jepx_spot_price",
-        "silver_schema_dir": "/workspace/configuration/iceberg/schema/silver",
+        "silver_schema_dir": SILVER_SCHEMA_DIR,
         "silver_fiscal_year": None,
         "silver_all_fiscal_years": False,
         "run_gold_step": False,
@@ -132,7 +133,7 @@ def test_run_bronze_to_silver_step_summarizes_written_rows(monkeypatch) -> None:
     result = jepx_pipeline.run_bronze_to_silver_step(
         catalog_name="dlh_dev",
         bronze_location="s3://bucket/bronze/jepx_spot_price",
-        silver_schema_dir="/workspace/configuration/iceberg/schema/silver",
+        silver_schema_dir=SILVER_SCHEMA_DIR,
         fiscal_year=2026,
     )
 

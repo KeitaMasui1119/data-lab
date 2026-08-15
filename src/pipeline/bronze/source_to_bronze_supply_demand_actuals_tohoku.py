@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 TABLE_IDENTIFIER = "bronze.supply_demand_actuals_tohoku"
 SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/bronze/supply_demand_actuals_tohoku.csv"
+    "/workspace/configuration/iceberg/schema/bronze/supply_demand_actuals/"
+    "supply_demand_actuals_tohoku.csv"
 )
 HEADER_SKIP_ROWS = 1  # "<UPDATE line>\nDATE,TIME,..." -- no blank line
 

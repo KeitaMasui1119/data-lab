@@ -40,7 +40,9 @@ TARGET_DATE_COLUMN = "target_date"
 DELIVERY_TIMEZONE = "Asia/Tokyo"
 
 DEFAULT_CATALOG_NAME = "dlh_dev"
-DEFAULT_SILVER_SCHEMA_DIR = "/workspace/configuration/iceberg/schema/silver"
+DEFAULT_SILVER_SCHEMA_DIR = (
+    "/workspace/configuration/iceberg/schema/silver/power_usage_hokuriku"
+)
 BRONZE_LOCATIONS = {
     "daily_summary": "s3://jp-power-grid-dev/bronze/power_usage_hokuriku_daily_summary",
     "hourly": "s3://jp-power-grid-dev/bronze/power_usage_hokuriku_hourly",
@@ -69,9 +71,9 @@ INTERVAL5_KEY_COLUMNS = ("target_date", "slot_index")
 DAILY_SUMMARY_KEY_COLUMNS = ("target_date",)
 
 # Bronze daily_summary field-name suffix -> silver cast rule (mirrors
-# configuration/iceberg/schema/silver/power_usage_hokuriku_daily_summary.csv
-# generation logic; see the schema CSV as the single source of truth for the
-# actual column list and types).
+# configuration/iceberg/schema/silver/power_usage_hokuriku/
+# power_usage_hokuriku_daily_summary.csv generation logic; see the schema CSV
+# as the single source of truth for the actual column list and types).
 DAILY_SUMMARY_PASSTHROUGH_STRING_SUFFIXES = (
     "_time_range",
     "_updated_date",

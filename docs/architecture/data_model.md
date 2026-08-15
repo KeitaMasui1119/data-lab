@@ -141,7 +141,7 @@ OCCTOの48コマ列パターンと同様に生ファイルの構造をそのま�
 毎時テーブルの供給力列は列ラベルがファイル年代により変わる（`供給力(万kW)`/`供給力想定値(万kW)`）
 ため、ヘッダ文字列ではなく列位置でパースする。実データ2,083ファイル（2020-2025）で検証済み
 （99.95%成功、唯一の失敗は真の404 HTMLページが保存されたファイル）。
-スキーマCSV: `configuration/iceberg/schema/bronze/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`。
+スキーマCSV: `configuration/iceberg/schema/bronze/power_usage_hokuriku/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`。
 
 **Primary Keys**
 
@@ -173,7 +173,7 @@ OCCTO/JEPXと同じ設計）。`scrape-power-usage-hokuriku`の`--target-date`�
 404破損ファイルの欠落日、いずれも想定通り反映）。パーティションはJEPXと同じ`year`
 （OCCTOのようなday分割が必要な行数規模ではないため）。CLI:
 `src/main.py`の`ingest-power-usage-hokuriku-bronze-to-silver`。
-スキーマCSV: `configuration/iceberg/schema/silver/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`。
+スキーマCSV: `configuration/iceberg/schema/silver/power_usage_hokuriku/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`。
 
 **未解決**: 東京電力・関西電力・北海道電力など他社への横展開（フォーマット調査未了）。
 リッチ形式とシンプル形式のどちらを各社で採用するかは会社ごとに個別判断が必要。オーケストレーター

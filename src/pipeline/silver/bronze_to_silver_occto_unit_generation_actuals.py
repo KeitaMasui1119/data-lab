@@ -65,8 +65,9 @@ def _generate_timeslot_columns() -> tuple[str, ...]:
 # OCCTO labels each slot by its END time, JEPX's time_code by its START time.
 # The column order therefore IS the time_code: timeslot_00_30 covers
 # 00:00-00:30 and maps to time_code 1, the same slot JEPX calls 1. This must
-# match configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv
-# column order exactly; see the regression test tying the two together.
+# match configuration/iceberg/schema/bronze/occto_unit_generation_actuals/
+# occto_unit_generation_actuals.csv column order exactly; see the regression
+# test tying the two together.
 TIMESLOT_COLUMNS: tuple[str, ...] = _generate_timeslot_columns()
 assert len(TIMESLOT_COLUMNS) == 48
 
@@ -351,7 +352,9 @@ def build_target_date_window(
 
 DEFAULT_CATALOG_NAME = "dlh_dev"
 DEFAULT_BRONZE_LOCATION = "s3://jp-power-grid-dev/bronze/occto_unit_generation_actuals"
-DEFAULT_SILVER_SCHEMA_DIR = "/workspace/configuration/iceberg/schema/silver"
+DEFAULT_SILVER_SCHEMA_DIR = (
+    "/workspace/configuration/iceberg/schema/silver/occto_unit_generation_actuals"
+)
 DEFAULT_SILVER_TABLE = "silver.occto_unit_generation_actuals"
 
 SILVER_KEY_COLUMNS = ("power_plant_code", "unit_name", "target_date", "time_code")
