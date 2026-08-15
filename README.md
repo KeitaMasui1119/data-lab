@@ -240,23 +240,28 @@ shortly after midnight JST the following day.
 Unlike Hokuriku, these sources publish one cumulative CSV per calendar
 year (growing by a day's rows daily) rather than a per-day file, so the
 raw scraper downloads the whole current year and bronze ingestion filters
-it down to one `target_date`'s rows. One shared, `--company`-parameterized
-module covers all 3 companies (their mechanics are identical apart from
-URL and Shikoku's extra supply-capacity column):
+it down to one `target_date`'s rows. Raw, bronze, and silver are each one
+independent module per company
+(`source_to_raw_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`,
+`source_to_bronze_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`,
+`bronze_to_silver_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`),
+same "one company, one file" convention as Hokuriku:
 
 ```bash
-uv run python src/main.py scrape-supply-demand-actuals --company tohoku --target-date 2026-08-14
-uv run python src/main.py ingest-supply-demand-actuals-raw-to-bronze \
-	--company tohoku \
+uv run python src/main.py scrape-supply-demand-actuals-tohoku --target-date 2026-08-14
+uv run python src/main.py ingest-supply-demand-actuals-raw-to-bronze-tohoku \
 	--object-key raw/supply_demand_actuals/tohoku/year=2026/ingested_at=.../juyo_2026_tohoku.csv \
 	--target-date 2026-08-14
-uv run python src/main.py ingest-supply-demand-actuals-bronze-to-silver --company tohoku --target-date 2026-08-14
+uv run python src/main.py ingest-supply-demand-actuals-bronze-to-silver-tohoku --target-date 2026-08-14
 ```
 
-`--company` accepts `tohoku`, `chugoku`, or `shikoku`. Tokyo/TEPCO is not
-yet implemented -- its current year's actuals archive is not published
-live; only a Hokuriku-style rich snapshot (`juyo-d1-j.csv`) is available
-for it, which needs a different extraction approach.
+Company-specific commands throughout: `scrape-supply-demand-actuals-
+{tohoku,chugoku,shikoku}`, `ingest-supply-demand-actuals-raw-to-bronze-
+{tohoku,chugoku,shikoku}`, `ingest-supply-demand-actuals-bronze-to-silver-
+{tohoku,chugoku,shikoku}`. Tokyo/TEPCO is not yet implemented -- its
+current year's actuals archive is not published live;
+only a Hokuriku-style rich snapshot (`juyo-d1-j.csv`) is available for
+it, which needs a different extraction approach.
 
 ## Bronze Table Schema
 

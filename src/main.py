@@ -25,8 +25,14 @@ from pipeline.bronze.source_to_bronze_occto_unit_generation_actuals import (
 from pipeline.bronze.source_to_bronze_power_usage_hokuriku import (
     ingest_power_usage_hokuriku,
 )
-from pipeline.bronze.source_to_bronze_supply_demand_actuals import (
-    ingest_supply_demand_actuals,
+from pipeline.bronze.source_to_bronze_supply_demand_actuals_chugoku import (
+    ingest_supply_demand_actuals_chugoku,
+)
+from pipeline.bronze.source_to_bronze_supply_demand_actuals_shikoku import (
+    ingest_supply_demand_actuals_shikoku,
+)
+from pipeline.bronze.source_to_bronze_supply_demand_actuals_tohoku import (
+    ingest_supply_demand_actuals_tohoku,
 )
 from pipeline.jepx_common import resolve_target_at
 from pipeline.raw.source_to_raw_jepx_spot_price import (
@@ -46,15 +52,26 @@ from pipeline.raw.source_to_raw_power_usage_hokuriku import (
 from pipeline.raw.source_to_raw_power_usage_hokuriku import (
     resolve_default_target_date as resolve_default_power_usage_hokuriku_target_date,
 )
-from pipeline.raw.source_to_raw_supply_demand_actuals import (
-    COMPANY_CONFIGS as SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS,
+from pipeline.raw.source_to_raw_supply_demand_actuals_chugoku import (
+    ChugokuSupplyDemandActualsScraper,
+    scrape_supply_demand_actuals_chugoku_raw,
 )
-from pipeline.raw.source_to_raw_supply_demand_actuals import (
-    SupplyDemandActualsScraper,
-    scrape_supply_demand_actuals_raw,
+from pipeline.raw.source_to_raw_supply_demand_actuals_chugoku import (
+    resolve_default_target_date as resolve_default_sda_chugoku_target_date,
 )
-from pipeline.raw.source_to_raw_supply_demand_actuals import (
-    resolve_default_target_date as resolve_default_supply_demand_actuals_target_date,
+from pipeline.raw.source_to_raw_supply_demand_actuals_shikoku import (
+    ShikokuSupplyDemandActualsScraper,
+    scrape_supply_demand_actuals_shikoku_raw,
+)
+from pipeline.raw.source_to_raw_supply_demand_actuals_shikoku import (
+    resolve_default_target_date as resolve_default_sda_shikoku_target_date,
+)
+from pipeline.raw.source_to_raw_supply_demand_actuals_tohoku import (
+    TohokuSupplyDemandActualsScraper,
+    scrape_supply_demand_actuals_tohoku_raw,
+)
+from pipeline.raw.source_to_raw_supply_demand_actuals_tohoku import (
+    resolve_default_target_date as resolve_default_sda_tohoku_target_date,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     DEFAULT_BRONZE_LOCATION,
@@ -73,8 +90,14 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
 from pipeline.silver.bronze_to_silver_power_usage_hokuriku import (
     run_bronze_to_silver_power_usage_hokuriku,
 )
-from pipeline.silver.bronze_to_silver_supply_demand_actuals import (
-    run_bronze_to_silver_supply_demand_actuals,
+from pipeline.silver.bronze_to_silver_supply_demand_actuals_chugoku import (
+    run_bronze_to_silver_supply_demand_actuals_chugoku,
+)
+from pipeline.silver.bronze_to_silver_supply_demand_actuals_shikoku import (
+    run_bronze_to_silver_supply_demand_actuals_shikoku,
+)
+from pipeline.silver.bronze_to_silver_supply_demand_actuals_tohoku import (
+    run_bronze_to_silver_supply_demand_actuals_tohoku,
 )
 from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
@@ -409,76 +432,95 @@ def main():
         help="When using ingestion log, select only unprocessed latest snapshot",
     )
 
-    supply_demand_actuals_bronze_parser = subparsers.add_parser(
-        "ingest-supply-demand-actuals-raw-to-bronze",
-        help="Ingest one target_date's rows from a supply_demand_actuals raw year CSV",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--company",
-        required=True,
-        choices=sorted(SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS),
-        help="Company code",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--bucket",
-        default="jp-power-grid-dev",
-        help="Source bucket name (default: jp-power-grid-dev)",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--object-key",
-        required=True,
-        help="Source object key in raw layer"
-        " (e.g. raw/supply_demand_actuals/tohoku/year=.../ingested_at=.../<file>.csv)",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--source-file-name",
-        help="Source file name stored in source_data (default: object-key in full)",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--target-date",
-        required=True,
-        help="Target date in YYYY-MM-DD (the day to extract from the year CSV)",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--catalog",
-        default="dlh_dev",
-        help="Iceberg catalog name (default: dlh_dev)",
-    )
-    supply_demand_actuals_bronze_parser.add_argument(
-        "--allow-duplicate-target-date",
-        action="store_true",
-        help="Allow append even if this target_date already has rows in bronze",
-    )
+    def _add_sda_bronze_arguments(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--bucket",
+            default="jp-power-grid-dev",
+            help="Source bucket name (default: jp-power-grid-dev)",
+        )
+        parser.add_argument(
+            "--object-key",
+            required=True,
+            help="Source object key in raw layer"
+            " (e.g. raw/supply_demand_actuals/tohoku/year=.../"
+            "ingested_at=.../<file>.csv)",
+        )
+        parser.add_argument(
+            "--source-file-name",
+            help="Source file name stored in source_data (default: object-key in full)",
+        )
+        parser.add_argument(
+            "--target-date",
+            required=True,
+            help="Target date in YYYY-MM-DD (the day to extract from the year CSV)",
+        )
+        parser.add_argument(
+            "--catalog",
+            default="dlh_dev",
+            help="Iceberg catalog name (default: dlh_dev)",
+        )
+        parser.add_argument(
+            "--allow-duplicate-target-date",
+            action="store_true",
+            help="Allow append even if this target_date already has rows in bronze",
+        )
 
-    supply_demand_actuals_silver_parser = subparsers.add_parser(
-        "ingest-supply-demand-actuals-bronze-to-silver",
-        help="Transform one company's supply_demand_actuals bronze table into silver",
+    sda_tohoku_bronze_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-raw-to-bronze-tohoku",
+        help="Ingest one target_date's rows from Tohoku's raw actuals CSV",
     )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--company",
-        required=True,
-        choices=sorted(SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS),
-        help="Company code",
+    _add_sda_bronze_arguments(sda_tohoku_bronze_parser)
+
+    sda_chugoku_bronze_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-raw-to-bronze-chugoku",
+        help="Ingest one target_date's rows from Chugoku's raw actuals CSV",
     )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--catalog",
-        default="dlh_dev",
-        help="Iceberg catalog name (default: dlh_dev)",
+    _add_sda_bronze_arguments(sda_chugoku_bronze_parser)
+
+    sda_shikoku_bronze_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-raw-to-bronze-shikoku",
+        help="Ingest one target_date's rows from Shikoku's raw actuals CSV",
     )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--target-date",
-        help="Limit the run to one target_date in YYYY-MM-DD"
-        " (default: rebuild the full range staged from bronze)",
+    _add_sda_bronze_arguments(sda_shikoku_bronze_parser)
+
+    def _add_sda_silver_arguments(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--catalog",
+            default="dlh_dev",
+            help="Iceberg catalog name (default: dlh_dev)",
+        )
+        parser.add_argument(
+            "--target-date",
+            help="Limit the run to one target_date in YYYY-MM-DD"
+            " (default: rebuild the full range staged from bronze)",
+        )
+        parser.add_argument(
+            "--from-date",
+            help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
+        )
+        parser.add_argument(
+            "--to-date",
+            help="End of a target_date range in YYYY-MM-DD"
+            " (default: same as --from-date/--target-date)",
+        )
+
+    sda_tohoku_silver_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-bronze-to-silver-tohoku",
+        help="Transform Tohoku's supply_demand_actuals bronze table into silver",
     )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--from-date",
-        help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
+    _add_sda_silver_arguments(sda_tohoku_silver_parser)
+
+    sda_chugoku_silver_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-bronze-to-silver-chugoku",
+        help="Transform Chugoku's supply_demand_actuals bronze table into silver",
     )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--to-date",
-        help="End of a target_date range in YYYY-MM-DD"
-        " (default: same as --from-date/--target-date)",
+    _add_sda_silver_arguments(sda_chugoku_silver_parser)
+
+    sda_shikoku_silver_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-bronze-to-silver-shikoku",
+        help="Transform Shikoku's supply_demand_actuals bronze table into silver",
     )
+    _add_sda_silver_arguments(sda_shikoku_silver_parser)
 
     power_usage_hokuriku_silver_parser = subparsers.add_parser(
         "ingest-power-usage-hokuriku-bronze-to-silver",
@@ -657,22 +699,46 @@ def main():
         ),
     )
 
-    supply_demand_actuals_scrape_parser = subparsers.add_parser(
-        "scrape-supply-demand-actuals",
-        help="Download a company's supply_demand_actuals year CSV to raw layer",
+    sda_tohoku_scrape_parser = subparsers.add_parser(
+        "scrape-supply-demand-actuals-tohoku",
+        help="Download Tohoku's supply_demand_actuals year CSV to raw layer",
     )
-    supply_demand_actuals_scrape_parser.add_argument(
-        "--company",
-        required=True,
-        choices=sorted(SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS),
-        help="Company code",
-    )
-    supply_demand_actuals_scrape_parser.add_argument(
+    sda_tohoku_scrape_parser.add_argument(
         "--bucket",
         default="jp-power-grid-dev",
         help="Target bucket name (default: jp-power-grid-dev)",
     )
-    supply_demand_actuals_scrape_parser.add_argument(
+    sda_tohoku_scrape_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD, used only to resolve the year to fetch"
+        " (default: previous day in Asia/Tokyo)",
+    )
+
+    sda_chugoku_scrape_parser = subparsers.add_parser(
+        "scrape-supply-demand-actuals-chugoku",
+        help="Download Chugoku's supply_demand_actuals year CSV to raw layer",
+    )
+    sda_chugoku_scrape_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Target bucket name (default: jp-power-grid-dev)",
+    )
+    sda_chugoku_scrape_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD, used only to resolve the year to fetch"
+        " (default: previous day in Asia/Tokyo)",
+    )
+
+    sda_shikoku_scrape_parser = subparsers.add_parser(
+        "scrape-supply-demand-actuals-shikoku",
+        help="Download Shikoku's supply_demand_actuals year CSV to raw layer",
+    )
+    sda_shikoku_scrape_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Target bucket name (default: jp-power-grid-dev)",
+    )
+    sda_shikoku_scrape_parser.add_argument(
         "--target-date",
         help="Target date in YYYY-MM-DD, used only to resolve the year to fetch"
         " (default: previous day in Asia/Tokyo)",
@@ -1099,41 +1165,35 @@ def main():
         finally:
             scraper.close()
 
-    if args.command == "scrape-supply-demand-actuals":
+    if args.command == "scrape-supply-demand-actuals-tohoku":
         if args.target_date:
             try:
                 target_date = date.fromisoformat(args.target_date)
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
         else:
-            target_date = resolve_default_supply_demand_actuals_target_date(
-                datetime.now(UTC)
-            )
+            target_date = resolve_default_sda_tohoku_target_date(datetime.now(UTC))
 
         rustfs = RustFSClient()
-        company_config = SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS[args.company]
-        scraper = SupplyDemandActualsScraper(company_config)
+        scraper = TohokuSupplyDemandActualsScraper()
         try:
-            result = scrape_supply_demand_actuals_raw(
+            result = scrape_supply_demand_actuals_tohoku_raw(
                 storage_client=rustfs,
                 scraper=scraper,
                 bucket_name=args.bucket,
-                company=args.company,
                 year=target_date.year,
             )
             if result.skipped:
                 logger.info(
-                    "supply_demand_actuals[%s] scrape skipped (no change): "
+                    "Tohoku supply_demand_actuals scrape skipped (no change): "
                     "year=%s, sha256=%.8s",
-                    args.company,
                     result.year,
                     result.sha256,
                 )
             else:
                 logger.info(
-                    "supply_demand_actuals[%s] snapshot saved: "
+                    "Tohoku supply_demand_actuals snapshot saved: "
                     "year=%s, sha256=%.8s, prefix=%s",
-                    args.company,
                     result.year,
                     result.sha256,
                     result.snapshot_prefix,
@@ -1141,17 +1201,88 @@ def main():
         finally:
             scraper.close()
 
-    if args.command == "ingest-supply-demand-actuals-raw-to-bronze":
+    if args.command == "scrape-supply-demand-actuals-chugoku":
+        if args.target_date:
+            try:
+                target_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+        else:
+            target_date = resolve_default_sda_chugoku_target_date(datetime.now(UTC))
+
+        rustfs = RustFSClient()
+        scraper = ChugokuSupplyDemandActualsScraper()
+        try:
+            result = scrape_supply_demand_actuals_chugoku_raw(
+                storage_client=rustfs,
+                scraper=scraper,
+                bucket_name=args.bucket,
+                year=target_date.year,
+            )
+            if result.skipped:
+                logger.info(
+                    "Chugoku supply_demand_actuals scrape skipped (no change): "
+                    "year=%s, sha256=%.8s",
+                    result.year,
+                    result.sha256,
+                )
+            else:
+                logger.info(
+                    "Chugoku supply_demand_actuals snapshot saved: "
+                    "year=%s, sha256=%.8s, prefix=%s",
+                    result.year,
+                    result.sha256,
+                    result.snapshot_prefix,
+                )
+        finally:
+            scraper.close()
+
+    if args.command == "scrape-supply-demand-actuals-shikoku":
+        if args.target_date:
+            try:
+                target_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+        else:
+            target_date = resolve_default_sda_shikoku_target_date(datetime.now(UTC))
+
+        rustfs = RustFSClient()
+        scraper = ShikokuSupplyDemandActualsScraper()
+        try:
+            result = scrape_supply_demand_actuals_shikoku_raw(
+                storage_client=rustfs,
+                scraper=scraper,
+                bucket_name=args.bucket,
+                year=target_date.year,
+            )
+            if result.skipped:
+                logger.info(
+                    "Shikoku supply_demand_actuals scrape skipped (no change): "
+                    "year=%s, sha256=%.8s",
+                    result.year,
+                    result.sha256,
+                )
+            else:
+                logger.info(
+                    "Shikoku supply_demand_actuals snapshot saved: "
+                    "year=%s, sha256=%.8s, prefix=%s",
+                    result.year,
+                    result.sha256,
+                    result.snapshot_prefix,
+                )
+        finally:
+            scraper.close()
+
+    if args.command == "ingest-supply-demand-actuals-raw-to-bronze-tohoku":
         try:
             target_date = date.fromisoformat(args.target_date)
         except ValueError as exc:
             parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
 
         rustfs = RustFSClient()
-        row_count = ingest_supply_demand_actuals(
+        row_count = ingest_supply_demand_actuals_tohoku(
             client=rustfs,
             bucket_name=args.bucket,
-            company=args.company,
             object_key=args.object_key,
             target_date=target_date,
             source_file_name=args.source_file_name,
@@ -1159,8 +1290,51 @@ def main():
             skip_if_exists=not args.allow_duplicate_target_date,
         )
         logger.info(
-            "Ingestion completed: company=%s, target_date=%s, rows=%s",
-            args.company,
+            "Ingestion completed: company=tohoku, target_date=%s, rows=%s",
+            target_date,
+            row_count,
+        )
+
+    if args.command == "ingest-supply-demand-actuals-raw-to-bronze-chugoku":
+        try:
+            target_date = date.fromisoformat(args.target_date)
+        except ValueError as exc:
+            parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+
+        rustfs = RustFSClient()
+        row_count = ingest_supply_demand_actuals_chugoku(
+            client=rustfs,
+            bucket_name=args.bucket,
+            object_key=args.object_key,
+            target_date=target_date,
+            source_file_name=args.source_file_name,
+            catalog_name=args.catalog,
+            skip_if_exists=not args.allow_duplicate_target_date,
+        )
+        logger.info(
+            "Ingestion completed: company=chugoku, target_date=%s, rows=%s",
+            target_date,
+            row_count,
+        )
+
+    if args.command == "ingest-supply-demand-actuals-raw-to-bronze-shikoku":
+        try:
+            target_date = date.fromisoformat(args.target_date)
+        except ValueError as exc:
+            parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+
+        rustfs = RustFSClient()
+        row_count = ingest_supply_demand_actuals_shikoku(
+            client=rustfs,
+            bucket_name=args.bucket,
+            object_key=args.object_key,
+            target_date=target_date,
+            source_file_name=args.source_file_name,
+            catalog_name=args.catalog,
+            skip_if_exists=not args.allow_duplicate_target_date,
+        )
+        logger.info(
+            "Ingestion completed: company=shikoku, target_date=%s, rows=%s",
             target_date,
             row_count,
         )
@@ -1348,7 +1522,9 @@ def main():
                 silver_write.rows_written,
             )
 
-    if args.command == "ingest-supply-demand-actuals-bronze-to-silver":
+    def _parse_sda_silver_date_range(
+        args: argparse.Namespace,
+    ) -> tuple[date | None, date | None]:
         from_date = None
         to_date = None
         if args.from_date:
@@ -1369,22 +1545,51 @@ def main():
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
             to_date = from_date
+        return from_date, to_date
 
-        supply_demand_actuals_silver_result = (
-            run_bronze_to_silver_supply_demand_actuals(
-                company=args.company,
-                catalog_name=args.catalog,
-                from_date=from_date,
-                to_date=to_date,
-            )
+    if args.command == "ingest-supply-demand-actuals-bronze-to-silver-tohoku":
+        from_date, to_date = _parse_sda_silver_date_range(args)
+        tohoku_silver_result = run_bronze_to_silver_supply_demand_actuals_tohoku(
+            catalog_name=args.catalog,
+            from_date=from_date,
+            to_date=to_date,
         )
         logger.info(
-            "supply_demand_actuals[%s] bronze-to-silver completed: "
+            "supply_demand_actuals[tohoku] bronze-to-silver completed: "
             "execution_id=%s, table=%s, written=%s",
-            args.company,
-            supply_demand_actuals_silver_result.execution_id,
-            supply_demand_actuals_silver_result.write.table_identifier,
-            supply_demand_actuals_silver_result.write.rows_written,
+            tohoku_silver_result.execution_id,
+            tohoku_silver_result.write.table_identifier,
+            tohoku_silver_result.write.rows_written,
+        )
+
+    if args.command == "ingest-supply-demand-actuals-bronze-to-silver-chugoku":
+        from_date, to_date = _parse_sda_silver_date_range(args)
+        chugoku_silver_result = run_bronze_to_silver_supply_demand_actuals_chugoku(
+            catalog_name=args.catalog,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        logger.info(
+            "supply_demand_actuals[chugoku] bronze-to-silver completed: "
+            "execution_id=%s, table=%s, written=%s",
+            chugoku_silver_result.execution_id,
+            chugoku_silver_result.write.table_identifier,
+            chugoku_silver_result.write.rows_written,
+        )
+
+    if args.command == "ingest-supply-demand-actuals-bronze-to-silver-shikoku":
+        from_date, to_date = _parse_sda_silver_date_range(args)
+        shikoku_silver_result = run_bronze_to_silver_supply_demand_actuals_shikoku(
+            catalog_name=args.catalog,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        logger.info(
+            "supply_demand_actuals[shikoku] bronze-to-silver completed: "
+            "execution_id=%s, table=%s, written=%s",
+            shikoku_silver_result.execution_id,
+            shikoku_silver_result.write.table_identifier,
+            shikoku_silver_result.write.rows_written,
         )
 
     if args.command == "run-occto-orchestrator":

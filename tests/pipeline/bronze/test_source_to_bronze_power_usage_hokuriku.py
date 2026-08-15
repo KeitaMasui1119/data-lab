@@ -27,7 +27,7 @@ from pipeline.bronze.source_to_bronze_power_usage_hokuriku import (
 )
 
 DATA_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "electric_forecast" / "hokuriku"
+    Path(__file__).resolve().parents[3] / "data" / "electric_forecast" / "hokuriku"
 )
 
 
