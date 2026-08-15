@@ -1,0 +1,19 @@
+このサイトの中に各電力会社が提供するでんき予報サイトのURLが存在する
+https://www.tdgc.jp/areainfo/denki/
+
+
+北海道電力ネットワーク（株）:https://denkiyoho.hepco.co.jp/area_forecast.html
+東北電力ネットワーク（株）:https://setsuden.nw.tohoku-epco.co.jp/graph.html
+東京電力パワーグリッド（株）:https://www.tepco.co.jp/forecast/
+中部電力パワーグリッド（株）:https://powergrid.chuden.co.jp/denkiyoho/
+北陸電力送配電（株）:https://www.rikuden.co.jp/nw/denki-yoho/index.html
+関西電力送配電（株）:https://www.kansai-td.co.jp/denkiyoho/index.html
+中国電力ネットワーク（株）:https://www.energia.co.jp/nw/jukyuu/
+四国電力送配電（株）:https://www.yonden.co.jp/nw/denkiyoho/index.html
+九州電力送配電（株）:https://www.kyuden.co.jp/td_power_usages/pc.html
+沖縄電力（株）:https://www.okiden.co.jp/denki2/
+
+でんき予報が取得出るデータ
+- 電力使用状況
+- 需給実績
+- 系統の需給に関するデータ
