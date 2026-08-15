@@ -9,7 +9,7 @@ import pytest
 
 from common.iceberg.schema import build_partition_spec, build_table_schema
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 SCHEMA_DIR = ROOT / "configuration/iceberg/schema"
 
 BRONZE_SCHEMA_CSVS = sorted((SCHEMA_DIR / "bronze").glob("*.csv"))

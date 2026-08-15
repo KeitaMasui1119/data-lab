@@ -30,7 +30,7 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
     target_date_bound,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 BRONZE_SCHEMA = (
     ROOT / "configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv"
 )
