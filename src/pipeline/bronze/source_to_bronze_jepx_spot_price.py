@@ -18,10 +18,8 @@ from common.raw_ingestion_log import (
 )
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
-from pipeline.jepx_common import (
-    resolve_spot_summary_object_key,
-    resolve_target_at,
-)
+from common.utilities import resolve_target_at
+from pipeline.jepx_common import resolve_spot_summary_object_key
 
 # ログ設定
 logging.basicConfig(

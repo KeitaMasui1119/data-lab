@@ -17,11 +17,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from common.http_scraper import BaseHttpScraper, RequestSpec
 from common.storage_client import RustFSClient
+from common.utilities import resolve_target_at
 from pipeline.jepx_common import (
     resolve_fiscal_year,
     resolve_spot_summary_file_name,
     resolve_spot_summary_object_key,
-    resolve_target_at,
 )
 
 logger = logging.getLogger(__name__)

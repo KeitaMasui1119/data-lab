@@ -11,6 +11,7 @@ from common.iceberg.maintenance import (
     find_orphan_data_files,
 )
 from common.storage_client import RustFSClient
+from common.utilities import resolve_target_at
 from orchestration.pl_jepx_spot_price import run_jepx_orchestrated_pipeline
 from orchestration.pl_occto_unit_generation_actuals import (
     run_occto_orchestrated_pipeline,
@@ -34,7 +35,6 @@ from pipeline.bronze.source_to_bronze_supply_demand_actuals_shikoku import (
 from pipeline.bronze.source_to_bronze_supply_demand_actuals_tohoku import (
     ingest_supply_demand_actuals_tohoku,
 )
-from pipeline.jepx_common import resolve_target_at
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
     scrape_jepx_spot_price_raw,

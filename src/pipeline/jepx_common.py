@@ -1,15 +1,13 @@
-"""Shared helpers for JEPX spot summary pipeline components."""
+"""Shared helpers for JEPX spot summary pipeline components.
+
+resolve_target_at() moved to common/utilities.py: it had no JEPX-specific
+logic (just "now, or from an optional ms timestamp"), unlike everything
+below, which is JEPX's fiscal-year/file-naming convention specifically.
+"""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
-
-def resolve_target_at(timestamp_ms: int | None) -> datetime:
-    """Resolve target datetime from optional UNIX timestamp milliseconds."""
-    if timestamp_ms is None:
-        return datetime.now(UTC)
-    return datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC)
+from datetime import datetime
 
 
 def resolve_fiscal_year(target_at: datetime) -> int:
