@@ -27,9 +27,10 @@
 ### タスク
 
 - [ ] 各社のファイル形式・カラム構成を調査し、スキーマCSV（`configuration/iceberg/schema/bronze/`）を定義する
-      → 北陸電力（パイロット、電力使用状況＝`power_usage`カテゴリ）は完了。
-      `configuration/iceberg/schema/bronze/hokuriku_power_usage.csv`
-      （716列＋監査列5、`build_table_schema()`/`build_partition_spec()`で検証済み）。詳細は
+      → 北陸電力（パイロット、電力使用状況＝`power_usage`カテゴリ）は完了。当初は716列＋監査列5の
+      単一Bronzeテーブル案だったが、扱いにくさと性質の異なるブロックの混在を理由に3テーブルへ分割：
+      `configuration/iceberg/schema/bronze/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`
+      （44/98/578列、`build_table_schema()`/`build_partition_spec()`で検証済み）。詳細は
       `docs/architecture/data_model.md` 3.1 を参照。フォーマットは会社ごとに
       「リッチなスナップショット形式」（北陸・沖縄・関西）と「単純な実績のみの時系列」
       （東京電力・中部電力・中国電力等）の2系統に分かれることが判明したため、他社は個別調査が必要。
@@ -38,9 +39,14 @@
       需給実績・系統の需給は未調査。
 - [ ] ローカルファイルを Raw（RustFS）にアップロードするスクリプトを実装する
 - [ ] Raw → Bronze Ingestion を実装する（`src/pipeline/bronze/`）
-      → 北陸電力は`build_schema_exprs()`（1 CSVカラム→1ターゲット列の単純リネーム）がそのまま使えない
-      （ソースが複数セクションのレポート形式で、716列は日次1行に展開する専用パーサが必要）。
-      実装時は専用パーサを書く前提で見積もる。
+      → 北陸電力は完了。`build_schema_exprs()`（1 CSVカラム→1ターゲット列の単純リネーム）は
+      そのまま使えず（ソースが複数セクションのレポート形式）、
+      `src/pipeline/bronze/source_to_bronze_power_usage_hokuriku.py`の`parse_snapshot()`で
+      専用パーサを実装（空行区切りのブロック順序に基づき1ファイルを3行に展開、実データ2,083ファイルで
+      検証済み）。Rawスクレイパー（`src/pipeline/raw/source_to_raw_power_usage_hokuriku.py`、
+      URLは`https://www.rikuden.co.jp/nw/denki-yoho/csv/juyo_05_{YYYYMMDD}.csv`）と、
+      `src/main.py`の`scrape-power-usage-hokuriku`/`ingest-power-usage-hokuriku-raw-to-bronze`
+      コマンドも実装済み。他社は未着手。
 - [ ] Bronze → Silver dbt モデルを実装する（`src/dbt/jepx_power/models/silver/`）
 - [ ] 各社オーケストレーターを実装する（`src/orchestration/`）
 - [ ] `src/main.py` にコマンドを追加する

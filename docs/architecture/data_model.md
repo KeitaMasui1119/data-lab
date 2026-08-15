@@ -115,31 +115,53 @@ Bronzeは全列string・横持ち48コマのまま保持し、Silverへの変換
 このため「各社共通の2列PK」は成立せず、フォーマットごと（場合によっては会社ごと）に個別のBronzeスキーマが必要。
 「需給実績（`supply_demand_actuals`）」「系統の需給（`grid_supply_demand`）」は未調査・未実装（`docs/tasks/tasks.md`参照）。
 
-#### 3.1 Hokuriku（北陸電力）— 電力使用状況（`power_usage`）、リッチなスナップショット形式、パイロット実装済み
+#### 3.1 Hokuriku（北陸電力）— 電力使用状況（`power_usage`）、リッチなスナップショット形式、Raw/Bronze実装済み
 
-| Layer  | Table Name                 |
-|--------|-----------------------------|
-| Bronze | bronze.hokuriku_power_usage |
+**Source URL**: `https://www.rikuden.co.jp/nw/denki-yoho/csv/juyo_05_{YYYYMMDD}.csv`
+（単純GET、セッション事前準備不要。2020-04-01以降のみ提供）。過去のスクレイピングプロトタイプ
+（`src/Jupyter/scraping_prototypes/electric_forecast_scraping.ipynb`）で確認。
 
 **設計**: ソースファイル（`juyo_05_YYYYMMDD.csv`）はセクションごとに粒度が異なる
-（日次サマリ1行／毎時24行／5分間隔288行）複数セクション構成のレポートファイル。
-Bronzeではファイル全体を`target_date`単位で1行に横持ちフラット化する（OCCTOの
-48コマ列パターンを踏襲し、毎時×4指標×24=96列、5分間隔×2指標×288=576列、
-日次サマリ約20列×2（当日／翌日）を横持ち）。列数716（＋監査列5）。
-スキーマCSV: `configuration/iceberg/schema/bronze/hokuriku_power_usage.csv`。
+（日次サマリ計42列／毎時96列／5分間隔576列）複数セクション構成のレポートファイル。
+当初は716列の単一Bronzeテーブル案だったが、扱いにくさと性質の異なるブロックの混在を理由に
+**3テーブルに分割**した（Bronzeは1ファイル=1行のアトミックな着地、という既存原則からは
+意図的に逸脱しており、1ファイルの取り込みが3つの独立したIcebergテーブルへの非アトミックな
+書き込みになる点はトレードオフとして許容している）。
+
+| Layer  | Table Name                             | 内容                                   | 列数（PK含む） |
+|--------|-----------------------------------------|-----------------------------------------|----------------|
+| Bronze | bronze.power_usage_hokuriku_daily_summary | 当日/翌日ピーク4ブロック×2＋最大使用率 | 44             |
+| Bronze | bronze.power_usage_hokuriku_hourly        | 毎時テーブル（24行×4指標）             | 98             |
+| Bronze | bronze.power_usage_hokuriku_interval5     | 5分間隔テーブル（288行×2指標）         | 578            |
+
+各Bronzeパーサ（`src/pipeline/bronze/source_to_bronze_power_usage_hokuriku.py`の`parse_snapshot()`）は
+OCCTOの48コマ列パターンと同様に生ファイルの構造をそのまま保持しつつ、セクション（空行区切りの
+ブロック）順序に基づいて1ファイルを3行（daily_summary/hourly/interval5各1行）に展開する。
+毎時テーブルの供給力列は列ラベルがファイル年代により変わる（`供給力(万kW)`/`供給力想定値(万kW)`）
+ため、ヘッダ文字列ではなく列位置でパースする。実データ2,083ファイル（2020-2025）で検証済み
+（99.95%成功、唯一の失敗は真の404 HTMLページが保存されたファイル）。
+スキーマCSV: `configuration/iceberg/schema/bronze/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`。
 
 **Primary Keys**
 
-| Layer  | Columns     | Description |
-|--------|-------------|--------------|
-| Bronze | target_date | ファイル名由来の対象日（ファイル内にDATE列はあるがセクションごとに分散しており行の一意キーにはならない）。同日内の複数回更新は`file_updated_at`と`source_data`（スナップショットのオブジェクトキー）で追跡し、Silverで最新版を選択する想定。 |
+| Layer  | Columns                     | Description |
+|--------|------------------------------|--------------|
+| Bronze（3テーブル共通） | target_date, file_updated_at | `target_date`はファイル名由来の対象日。`file_updated_at`はファイル1行目のUPDATE時刻文字列（生のまま保持）で、同日内の複数回更新を`source_data`（スナップショットのオブジェクトキー）とあわせて追跡し、Silverで最新版を選択する想定。 |
 
 **Partition Design**: 現時点で未設定（既存のOCCTO/JEPX Bronzeスキーマも
 `partition_transform`は未使用のため、方針が定まるまで踏襲）。
 
+**実装状況**: Raw取り込み（`src/pipeline/raw/source_to_raw_power_usage_hokuriku.py`、
+OCCTOと同じSHA256差分検知＋manifest＋ingestion_logパターン）、Bronze取り込み（3テーブルへの
+専用パーサ＋append）、`src/main.py`の`scrape-power-usage-hokuriku`・
+`ingest-power-usage-hokuriku-raw-to-bronze`コマンドまで実装済み。テーブルは
+`python -m setup.manage_iceberg table create --name bronze.power_usage_hokuriku_<name> --csv ...`
+で事前作成が必要（`ingest_power_usage_hokuriku()`は`provision_table()`を呼ばない、
+OCCTO/JEPXと同じ設計）。
+
 **未解決**: 東京電力・関西電力・北海道電力など他社への横展開（フォーマット調査未了）。
-リッチ形式とシンプル形式のどちらを各社で採用するかは会社ごとに個別判断が必要。Raw取り込み・
-Bronze取り込みスクリプト・Silver変換は未実装（スキーマのみ確定）。
+リッチ形式とシンプル形式のどちらを各社で採用するかは会社ごとに個別判断が必要。Silver変換
+（粒度ごとの正規化）は未実装。
 
 ---
 
@@ -222,7 +244,7 @@ Silver層から参照するマッピングテーブル。
 ## Open Questions
 
 - [x] ~~電力各社の需給データの対象会社を確定する~~ →
-      北陸電力をパイロットとして確定（[3.1](#31-hokuriku北陸電力-リッチなスナップショット形式パイロット実装済み)参照）。
+      北陸電力をパイロットとして確定（[3.1](#31-hokuriku北陸電力-電力使用状況power_usageリッチなスナップショット形式rawbronze実装済み)参照）。
       他社（東京・関西・北海道等）は個別調査が必要で未確定。
 - [ ] 気象庁APIの地域コード体系を確認する
 - [ ] 株価インデックスの対象ティッカーを確定する
