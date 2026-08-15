@@ -528,7 +528,7 @@ def main():
     )
     power_usage_hokuriku_scrape_parser.add_argument(
         "--target-date",
-        help="Target date in YYYY-MM-DD (default: today in Asia/Tokyo)",
+        help="Target date in YYYY-MM-DD (default: previous day in Asia/Tokyo)",
     )
     power_usage_hokuriku_scrape_parser.add_argument(
         "--to-date",

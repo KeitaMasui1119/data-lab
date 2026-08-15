@@ -157,7 +157,10 @@ OCCTOと同じSHA256差分検知＋manifest＋ingestion_logパターン）、Bro
 `ingest-power-usage-hokuriku-raw-to-bronze`コマンドまで実装済み。テーブルは
 `python -m setup.manage_iceberg table create --name bronze.power_usage_hokuriku_<name> --csv ...`
 で事前作成が必要（`ingest_power_usage_hokuriku()`は`provision_table()`を呼ばない、
-OCCTO/JEPXと同じ設計）。
+OCCTO/JEPXと同じ設計）。`scrape-power-usage-hokuriku`の`--target-date`省略時のデフォルトは
+「JSTで前日」（OCCTOと同じ方針）。当日分のスナップショットは実行中に随時更新される未確定データ
+（実測: 当日午後に取得すると残り時間帯・翌日予想ブロックが空文字になる）で、対象日のデータは
+翌日午前0時過ぎ（実測UPDATE時刻: 例`2020/04/02 00:10 UPDATE`）にならないと確定しないため。
 
 **未解決**: 東京電力・関西電力・北海道電力など他社への横展開（フォーマット調査未了）。
 リッチ形式とシンプル形式のどちらを各社で採用するかは会社ごとに個別判断が必要。Silver変換

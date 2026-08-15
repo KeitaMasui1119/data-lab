@@ -38,15 +38,16 @@ def _mock_session_returning(body: bytes = CSV_BODY) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# resolve_default_target_date() — "today" in JST, unlike OCCTO's "yesterday"
-# (Hokuriku's snapshot describes the current day, updated throughout the day)
+# resolve_default_target_date() — yesterday in JST, same rationale as OCCTO's:
+# today's snapshot is still live/incomplete, a date's data only finalizes
+# shortly after midnight JST the following day.
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_default_target_date_is_today_in_jst():
+def test_resolve_default_target_date_is_yesterday_in_jst():
     jst_now = datetime(2026, 8, 10, 2, 0, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
 
-    assert resolve_default_target_date(jst_now) == date(2026, 8, 10)
+    assert resolve_default_target_date(jst_now) == date(2026, 8, 9)
 
 
 # ---------------------------------------------------------------------------
