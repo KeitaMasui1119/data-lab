@@ -90,11 +90,14 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
 from pipeline.silver.bronze_to_silver_power_usage_hokuriku import (
     run_bronze_to_silver_power_usage_hokuriku,
 )
-from pipeline.silver.bronze_to_silver_supply_demand_actuals import (
-    SILVER_CONFIGS as SUPPLY_DEMAND_ACTUALS_SILVER_CONFIGS,
+from pipeline.silver.bronze_to_silver_supply_demand_actuals_chugoku import (
+    run_bronze_to_silver_supply_demand_actuals_chugoku,
 )
-from pipeline.silver.bronze_to_silver_supply_demand_actuals import (
-    run_bronze_to_silver_supply_demand_actuals,
+from pipeline.silver.bronze_to_silver_supply_demand_actuals_shikoku import (
+    run_bronze_to_silver_supply_demand_actuals_shikoku,
+)
+from pipeline.silver.bronze_to_silver_supply_demand_actuals_tohoku import (
+    run_bronze_to_silver_supply_demand_actuals_tohoku,
 )
 from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
@@ -480,35 +483,44 @@ def main():
     )
     _add_sda_bronze_arguments(sda_shikoku_bronze_parser)
 
-    supply_demand_actuals_silver_parser = subparsers.add_parser(
-        "ingest-supply-demand-actuals-bronze-to-silver",
-        help="Transform one company's supply_demand_actuals bronze table into silver",
+    def _add_sda_silver_arguments(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--catalog",
+            default="dlh_dev",
+            help="Iceberg catalog name (default: dlh_dev)",
+        )
+        parser.add_argument(
+            "--target-date",
+            help="Limit the run to one target_date in YYYY-MM-DD"
+            " (default: rebuild the full range staged from bronze)",
+        )
+        parser.add_argument(
+            "--from-date",
+            help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
+        )
+        parser.add_argument(
+            "--to-date",
+            help="End of a target_date range in YYYY-MM-DD"
+            " (default: same as --from-date/--target-date)",
+        )
+
+    sda_tohoku_silver_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-bronze-to-silver-tohoku",
+        help="Transform Tohoku's supply_demand_actuals bronze table into silver",
     )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--company",
-        required=True,
-        choices=sorted(SUPPLY_DEMAND_ACTUALS_SILVER_CONFIGS),
-        help="Company code",
+    _add_sda_silver_arguments(sda_tohoku_silver_parser)
+
+    sda_chugoku_silver_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-bronze-to-silver-chugoku",
+        help="Transform Chugoku's supply_demand_actuals bronze table into silver",
     )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--catalog",
-        default="dlh_dev",
-        help="Iceberg catalog name (default: dlh_dev)",
+    _add_sda_silver_arguments(sda_chugoku_silver_parser)
+
+    sda_shikoku_silver_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-bronze-to-silver-shikoku",
+        help="Transform Shikoku's supply_demand_actuals bronze table into silver",
     )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--target-date",
-        help="Limit the run to one target_date in YYYY-MM-DD"
-        " (default: rebuild the full range staged from bronze)",
-    )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--from-date",
-        help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
-    )
-    supply_demand_actuals_silver_parser.add_argument(
-        "--to-date",
-        help="End of a target_date range in YYYY-MM-DD"
-        " (default: same as --from-date/--target-date)",
-    )
+    _add_sda_silver_arguments(sda_shikoku_silver_parser)
 
     power_usage_hokuriku_silver_parser = subparsers.add_parser(
         "ingest-power-usage-hokuriku-bronze-to-silver",
@@ -1510,7 +1522,9 @@ def main():
                 silver_write.rows_written,
             )
 
-    if args.command == "ingest-supply-demand-actuals-bronze-to-silver":
+    def _parse_sda_silver_date_range(
+        args: argparse.Namespace,
+    ) -> tuple[date | None, date | None]:
         from_date = None
         to_date = None
         if args.from_date:
@@ -1531,22 +1545,51 @@ def main():
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
             to_date = from_date
+        return from_date, to_date
 
-        supply_demand_actuals_silver_result = (
-            run_bronze_to_silver_supply_demand_actuals(
-                company=args.company,
-                catalog_name=args.catalog,
-                from_date=from_date,
-                to_date=to_date,
-            )
+    if args.command == "ingest-supply-demand-actuals-bronze-to-silver-tohoku":
+        from_date, to_date = _parse_sda_silver_date_range(args)
+        tohoku_silver_result = run_bronze_to_silver_supply_demand_actuals_tohoku(
+            catalog_name=args.catalog,
+            from_date=from_date,
+            to_date=to_date,
         )
         logger.info(
-            "supply_demand_actuals[%s] bronze-to-silver completed: "
+            "supply_demand_actuals[tohoku] bronze-to-silver completed: "
             "execution_id=%s, table=%s, written=%s",
-            args.company,
-            supply_demand_actuals_silver_result.execution_id,
-            supply_demand_actuals_silver_result.write.table_identifier,
-            supply_demand_actuals_silver_result.write.rows_written,
+            tohoku_silver_result.execution_id,
+            tohoku_silver_result.write.table_identifier,
+            tohoku_silver_result.write.rows_written,
+        )
+
+    if args.command == "ingest-supply-demand-actuals-bronze-to-silver-chugoku":
+        from_date, to_date = _parse_sda_silver_date_range(args)
+        chugoku_silver_result = run_bronze_to_silver_supply_demand_actuals_chugoku(
+            catalog_name=args.catalog,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        logger.info(
+            "supply_demand_actuals[chugoku] bronze-to-silver completed: "
+            "execution_id=%s, table=%s, written=%s",
+            chugoku_silver_result.execution_id,
+            chugoku_silver_result.write.table_identifier,
+            chugoku_silver_result.write.rows_written,
+        )
+
+    if args.command == "ingest-supply-demand-actuals-bronze-to-silver-shikoku":
+        from_date, to_date = _parse_sda_silver_date_range(args)
+        shikoku_silver_result = run_bronze_to_silver_supply_demand_actuals_shikoku(
+            catalog_name=args.catalog,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        logger.info(
+            "supply_demand_actuals[shikoku] bronze-to-silver completed: "
+            "execution_id=%s, table=%s, written=%s",
+            shikoku_silver_result.execution_id,
+            shikoku_silver_result.write.table_identifier,
+            shikoku_silver_result.write.rows_written,
         )
 
     if args.command == "run-occto-orchestrator":

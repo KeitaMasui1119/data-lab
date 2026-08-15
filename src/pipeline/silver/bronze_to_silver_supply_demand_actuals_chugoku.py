@@ -1,9 +1,4 @@
-"""Transform supply_demand_actuals from bronze into silver.
-
-Shared, parameterized module across companies (tohoku/chugoku/shikoku) --
-same rationale as the raw/bronze modules for this category: the transform
-is identical except for the bronze location, silver table, schema path,
-and shikoku's extra supply_capacity_forecast_10k_kw column.
+"""Transform Chugoku supply_demand_actuals from bronze into silver.
 
 Bronze is already 1 row per (target_date, target_time), so unlike
 power_usage_hokuriku's hourly/interval5 tables no UNPIVOT is needed here --
@@ -41,39 +36,12 @@ logger = logging.getLogger(__name__)
 TARGET_DATE_COLUMN = "target_date"
 DELIVERY_TIMEZONE = "Asia/Tokyo"
 DEFAULT_CATALOG_NAME = "dlh_dev"
-DEFAULT_SILVER_SCHEMA_DIR = "/workspace/configuration/iceberg/schema/silver"
-
-
-@dataclass(frozen=True)
-class SupplyDemandActualsSilverConfig:
-    company_code: str
-    bronze_location: str
-    silver_table: str
-    schema_path: str
-    extra_columns: tuple[str, ...] = ()
-
-
-SILVER_CONFIGS: dict[str, SupplyDemandActualsSilverConfig] = {
-    "tohoku": SupplyDemandActualsSilverConfig(
-        company_code="tohoku",
-        bronze_location="s3://jp-power-grid-dev/bronze/supply_demand_actuals_tohoku",
-        silver_table="silver.supply_demand_actuals_tohoku",
-        schema_path=f"{DEFAULT_SILVER_SCHEMA_DIR}/supply_demand_actuals_tohoku.csv",
-    ),
-    "chugoku": SupplyDemandActualsSilverConfig(
-        company_code="chugoku",
-        bronze_location="s3://jp-power-grid-dev/bronze/supply_demand_actuals_chugoku",
-        silver_table="silver.supply_demand_actuals_chugoku",
-        schema_path=f"{DEFAULT_SILVER_SCHEMA_DIR}/supply_demand_actuals_chugoku.csv",
-    ),
-    "shikoku": SupplyDemandActualsSilverConfig(
-        company_code="shikoku",
-        bronze_location="s3://jp-power-grid-dev/bronze/supply_demand_actuals_shikoku",
-        silver_table="silver.supply_demand_actuals_shikoku",
-        schema_path=f"{DEFAULT_SILVER_SCHEMA_DIR}/supply_demand_actuals_shikoku.csv",
-        extra_columns=("supply_capacity_forecast_10k_kw",),
-    ),
-}
+DEFAULT_SCHEMA_PATH = (
+    "/workspace/configuration/iceberg/schema/silver/supply_demand_actuals_chugoku.csv"
+)
+BRONZE_LOCATION = "s3://jp-power-grid-dev/bronze/supply_demand_actuals_chugoku"
+SILVER_TABLE = "silver.supply_demand_actuals_chugoku"
+EXTRA_COLUMNS: tuple[str, ...] = ()
 
 SILVER_KEY_COLUMNS = ("target_date", "hour_of_day")
 
@@ -93,7 +61,7 @@ def extract_supply_demand_actuals_frame(
     conn: duckdb.DuckDBPyConnection,
     *,
     source_relation: str,
-    extra_columns: tuple[str, ...],
+    extra_columns: tuple[str, ...] = EXTRA_COLUMNS,
     from_date: date | None = None,
     to_date: date | None = None,
 ) -> pl.DataFrame:
@@ -173,26 +141,25 @@ class SupplyDemandActualsBronzeToSilverResult:
     write: SilverWriteResult
 
 
-def run_bronze_to_silver_supply_demand_actuals(
+def run_bronze_to_silver_supply_demand_actuals_chugoku(
     *,
-    company: str,
     catalog_name: str = DEFAULT_CATALOG_NAME,
+    schema_path: str = DEFAULT_SCHEMA_PATH,
     from_date: date | None = None,
     to_date: date | None = None,
     execution_id: str | None = None,
 ) -> SupplyDemandActualsBronzeToSilverResult:
-    """Run the bronze-to-silver transform for one company's supply_demand_actuals."""
-    config = SILVER_CONFIGS[company]
+    """Run the bronze-to-silver transform for Chugoku's supply_demand_actuals."""
     run_execution_id = execution_id or gen_uuid()
     catalog = get_catalog(catalog_name)
 
     conn = create_duckdb_connection()
     try:
-        source_relation = f"iceberg_scan('{config.bronze_location}')"
+        source_relation = f"iceberg_scan('{BRONZE_LOCATION}')"
         frame = extract_supply_demand_actuals_frame(
             conn,
             source_relation=source_relation,
-            extra_columns=config.extra_columns,
+            extra_columns=EXTRA_COLUMNS,
             from_date=from_date,
             to_date=to_date,
         )
@@ -205,8 +172,8 @@ def run_bronze_to_silver_supply_demand_actuals(
 
         write = write_silver_table(
             catalog,
-            table_identifier=config.silver_table,
-            schema_path=config.schema_path,
+            table_identifier=SILVER_TABLE,
+            schema_path=schema_path,
             frame=frame,
             key_cols=SILVER_KEY_COLUMNS,
             overwrite_filter=overwrite_filter,

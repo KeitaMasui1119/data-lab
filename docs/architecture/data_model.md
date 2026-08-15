@@ -219,12 +219,13 @@ Bronzeは年間CSV全体ではなく、`target_date`（デフォルト: JSTで�
 `ingest-supply-demand-actuals-raw-to-bronze-{tohoku,chugoku,shikoku} --target-date ...`。
 実データ（2026-08-14分、3社）でRaw保存・Bronze取り込みまで動作確認済み。
 
-**Silver**: `src/pipeline/silver/bronze_to_silver_supply_demand_actuals.py`
-（こちらは3社共通のパラメータ化モジュールのまま。Bronzeが既に`(target_date, target_time)`
-1行=1レコードのため、`power_usage_hokuriku`のhourly/interval5と違いUNPIVOTは不要で、型付けと
-`hour_of_day`／`delivery_datetime`（JST→UTC変換）の導出のみ。同一`(target_date, hour_of_day)`の
-複数リビジョンは`ingestion_time`最新優先でデデュープしてから`write_silver_table()`のwindow-replace
-で書き込む。CLI: `ingest-supply-demand-actuals-bronze-to-silver --company ...`。
+**Silver**: `src/pipeline/silver/bronze_to_silver_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`
+（Raw/Bronzeと同じく会社ごとに独立したモジュール。当初は3社共通のパラメータ化モジュールだったが、
+Raw/Bronzeの分割に合わせて統一）。Bronzeが既に`(target_date, target_time)`1行=1レコードのため、
+`power_usage_hokuriku`のhourly/interval5と違いUNPIVOTは不要で、型付けと`hour_of_day`／
+`delivery_datetime`（JST→UTC変換）の導出のみ。同一`(target_date, hour_of_day)`の複数リビジョンは
+`ingestion_time`最新優先でデデュープしてから`write_silver_table()`のwindow-replaceで書き込む。CLI:
+`ingest-supply-demand-actuals-bronze-to-silver-{tohoku,chugoku,shikoku}`。
 実データ（2026-08-14分、3社）で変換・値検証済み。
 
 **未解決**: 東京電力は需給実績用の「育っていく年次CSV」が今年分まだ存在せず（過去完了年分のみ）、
