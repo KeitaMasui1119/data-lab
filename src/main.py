@@ -11,7 +11,7 @@ from common.iceberg.maintenance import (
     find_orphan_data_files,
 )
 from common.storage_client import RustFSClient
-from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
+from orchestration.pl_jepx_spot_price import run_jepx_orchestrated_pipeline
 from orchestration.pl_occto_unit_generation_actuals import (
     run_occto_orchestrated_pipeline,
 )

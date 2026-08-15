@@ -269,7 +269,7 @@ partition spec を渡さず、既存テーブルの spec 差分は警告ログ�
       （3テーブル目で重複を検出した際に、base/block だけ更新済みになる部分適用が起きないこと）
 - [ ] `--silver-all-fiscal-years` と `--silver-fiscal-year` の同時指定が
       `parser.error` で弾かれることのテスト（`src/main.py` と
-      `src/orchestration/jepx_pipeline.py` の2箇所）
+      `src/orchestration/pl_jepx_spot_price.py` の2箇所）
 
 ### 8.3 ドキュメントの追従（優先度: 中、解決済み）
 

@@ -1,6 +1,6 @@
 """Shared result type for orchestrated pipeline steps.
 
-Extracted from jepx_pipeline.py: it has nothing JEPX-specific in it, and
+Extracted from pl_jepx_spot_price.py: it has nothing JEPX-specific in it, and
 pl_occto_unit_generation_actuals.py needs the same shape rather than a copy.
 """
 

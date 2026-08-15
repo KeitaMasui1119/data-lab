@@ -10,9 +10,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-ORCHESTRATOR_PATH = SRC / "pipeline/orchestrator/jepx_pipeline.py"
-if not ORCHESTRATOR_PATH.exists():
-    ORCHESTRATOR_PATH = SRC / "orchestration/jepx_pipeline.py"
+ORCHESTRATOR_PATH = SRC / "orchestration/pl_jepx_spot_price.py"
 SPEC = importlib.util.spec_from_file_location("jepx_pipeline", ORCHESTRATOR_PATH)
 assert SPEC is not None
 assert SPEC.loader is not None
