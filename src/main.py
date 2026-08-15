@@ -25,6 +25,9 @@ from pipeline.bronze.source_to_bronze_occto_unit_generation_actuals import (
 from pipeline.bronze.source_to_bronze_power_usage_hokuriku import (
     ingest_power_usage_hokuriku,
 )
+from pipeline.bronze.source_to_bronze_supply_demand_actuals import (
+    ingest_supply_demand_actuals,
+)
 from pipeline.jepx_common import resolve_target_at
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
@@ -42,6 +45,16 @@ from pipeline.raw.source_to_raw_power_usage_hokuriku import (
 )
 from pipeline.raw.source_to_raw_power_usage_hokuriku import (
     resolve_default_target_date as resolve_default_power_usage_hokuriku_target_date,
+)
+from pipeline.raw.source_to_raw_supply_demand_actuals import (
+    COMPANY_CONFIGS as SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS,
+)
+from pipeline.raw.source_to_raw_supply_demand_actuals import (
+    SupplyDemandActualsScraper,
+    scrape_supply_demand_actuals_raw,
+)
+from pipeline.raw.source_to_raw_supply_demand_actuals import (
+    resolve_default_target_date as resolve_default_supply_demand_actuals_target_date,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     DEFAULT_BRONZE_LOCATION,
@@ -393,6 +406,47 @@ def main():
         help="When using ingestion log, select only unprocessed latest snapshot",
     )
 
+    supply_demand_actuals_bronze_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-raw-to-bronze",
+        help="Ingest one target_date's rows from a supply_demand_actuals raw year CSV",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--company",
+        required=True,
+        choices=sorted(SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS),
+        help="Company code",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Source bucket name (default: jp-power-grid-dev)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--object-key",
+        required=True,
+        help="Source object key in raw layer"
+        " (e.g. raw/supply_demand_actuals/tohoku/year=.../ingested_at=.../<file>.csv)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--source-file-name",
+        help="Source file name stored in source_data (default: object-key in full)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--target-date",
+        required=True,
+        help="Target date in YYYY-MM-DD (the day to extract from the year CSV)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--allow-duplicate-target-date",
+        action="store_true",
+        help="Allow append even if this target_date already has rows in bronze",
+    )
+
     power_usage_hokuriku_silver_parser = subparsers.add_parser(
         "ingest-power-usage-hokuriku-bronze-to-silver",
         help="Transform Hokuriku power_usage bronze tables into silver",
@@ -568,6 +622,27 @@ def main():
             "End of target date range in YYYY-MM-DD for a multi-day fetch "
             "(default: same as --target-date, i.e. a single day)"
         ),
+    )
+
+    supply_demand_actuals_scrape_parser = subparsers.add_parser(
+        "scrape-supply-demand-actuals",
+        help="Download a company's supply_demand_actuals year CSV to raw layer",
+    )
+    supply_demand_actuals_scrape_parser.add_argument(
+        "--company",
+        required=True,
+        choices=sorted(SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS),
+        help="Company code",
+    )
+    supply_demand_actuals_scrape_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Target bucket name (default: jp-power-grid-dev)",
+    )
+    supply_demand_actuals_scrape_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD, used only to resolve the year to fetch"
+        " (default: previous day in Asia/Tokyo)",
     )
 
     silver_parser = subparsers.add_parser(
@@ -990,6 +1065,72 @@ def main():
                 current += timedelta(days=1)
         finally:
             scraper.close()
+
+    if args.command == "scrape-supply-demand-actuals":
+        if args.target_date:
+            try:
+                target_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+        else:
+            target_date = resolve_default_supply_demand_actuals_target_date(
+                datetime.now(UTC)
+            )
+
+        rustfs = RustFSClient()
+        company_config = SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS[args.company]
+        scraper = SupplyDemandActualsScraper(company_config)
+        try:
+            result = scrape_supply_demand_actuals_raw(
+                storage_client=rustfs,
+                scraper=scraper,
+                bucket_name=args.bucket,
+                company=args.company,
+                year=target_date.year,
+            )
+            if result.skipped:
+                logger.info(
+                    "supply_demand_actuals[%s] scrape skipped (no change): "
+                    "year=%s, sha256=%.8s",
+                    args.company,
+                    result.year,
+                    result.sha256,
+                )
+            else:
+                logger.info(
+                    "supply_demand_actuals[%s] snapshot saved: "
+                    "year=%s, sha256=%.8s, prefix=%s",
+                    args.company,
+                    result.year,
+                    result.sha256,
+                    result.snapshot_prefix,
+                )
+        finally:
+            scraper.close()
+
+    if args.command == "ingest-supply-demand-actuals-raw-to-bronze":
+        try:
+            target_date = date.fromisoformat(args.target_date)
+        except ValueError as exc:
+            parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+
+        rustfs = RustFSClient()
+        row_count = ingest_supply_demand_actuals(
+            client=rustfs,
+            bucket_name=args.bucket,
+            company=args.company,
+            object_key=args.object_key,
+            target_date=target_date,
+            source_file_name=args.source_file_name,
+            catalog_name=args.catalog,
+            skip_if_exists=not args.allow_duplicate_target_date,
+        )
+        logger.info(
+            "Ingestion completed: company=%s, target_date=%s, rows=%s",
+            args.company,
+            target_date,
+            row_count,
+        )
 
     if args.command == "provision-silver-tables":
         schema_dir = Path(args.schema_dir)

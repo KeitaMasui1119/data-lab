@@ -1,0 +1,5 @@
+field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
+1,target_date,date,TRUE,TRUE,Target date,year,target_date,
+2,hour_of_day,int,TRUE,TRUE,Hour of day (0-23),,target_time,Derived by parsing the bronze target_time string (e.g. '0:00' -> 0)
+3,delivery_datetime,timestamptz,FALSE,TRUE,Delivery datetime derived from target_date and hour_of_day (JST),,,
+4,actual_demand_10k_kw,long,FALSE,FALSE,"Actual demand (10,000 kW)",,actual_demand_10k_kw,

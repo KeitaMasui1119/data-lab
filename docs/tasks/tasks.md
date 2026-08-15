@@ -36,17 +36,27 @@
       （東京電力・中部電力・中国電力等）の2系統に分かれることが判明したため、他社は個別調査が必要。
       でんき予報データは「電力使用状況（`power_usage`）」「需給実績（`supply_demand_actuals`）」
       「系統の需給（`grid_supply_demand`）」の3分類に整理する（`docs/architecture/data_model.md` 3参照）。
-      需給実績・系統の需給は未調査。
+      → 需給実績も東北・中国・四国電力で完了。`configuration/iceberg/schema/bronze/supply_demand_actuals_{tohoku,chugoku,shikoku}.csv`
+      （`power_usage`と同じくエリアごとに独立テーブル、共有1テーブル案は不採用）。東京電力は
+      今年分の年次アーカイブが未公開で別方式検討中、関西・北海道・沖縄・中部・系統の需給は未調査。
 - [ ] ローカルファイルを Raw（RustFS）にアップロードするスクリプトを実装する
 - [ ] Raw → Bronze Ingestion を実装する（`src/pipeline/bronze/`）
-      → 北陸電力は完了。`build_schema_exprs()`（1 CSVカラム→1ターゲット列の単純リネーム）は
+      → 北陸電力（power_usage）は完了。`build_schema_exprs()`（1 CSVカラム→1ターゲット列の単純リネーム）は
       そのまま使えず（ソースが複数セクションのレポート形式）、
       `src/pipeline/bronze/source_to_bronze_power_usage_hokuriku.py`の`parse_snapshot()`で
       専用パーサを実装（空行区切りのブロック順序に基づき1ファイルを3行に展開、実データ2,083ファイルで
       検証済み）。Rawスクレイパー（`src/pipeline/raw/source_to_raw_power_usage_hokuriku.py`、
       URLは`https://www.rikuden.co.jp/nw/denki-yoho/csv/juyo_05_{YYYYMMDD}.csv`）と、
       `src/main.py`の`scrape-power-usage-hokuriku`/`ingest-power-usage-hokuriku-raw-to-bronze`
-      コマンドも実装済み。他社は未着手。
+      コマンドも実装済み。
+      → 東北・中国・四国電力（supply_demand_actuals）も完了。こちらはソースが`DATE,TIME,実績(万kW)`の
+      フラットなCSVなので`build_schema_exprs()`がそのまま使える。年次CSV全体から`target_date`
+      （デフォルト前日）分だけ抽出してBronzeにappendする方式。3社ともURL・列構成以外はほぼ同一の
+      仕組みのため、`source_to_raw_supply_demand_actuals.py`/`source_to_bronze_supply_demand_actuals.py`
+      という1つのパラメータ化モジュールで共通化（会社ごとにファイルを分けていない）。CLI:
+      `scrape-supply-demand-actuals`/`ingest-supply-demand-actuals-raw-to-bronze`
+      （いずれも`--company`引数）。実データ（2026-08-14分、3社）で動作確認済み。東京電力は未着手
+      （電力使用状況型のリッチなスナップショット`juyo-d1-j.csv`から実績列を抜く方式が必要になりそうで別途検討）。
 - [ ] Bronze → Silver 変換を実装する（JEPX/OCCTOに倣いPython+DuckDB+PyIcebergで実装、dbtは使わない）
       → 北陸電力は完了。`src/pipeline/silver/bronze_to_silver_power_usage_hokuriku.py`。
       Bronzeの3テーブルに1:1対応する3つのSilverテーブル（`silver.power_usage_hokuriku_{daily_summary,hourly,interval5}`）。

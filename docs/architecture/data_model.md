@@ -113,7 +113,8 @@ Bronzeは全列string・横持ち48コマのまま保持し、Silverへの変換
   のみのフラットな時系列。予測・使用率・供給力データはない。
 
 このため「各社共通の2列PK」は成立せず、フォーマットごと（場合によっては会社ごと）に個別のBronzeスキーマが必要。
-「需給実績（`supply_demand_actuals`）」「系統の需給（`grid_supply_demand`）」は未調査・未実装（`docs/tasks/tasks.md`参照）。
+「需給実績（`supply_demand_actuals`）」は東北・中国・四国電力でRaw/Bronze実装済み（3.2参照、東京電力は
+別途検討中）。「系統の需給（`grid_supply_demand`）」は未調査・未実装（`docs/tasks/tasks.md`参照）。
 
 #### 3.1 Hokuriku（北陸電力）— 電力使用状況（`power_usage`）、リッチなスナップショット形式、Raw/Bronze/Silver実装済み
 
@@ -177,6 +178,48 @@ OCCTO/JEPXと同じ設計）。`scrape-power-usage-hokuriku`の`--target-date`�
 **未解決**: 東京電力・関西電力・北海道電力など他社への横展開（フォーマット調査未了）。
 リッチ形式とシンプル形式のどちらを各社で採用するかは会社ごとに個別判断が必要。オーケストレーター
 （Raw→Bronze→Silverを1コマンドで実行）は未実装。
+
+#### 3.2 東北・中国・四国電力 — 需給実績（`supply_demand_actuals`）、単純な実績時系列、Raw/Bronze実装済み
+
+**Source URL**（年単位でまとめて公開、北陸のような日別URLではない。実データで確認済み）:
+
+| 会社 | URL | ヘッダー構成 |
+|------|-----|-------------|
+| 東北電力 | `https://setsuden.nw.tohoku-epco.co.jp/common/demand/juyo_{year}_tohoku.csv` | UPDATE行→ヘッダー行（空行なし） |
+| 中国電力 | `https://www.energia.co.jp/nw/jukyuu/sys/juyo-{year}.csv` | UPDATE行→空行→ヘッダー行 |
+| 四国電力 | `https://www.yonden.co.jp/nw/denkiyoho/csv/juyo_shikoku_{year}.csv` | UPDATE行→空行→ヘッダー行（4列目`供給力想定値(万kW)`あり） |
+
+いずれもcp932、`DATE,TIME,実績(万kW)`のみのフラットな時系列（四国のみ+`供給力想定値(万kW)`）。
+北陸と違い「その年のCSVをまるごと公開・日次で1日分の行が追記されていく」形式（JEPXのfiscal-year
+CSVと同じ考え方）で、日別に取得できるURLは存在しない。3社とも最新行は常に前日分（当日分はまだ
+未確定・未公開）であることをライブで確認済み。
+
+**設計**: 電力会社ごとに独立したBronze/Silverテーブル（`power_usage`と同じ「会社ごと独立」方針。
+`supply_demand_actuals`という1つの共有テーブルにまとめる案も検討したが、`power_usage`の方針との
+一貫性を優先しエリアごとに分割）。
+
+| Layer  | Table Name（会社ごと） | PK |
+|--------|------------------------|-----|
+| Bronze | bronze.supply_demand_actuals_{tohoku,chugoku,shikoku} | target_date, target_time |
+| Silver | silver.supply_demand_actuals_{tohoku,chugoku,shikoku} | target_date, hour_of_day |
+
+Bronzeは年間CSV全体ではなく、`target_date`（デフォルト: JSTで前日、`power_usage_hokuriku`と同じ方針）
+1日分のみを抽出してappendする。ソースは`DATE,TIME,実績(万kW)`の1行1コマ形式で、Hokurikuと違い
+`build_schema_exprs()`（source_name一致による単純キャスト）がそのまま使える。DATE表記が会社により
+`2026/1/1`（非ゼロ埋め）と`2026/01/01`（ゼロ埋め）で揺れるため、Bronze取り込み時にISO形式へ正規化する。
+重複排除は`source_data`ではなく`(company, target_date)`の存在チェック（年次スナップショットは実行の
+たびに異なるオブジェクトキーになるため）。
+
+実装: `src/pipeline/raw/source_to_raw_supply_demand_actuals.py`・
+`src/pipeline/bronze/source_to_bronze_supply_demand_actuals.py`（3社共通のパラメータ化モジュール、
+URLと列構成以外はほぼ同一の仕組みのため会社ごとにファイルを分けていない）。CLI:
+`scrape-supply-demand-actuals --company {tohoku,chugoku,shikoku}`・
+`ingest-supply-demand-actuals-raw-to-bronze --company ... --target-date ...`。
+実データ（2026-08-14分、3社）でRaw保存・Bronze取り込みまで動作確認済み。Silver変換は未実装。
+
+**未解決**: 東京電力は需給実績用の「育っていく年次CSV」が今年分まだ存在せず（過去完了年分のみ）、
+代わりに電力使用状況型のリッチなスナップショット（`juyo-d1-j.csv`）しか見つかっていないため、
+別方式での実装を検討中。関西・北海道・沖縄・中部電力は需給実績側も未調査。
 
 ---
 
