@@ -210,10 +210,12 @@ Bronzeは年間CSV全体ではなく、`target_date`（デフォルト: JSTで�
 重複排除は`source_data`ではなく`(company, target_date)`の存在チェック（年次スナップショットは実行の
 たびに異なるオブジェクトキーになるため）。
 
-実装: `src/pipeline/raw/source_to_raw_supply_demand_actuals.py`・
+実装: Rawは会社ごとに独立したモジュール
+（`src/pipeline/raw/source_to_raw_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`、
+`power_usage_hokuriku`と同じ「1社1ファイル」方針）。Bronzeは
 `src/pipeline/bronze/source_to_bronze_supply_demand_actuals.py`（3社共通のパラメータ化モジュール、
-URLと列構成以外はほぼ同一の仕組みのため会社ごとにファイルを分けていない）。CLI:
-`scrape-supply-demand-actuals --company {tohoku,chugoku,shikoku}`・
+URLと列構成以外はほぼ同一の仕組みのためBronze/Silverは会社ごとにファイルを分けていない）。CLI:
+`scrape-supply-demand-actuals-{tohoku,chugoku,shikoku}`・
 `ingest-supply-demand-actuals-raw-to-bronze --company ... --target-date ...`。
 実データ（2026-08-14分、3社）でRaw保存・Bronze取り込みまで動作確認済み。
 

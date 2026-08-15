@@ -51,11 +51,13 @@
       コマンドも実装済み。
       → 東北・中国・四国電力（supply_demand_actuals）も完了。こちらはソースが`DATE,TIME,実績(万kW)`の
       フラットなCSVなので`build_schema_exprs()`がそのまま使える。年次CSV全体から`target_date`
-      （デフォルト前日）分だけ抽出してBronzeにappendする方式。3社ともURL・列構成以外はほぼ同一の
-      仕組みのため、`source_to_raw_supply_demand_actuals.py`/`source_to_bronze_supply_demand_actuals.py`
-      という1つのパラメータ化モジュールで共通化（会社ごとにファイルを分けていない）。CLI:
-      `scrape-supply-demand-actuals`/`ingest-supply-demand-actuals-raw-to-bronze`
-      （いずれも`--company`引数）。実データ（2026-08-14分、3社）で動作確認済み。東京電力は未着手
+      （デフォルト前日）分だけ抽出してBronzeにappendする方式。Rawは`power_usage_hokuriku`と同じ
+      「1社1ファイル」方針で`source_to_raw_supply_demand_actuals_{tohoku,chugoku,shikoku}.py`の
+      3本に分割。Bronzeは3社ともURL・列構成以外はほぼ同一の仕組みのため
+      `source_to_bronze_supply_demand_actuals.py`という1つのパラメータ化モジュールのまま共通化。CLI:
+      `scrape-supply-demand-actuals-{tohoku,chugoku,shikoku}`（会社ごと独立コマンド）／
+      `ingest-supply-demand-actuals-raw-to-bronze --company ...`。
+      実データ（2026-08-14分、3社）で動作確認済み。東京電力は未着手
       （電力使用状況型のリッチなスナップショット`juyo-d1-j.csv`から実績列を抜く方式が必要になりそうで別途検討）。
 - [ ] Bronze → Silver 変換を実装する（JEPX/OCCTOに倣いPython+DuckDB+PyIcebergで実装、dbtは使わない）
       → 北陸電力は完了。`src/pipeline/silver/bronze_to_silver_power_usage_hokuriku.py`。
