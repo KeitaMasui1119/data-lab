@@ -27,18 +27,50 @@
 ### タスク
 
 - [ ] 各社のファイル形式・カラム構成を調査し、スキーマCSV（`configuration/iceberg/schema/bronze/`）を定義する
-      → 北陸電力（パイロット）は完了。`configuration/iceberg/schema/bronze/hokuriku_denki_yohou.csv`
-      （716列＋監査列5、`build_table_schema()`/`build_partition_spec()`で検証済み）。詳細は
+      → 北陸電力（パイロット、電力使用状況＝`power_usage`カテゴリ）は完了。当初は716列＋監査列5の
+      単一Bronzeテーブル案だったが、扱いにくさと性質の異なるブロックの混在を理由に3テーブルへ分割：
+      `configuration/iceberg/schema/bronze/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`
+      （44/98/578列、`build_table_schema()`/`build_partition_spec()`で検証済み）。詳細は
       `docs/architecture/data_model.md` 3.1 を参照。フォーマットは会社ごとに
       「リッチなスナップショット形式」（北陸・沖縄・関西）と「単純な実績のみの時系列」
       （東京電力・中部電力・中国電力等）の2系統に分かれることが判明したため、他社は個別調査が必要。
+      でんき予報データは「電力使用状況（`power_usage`）」「需給実績（`supply_demand_actuals`）」
+      「系統の需給（`grid_supply_demand`）」の3分類に整理する（`docs/architecture/data_model.md` 3参照）。
+      → 需給実績も東北・中国・四国電力で完了。`configuration/iceberg/schema/bronze/supply_demand_actuals_{tohoku,chugoku,shikoku}.csv`
+      （`power_usage`と同じくエリアごとに独立テーブル、共有1テーブル案は不採用）。東京電力は
+      今年分の年次アーカイブが未公開で別方式検討中、関西・北海道・沖縄・中部・系統の需給は未調査。
 - [ ] ローカルファイルを Raw（RustFS）にアップロードするスクリプトを実装する
 - [ ] Raw → Bronze Ingestion を実装する（`src/pipeline/bronze/`）
-      → 北陸電力は`build_schema_exprs()`（1 CSVカラム→1ターゲット列の単純リネーム）がそのまま使えない
-      （ソースが複数セクションのレポート形式で、716列は日次1行に展開する専用パーサが必要）。
-      実装時は専用パーサを書く前提で見積もる。
-- [ ] Bronze → Silver dbt モデルを実装する（`src/dbt/jepx_power/models/silver/`）
+      → 北陸電力（power_usage）は完了。`build_schema_exprs()`（1 CSVカラム→1ターゲット列の単純リネーム）は
+      そのまま使えず（ソースが複数セクションのレポート形式）、
+      `src/pipeline/bronze/source_to_bronze_power_usage_hokuriku.py`の`parse_snapshot()`で
+      専用パーサを実装（空行区切りのブロック順序に基づき1ファイルを3行に展開、実データ2,083ファイルで
+      検証済み）。Rawスクレイパー（`src/pipeline/raw/source_to_raw_power_usage_hokuriku.py`、
+      URLは`https://www.rikuden.co.jp/nw/denki-yoho/csv/juyo_05_{YYYYMMDD}.csv`）と、
+      `src/main.py`の`scrape-power-usage-hokuriku`/`ingest-power-usage-hokuriku-raw-to-bronze`
+      コマンドも実装済み。
+      → 東北・中国・四国電力（supply_demand_actuals）も完了。こちらはソースが`DATE,TIME,実績(万kW)`の
+      フラットなCSVなので`build_schema_exprs()`がそのまま使える。年次CSV全体から`target_date`
+      （デフォルト前日）分だけ抽出してBronzeにappendする方式。3社ともURL・列構成以外はほぼ同一の
+      仕組みのため、`source_to_raw_supply_demand_actuals.py`/`source_to_bronze_supply_demand_actuals.py`
+      という1つのパラメータ化モジュールで共通化（会社ごとにファイルを分けていない）。CLI:
+      `scrape-supply-demand-actuals`/`ingest-supply-demand-actuals-raw-to-bronze`
+      （いずれも`--company`引数）。実データ（2026-08-14分、3社）で動作確認済み。東京電力は未着手
+      （電力使用状況型のリッチなスナップショット`juyo-d1-j.csv`から実績列を抜く方式が必要になりそうで別途検討）。
+- [ ] Bronze → Silver 変換を実装する（JEPX/OCCTOに倣いPython+DuckDB+PyIcebergで実装、dbtは使わない）
+      → 北陸電力は完了。`src/pipeline/silver/bronze_to_silver_power_usage_hokuriku.py`。
+      Bronzeの3テーブルに1:1対応する3つのSilverテーブル（`silver.power_usage_hokuriku_{daily_summary,hourly,interval5}`）。
+      `hourly`/`interval5`はOCCTOの48コマUNPIVOTパターンを指標ごとに個別UNPIVOT→再JOINする形に拡張。
+      `src/main.py`の`ingest-power-usage-hokuriku-bronze-to-silver`コマンドも実装済み。
+      実データ全件（2,082日分）で変換・値検証済み。
+      → 東北・中国・四国電力（supply_demand_actuals）も完了。`bronze_to_silver_supply_demand_actuals.py`
+      （こちらも3社共通のパラメータ化モジュール）。BronzeがすでにDATE,TIME1行=1レコードのため
+      UNPIVOT不要、型付けと`hour_of_day`/`delivery_datetime`導出のみ。CLI:
+      `ingest-supply-demand-actuals-bronze-to-silver --company ...`。実データ（2026-08-14分）で
+      検証済み。他社は未着手。
 - [ ] 各社オーケストレーターを実装する（`src/orchestration/`）
+      → 北陸電力power_usage・東北/中国/四国電力supply_demand_actualsともRaw→Bronze→Silverが
+      個別コマンドとして実装済みだが、1コマンドで通しで実行するオーケストレーターは未実装。
 - [ ] `src/main.py` にコマンドを追加する
 
 ---

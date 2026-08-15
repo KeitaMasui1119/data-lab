@@ -22,6 +22,12 @@ from pipeline.bronze.source_to_bronze_jepx_spot_price import (
 from pipeline.bronze.source_to_bronze_occto_unit_generation_actuals import (
     ingest_occto_unit_generation,
 )
+from pipeline.bronze.source_to_bronze_power_usage_hokuriku import (
+    ingest_power_usage_hokuriku,
+)
+from pipeline.bronze.source_to_bronze_supply_demand_actuals import (
+    ingest_supply_demand_actuals,
+)
 from pipeline.jepx_common import resolve_target_at
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
@@ -32,6 +38,23 @@ from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     OCCTOUnitGenerationScraper,
     resolve_default_target_date,
     scrape_occto_unit_generation_raw,
+)
+from pipeline.raw.source_to_raw_power_usage_hokuriku import (
+    HokurikuPowerUsageScraper,
+    scrape_power_usage_hokuriku_raw,
+)
+from pipeline.raw.source_to_raw_power_usage_hokuriku import (
+    resolve_default_target_date as resolve_default_power_usage_hokuriku_target_date,
+)
+from pipeline.raw.source_to_raw_supply_demand_actuals import (
+    COMPANY_CONFIGS as SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS,
+)
+from pipeline.raw.source_to_raw_supply_demand_actuals import (
+    SupplyDemandActualsScraper,
+    scrape_supply_demand_actuals_raw,
+)
+from pipeline.raw.source_to_raw_supply_demand_actuals import (
+    resolve_default_target_date as resolve_default_supply_demand_actuals_target_date,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     DEFAULT_BRONZE_LOCATION,
@@ -46,6 +69,12 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
 )
 from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
     run_bronze_to_silver_occto_unit_generation,
+)
+from pipeline.silver.bronze_to_silver_power_usage_hokuriku import (
+    run_bronze_to_silver_power_usage_hokuriku,
+)
+from pipeline.silver.bronze_to_silver_supply_demand_actuals import (
+    run_bronze_to_silver_supply_demand_actuals,
 )
 from setup.rustfs_bucket_setup import BucketPlan, apply_bucket_plans
 
@@ -332,6 +361,154 @@ def main():
         help="When using ingestion log, select only unprocessed latest snapshot",
     )
 
+    power_usage_hokuriku_bronze_parser = subparsers.add_parser(
+        "ingest-power-usage-hokuriku-raw-to-bronze",
+        help=(
+            "Ingest Hokuriku power_usage raw snapshot CSV into its 3 bronze"
+            " Iceberg tables (daily_summary, hourly, interval5)"
+        ),
+    )
+    power_usage_hokuriku_bronze_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Source bucket name (default: jp-power-grid-dev)",
+    )
+    power_usage_hokuriku_bronze_parser.add_argument(
+        "--object-key",
+        help="Source object key in raw layer"
+        " (e.g. raw/power_usage/hokuriku/target_date=.../ingested_at=.../<file>.csv)."
+        " Required unless --use-ingestion-log is set",
+    )
+    power_usage_hokuriku_bronze_parser.add_argument(
+        "--source-file-name",
+        help="Source file name stored in source_data (default: object-key in full)",
+    )
+    power_usage_hokuriku_bronze_parser.add_argument(
+        "--target-date",
+        required=True,
+        help="Target date in YYYY-MM-DD (the day this snapshot's data covers)",
+    )
+    power_usage_hokuriku_bronze_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    power_usage_hokuriku_bronze_parser.add_argument(
+        "--allow-duplicate-source",
+        action="store_true",
+        help="Allow append even if source_data already exists",
+    )
+    power_usage_hokuriku_bronze_parser.add_argument(
+        "--use-ingestion-log",
+        action="store_true",
+        help="Resolve latest raw snapshot from metadata ingestion log",
+    )
+    power_usage_hokuriku_bronze_parser.add_argument(
+        "--require-unprocessed",
+        action="store_true",
+        help="When using ingestion log, select only unprocessed latest snapshot",
+    )
+
+    supply_demand_actuals_bronze_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-raw-to-bronze",
+        help="Ingest one target_date's rows from a supply_demand_actuals raw year CSV",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--company",
+        required=True,
+        choices=sorted(SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS),
+        help="Company code",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Source bucket name (default: jp-power-grid-dev)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--object-key",
+        required=True,
+        help="Source object key in raw layer"
+        " (e.g. raw/supply_demand_actuals/tohoku/year=.../ingested_at=.../<file>.csv)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--source-file-name",
+        help="Source file name stored in source_data (default: object-key in full)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--target-date",
+        required=True,
+        help="Target date in YYYY-MM-DD (the day to extract from the year CSV)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    supply_demand_actuals_bronze_parser.add_argument(
+        "--allow-duplicate-target-date",
+        action="store_true",
+        help="Allow append even if this target_date already has rows in bronze",
+    )
+
+    supply_demand_actuals_silver_parser = subparsers.add_parser(
+        "ingest-supply-demand-actuals-bronze-to-silver",
+        help="Transform one company's supply_demand_actuals bronze table into silver",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--company",
+        required=True,
+        choices=sorted(SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS),
+        help="Company code",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--target-date",
+        help="Limit the run to one target_date in YYYY-MM-DD"
+        " (default: rebuild the full range staged from bronze)",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--from-date",
+        help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
+    )
+    supply_demand_actuals_silver_parser.add_argument(
+        "--to-date",
+        help="End of a target_date range in YYYY-MM-DD"
+        " (default: same as --from-date/--target-date)",
+    )
+
+    power_usage_hokuriku_silver_parser = subparsers.add_parser(
+        "ingest-power-usage-hokuriku-bronze-to-silver",
+        help="Transform Hokuriku power_usage bronze tables into silver",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--catalog",
+        default="dlh_dev",
+        help="Iceberg catalog name (default: dlh_dev)",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--schema-dir",
+        default="/workspace/configuration/iceberg/schema/silver",
+        help="Directory containing the silver schema CSV files",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--target-date",
+        help="Limit the run to one target_date in YYYY-MM-DD"
+        " (default: rebuild the full range staged from bronze)",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--from-date",
+        help="Start of a target_date range in YYYY-MM-DD (overrides --target-date)",
+    )
+    power_usage_hokuriku_silver_parser.add_argument(
+        "--to-date",
+        help="End of a target_date range in YYYY-MM-DD"
+        " (default: same as --from-date/--target-date)",
+    )
+
     occto_silver_parser = subparsers.add_parser(
         "ingest-occto-bronze-to-silver",
         help="Transform OCCTO bronze unit generation actuals into silver",
@@ -457,6 +634,48 @@ def main():
             "End of target date range in YYYY-MM-DD for a multi-day fetch "
             "(default: same as --target-date, i.e. a single day)"
         ),
+    )
+
+    power_usage_hokuriku_scrape_parser = subparsers.add_parser(
+        "scrape-power-usage-hokuriku",
+        help="Scrape Hokuriku power_usage snapshot CSV and upload to RustFS raw layer",
+    )
+    power_usage_hokuriku_scrape_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Target bucket name (default: jp-power-grid-dev)",
+    )
+    power_usage_hokuriku_scrape_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD (default: previous day in Asia/Tokyo)",
+    )
+    power_usage_hokuriku_scrape_parser.add_argument(
+        "--to-date",
+        help=(
+            "End of target date range in YYYY-MM-DD for a multi-day fetch "
+            "(default: same as --target-date, i.e. a single day)"
+        ),
+    )
+
+    supply_demand_actuals_scrape_parser = subparsers.add_parser(
+        "scrape-supply-demand-actuals",
+        help="Download a company's supply_demand_actuals year CSV to raw layer",
+    )
+    supply_demand_actuals_scrape_parser.add_argument(
+        "--company",
+        required=True,
+        choices=sorted(SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS),
+        help="Company code",
+    )
+    supply_demand_actuals_scrape_parser.add_argument(
+        "--bucket",
+        default="jp-power-grid-dev",
+        help="Target bucket name (default: jp-power-grid-dev)",
+    )
+    supply_demand_actuals_scrape_parser.add_argument(
+        "--target-date",
+        help="Target date in YYYY-MM-DD, used only to resolve the year to fetch"
+        " (default: previous day in Asia/Tokyo)",
     )
 
     silver_parser = subparsers.add_parser(
@@ -764,6 +983,27 @@ def main():
             row_count,
         )
 
+    if args.command == "ingest-power-usage-hokuriku-raw-to-bronze":
+        try:
+            target_date = date.fromisoformat(args.target_date)
+        except ValueError as exc:
+            parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+
+        rustfs = RustFSClient()
+        row_counts = ingest_power_usage_hokuriku(
+            client=rustfs,
+            bucket_name=args.bucket,
+            object_key=args.object_key,
+            source_file_name=args.source_file_name,
+            catalog_name=args.catalog,
+            skip_if_exists=not args.allow_duplicate_source,
+            target_date=target_date,
+            use_ingestion_log=args.use_ingestion_log,
+            require_unprocessed=args.require_unprocessed,
+            update_ingestion_log_status=args.use_ingestion_log,
+        )
+        logger.info("Ingestion completed: rows=%s", row_counts)
+
     if args.command == "scrape-occto":
         if args.target_date:
             try:
@@ -809,6 +1049,121 @@ def main():
                 current += timedelta(days=1)
         finally:
             scraper.close()
+
+    if args.command == "scrape-power-usage-hokuriku":
+        if args.target_date:
+            try:
+                from_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+        else:
+            from_date = resolve_default_power_usage_hokuriku_target_date(
+                datetime.now(UTC)
+            )
+
+        to_date = None
+        if args.to_date:
+            try:
+                to_date = date.fromisoformat(args.to_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
+
+        effective_to = to_date or from_date
+        rustfs = RustFSClient()
+        scraper = HokurikuPowerUsageScraper()
+        try:
+            current = from_date
+            while current <= effective_to:
+                result = scrape_power_usage_hokuriku_raw(
+                    storage_client=rustfs,
+                    scraper=scraper,
+                    bucket_name=args.bucket,
+                    target_date=current,
+                )
+                if result.skipped:
+                    logger.info(
+                        "Hokuriku power_usage scrape skipped (no change): "
+                        "target_date=%s, sha256=%.8s",
+                        result.target_date,
+                        result.sha256,
+                    )
+                else:
+                    logger.info(
+                        "Hokuriku power_usage snapshot saved: "
+                        "target_date=%s, sha256=%.8s, prefix=%s",
+                        result.target_date,
+                        result.sha256,
+                        result.snapshot_prefix,
+                    )
+                current += timedelta(days=1)
+        finally:
+            scraper.close()
+
+    if args.command == "scrape-supply-demand-actuals":
+        if args.target_date:
+            try:
+                target_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+        else:
+            target_date = resolve_default_supply_demand_actuals_target_date(
+                datetime.now(UTC)
+            )
+
+        rustfs = RustFSClient()
+        company_config = SUPPLY_DEMAND_ACTUALS_COMPANY_CONFIGS[args.company]
+        scraper = SupplyDemandActualsScraper(company_config)
+        try:
+            result = scrape_supply_demand_actuals_raw(
+                storage_client=rustfs,
+                scraper=scraper,
+                bucket_name=args.bucket,
+                company=args.company,
+                year=target_date.year,
+            )
+            if result.skipped:
+                logger.info(
+                    "supply_demand_actuals[%s] scrape skipped (no change): "
+                    "year=%s, sha256=%.8s",
+                    args.company,
+                    result.year,
+                    result.sha256,
+                )
+            else:
+                logger.info(
+                    "supply_demand_actuals[%s] snapshot saved: "
+                    "year=%s, sha256=%.8s, prefix=%s",
+                    args.company,
+                    result.year,
+                    result.sha256,
+                    result.snapshot_prefix,
+                )
+        finally:
+            scraper.close()
+
+    if args.command == "ingest-supply-demand-actuals-raw-to-bronze":
+        try:
+            target_date = date.fromisoformat(args.target_date)
+        except ValueError as exc:
+            parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+
+        rustfs = RustFSClient()
+        row_count = ingest_supply_demand_actuals(
+            client=rustfs,
+            bucket_name=args.bucket,
+            company=args.company,
+            object_key=args.object_key,
+            target_date=target_date,
+            source_file_name=args.source_file_name,
+            catalog_name=args.catalog,
+            skip_if_exists=not args.allow_duplicate_target_date,
+        )
+        logger.info(
+            "Ingestion completed: company=%s, target_date=%s, rows=%s",
+            args.company,
+            target_date,
+            row_count,
+        )
 
     if args.command == "provision-silver-tables":
         schema_dir = Path(args.schema_dir)
@@ -952,6 +1307,84 @@ def main():
             " - table=%s, written=%s",
             result.write.table_identifier,
             result.write.rows_written,
+        )
+
+    if args.command == "ingest-power-usage-hokuriku-bronze-to-silver":
+        from_date = None
+        to_date = None
+        if args.from_date:
+            try:
+                from_date = date.fromisoformat(args.from_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --from-date value: {args.from_date} ({exc})")
+            if args.to_date:
+                try:
+                    to_date = date.fromisoformat(args.to_date)
+                except ValueError as exc:
+                    parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
+            else:
+                to_date = from_date
+        elif args.target_date:
+            try:
+                from_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+            to_date = from_date
+
+        power_usage_hokuriku_silver_result = run_bronze_to_silver_power_usage_hokuriku(
+            catalog_name=args.catalog,
+            schema_dir=args.schema_dir,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        logger.info(
+            "Hokuriku power_usage bronze-to-silver completed: execution_id=%s",
+            power_usage_hokuriku_silver_result.execution_id,
+        )
+        for silver_write in power_usage_hokuriku_silver_result.writes.values():
+            logger.info(
+                " - table=%s, written=%s",
+                silver_write.table_identifier,
+                silver_write.rows_written,
+            )
+
+    if args.command == "ingest-supply-demand-actuals-bronze-to-silver":
+        from_date = None
+        to_date = None
+        if args.from_date:
+            try:
+                from_date = date.fromisoformat(args.from_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --from-date value: {args.from_date} ({exc})")
+            if args.to_date:
+                try:
+                    to_date = date.fromisoformat(args.to_date)
+                except ValueError as exc:
+                    parser.error(f"Invalid --to-date value: {args.to_date} ({exc})")
+            else:
+                to_date = from_date
+        elif args.target_date:
+            try:
+                from_date = date.fromisoformat(args.target_date)
+            except ValueError as exc:
+                parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
+            to_date = from_date
+
+        supply_demand_actuals_silver_result = (
+            run_bronze_to_silver_supply_demand_actuals(
+                company=args.company,
+                catalog_name=args.catalog,
+                from_date=from_date,
+                to_date=to_date,
+            )
+        )
+        logger.info(
+            "supply_demand_actuals[%s] bronze-to-silver completed: "
+            "execution_id=%s, table=%s, written=%s",
+            args.company,
+            supply_demand_actuals_silver_result.execution_id,
+            supply_demand_actuals_silver_result.write.table_identifier,
+            supply_demand_actuals_silver_result.write.rows_written,
         )
 
     if args.command == "run-occto-orchestrator":

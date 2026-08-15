@@ -1,0 +1,5 @@
+field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
+1,target_date,string,TRUE,TRUE,Target date of the demand actual,,DATE,
+2,target_time,string,TRUE,TRUE,"Time of day for this reading (e.g. '0:00', '1:00', hourly slots)",,TIME,
+3,actual_demand_10k_kw,string,FALSE,FALSE,"Actual demand (10,000 kW) for this date/time",,実績(万kW),
+4,supply_capacity_forecast_10k_kw,string,FALSE,FALSE,"Forecasted/assumed supply capacity (10,000 kW) for this date/time",,供給力想定値(万kW),

@@ -1,0 +1,8 @@
+field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
+1,target_date,date,TRUE,TRUE,Target date,year,target_date,
+2,hour_of_day,int,TRUE,TRUE,Hour of day (0-23),,,Derived from the bronze hourly_HH_00_* column's position
+3,delivery_datetime,timestamptz,FALSE,TRUE,Delivery datetime derived from target_date and hour_of_day (JST),,,
+4,actual_demand,long,FALSE,FALSE,"Hourly actual demand (10,000 kW)",,hourly_HH_00_actual_demand,
+5,forecasted_demand,long,FALSE,FALSE,"Hourly forecasted demand (10,000 kW)",,hourly_HH_00_forecasted_demand,
+6,usage_rate_pct,double,FALSE,FALSE,Hourly usage rate (%),,hourly_HH_00_usage_rate_pct,
+7,supply_capacity,long,FALSE,FALSE,"Hourly supply capacity (10,000 kW)",,hourly_HH_00_supply_capacity,"Header label for the source column varies by file vintage; see bronze schema comment."

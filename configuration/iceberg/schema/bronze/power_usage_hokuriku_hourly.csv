@@ -1,0 +1,99 @@
+field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
+1,target_date,string,TRUE,TRUE,Target date (the day this snapshot's data covers),,ファイル名の日付(juyo_05_YYYYMMDD.csv),"Derived from the source file name, not a CSV column. One file = one row."
+2,file_updated_at,string,FALSE,TRUE,"Raw file update timestamp line, e.g. '2025/06/09 00:13 UPDATE'",,1行目(UPDATE時刻),Kept as raw string; Silver parses it. Used to pick the latest of same-day revisions alongside source_data.
+3,hourly_00_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 00:00",,当日実績(万kW),
+4,hourly_00_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 00:00",,予測値(万kW),
+5,hourly_00_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 00:00,,使用率(%),
+6,hourly_00_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 00:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+7,hourly_01_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 01:00",,当日実績(万kW),
+8,hourly_01_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 01:00",,予測値(万kW),
+9,hourly_01_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 01:00,,使用率(%),
+10,hourly_01_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 01:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+11,hourly_02_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 02:00",,当日実績(万kW),
+12,hourly_02_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 02:00",,予測値(万kW),
+13,hourly_02_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 02:00,,使用率(%),
+14,hourly_02_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 02:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+15,hourly_03_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 03:00",,当日実績(万kW),
+16,hourly_03_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 03:00",,予測値(万kW),
+17,hourly_03_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 03:00,,使用率(%),
+18,hourly_03_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 03:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+19,hourly_04_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 04:00",,当日実績(万kW),
+20,hourly_04_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 04:00",,予測値(万kW),
+21,hourly_04_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 04:00,,使用率(%),
+22,hourly_04_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 04:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+23,hourly_05_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 05:00",,当日実績(万kW),
+24,hourly_05_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 05:00",,予測値(万kW),
+25,hourly_05_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 05:00,,使用率(%),
+26,hourly_05_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 05:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+27,hourly_06_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 06:00",,当日実績(万kW),
+28,hourly_06_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 06:00",,予測値(万kW),
+29,hourly_06_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 06:00,,使用率(%),
+30,hourly_06_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 06:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+31,hourly_07_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 07:00",,当日実績(万kW),
+32,hourly_07_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 07:00",,予測値(万kW),
+33,hourly_07_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 07:00,,使用率(%),
+34,hourly_07_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 07:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+35,hourly_08_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 08:00",,当日実績(万kW),
+36,hourly_08_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 08:00",,予測値(万kW),
+37,hourly_08_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 08:00,,使用率(%),
+38,hourly_08_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 08:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+39,hourly_09_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 09:00",,当日実績(万kW),
+40,hourly_09_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 09:00",,予測値(万kW),
+41,hourly_09_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 09:00,,使用率(%),
+42,hourly_09_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 09:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+43,hourly_10_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 10:00",,当日実績(万kW),
+44,hourly_10_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 10:00",,予測値(万kW),
+45,hourly_10_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 10:00,,使用率(%),
+46,hourly_10_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 10:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+47,hourly_11_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 11:00",,当日実績(万kW),
+48,hourly_11_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 11:00",,予測値(万kW),
+49,hourly_11_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 11:00,,使用率(%),
+50,hourly_11_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 11:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+51,hourly_12_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 12:00",,当日実績(万kW),
+52,hourly_12_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 12:00",,予測値(万kW),
+53,hourly_12_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 12:00,,使用率(%),
+54,hourly_12_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 12:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+55,hourly_13_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 13:00",,当日実績(万kW),
+56,hourly_13_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 13:00",,予測値(万kW),
+57,hourly_13_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 13:00,,使用率(%),
+58,hourly_13_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 13:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+59,hourly_14_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 14:00",,当日実績(万kW),
+60,hourly_14_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 14:00",,予測値(万kW),
+61,hourly_14_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 14:00,,使用率(%),
+62,hourly_14_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 14:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+63,hourly_15_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 15:00",,当日実績(万kW),
+64,hourly_15_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 15:00",,予測値(万kW),
+65,hourly_15_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 15:00,,使用率(%),
+66,hourly_15_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 15:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+67,hourly_16_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 16:00",,当日実績(万kW),
+68,hourly_16_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 16:00",,予測値(万kW),
+69,hourly_16_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 16:00,,使用率(%),
+70,hourly_16_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 16:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+71,hourly_17_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 17:00",,当日実績(万kW),
+72,hourly_17_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 17:00",,予測値(万kW),
+73,hourly_17_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 17:00,,使用率(%),
+74,hourly_17_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 17:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+75,hourly_18_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 18:00",,当日実績(万kW),
+76,hourly_18_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 18:00",,予測値(万kW),
+77,hourly_18_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 18:00,,使用率(%),
+78,hourly_18_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 18:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+79,hourly_19_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 19:00",,当日実績(万kW),
+80,hourly_19_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 19:00",,予測値(万kW),
+81,hourly_19_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 19:00,,使用率(%),
+82,hourly_19_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 19:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+83,hourly_20_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 20:00",,当日実績(万kW),
+84,hourly_20_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 20:00",,予測値(万kW),
+85,hourly_20_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 20:00,,使用率(%),
+86,hourly_20_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 20:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+87,hourly_21_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 21:00",,当日実績(万kW),
+88,hourly_21_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 21:00",,予測値(万kW),
+89,hourly_21_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 21:00,,使用率(%),
+90,hourly_21_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 21:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+91,hourly_22_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 22:00",,当日実績(万kW),
+92,hourly_22_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 22:00",,予測値(万kW),
+93,hourly_22_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 22:00,,使用率(%),
+94,hourly_22_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 22:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
+95,hourly_23_00_actual_demand,string,FALSE,FALSE,"Hourly actual demand (10,000 kW) at 23:00",,当日実績(万kW),
+96,hourly_23_00_forecasted_demand,string,FALSE,FALSE,"Hourly forecasted demand (10,000 kW) at 23:00",,予測値(万kW),
+97,hourly_23_00_usage_rate_pct,string,FALSE,FALSE,Hourly usage rate (%) at 23:00,,使用率(%),
+98,hourly_23_00_supply_capacity,string,FALSE,FALSE,"Hourly supply capacity (10,000 kW) at 23:00",,供給力(万kW) or 供給力想定値(万kW) depending on file vintage,"Header label for this column varies by file vintage (供給力(万kW) in recent files, 供給力想定値(万kW) in older ones); parse the hourly table by column position, not header text."
