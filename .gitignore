@@ -4,6 +4,17 @@ src/prd/data_lake/*
 data/*
 .env
 
+# Real sample files used as regression-test fixtures by
+# tests/pipeline/bronze/test_source_to_bronze_power_usage_hokuriku.py --
+# kept tracked even though the rest of data/ is not.
+!data/electric_forecast/
+data/electric_forecast/*
+!data/electric_forecast/hokuriku/
+data/electric_forecast/hokuriku/*
+!data/electric_forecast/hokuriku/juyo_05_20200401.csv
+!data/electric_forecast/hokuriku/juyo_05_20230101.csv
+!data/electric_forecast/hokuriku/juyo_05_20251212.csv
+
 # Log files. `./pipeline.log` used to sit here but git never matches a
 # `./`-prefixed pattern, so pipeline.log ended up tracked; src/setup/provision.py
 # writes it into whatever directory it is run from.
