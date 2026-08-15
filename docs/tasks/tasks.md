@@ -29,14 +29,14 @@
 - [ ] 各社のファイル形式・カラム構成を調査し、スキーマCSV（`configuration/iceberg/schema/bronze/`）を定義する
       → 北陸電力（パイロット、電力使用状況＝`power_usage`カテゴリ）は完了。当初は716列＋監査列5の
       単一Bronzeテーブル案だったが、扱いにくさと性質の異なるブロックの混在を理由に3テーブルへ分割：
-      `configuration/iceberg/schema/bronze/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`
+      `configuration/iceberg/schema/bronze/power_usage_hokuriku/power_usage_hokuriku_{daily_summary,hourly,interval5}.csv`
       （44/98/578列、`build_table_schema()`/`build_partition_spec()`で検証済み）。詳細は
       `docs/architecture/data_model.md` 3.1 を参照。フォーマットは会社ごとに
       「リッチなスナップショット形式」（北陸・沖縄・関西）と「単純な実績のみの時系列」
       （東京電力・中部電力・中国電力等）の2系統に分かれることが判明したため、他社は個別調査が必要。
       でんき予報データは「電力使用状況（`power_usage`）」「需給実績（`supply_demand_actuals`）」
       「系統の需給（`grid_supply_demand`）」の3分類に整理する（`docs/architecture/data_model.md` 3参照）。
-      → 需給実績も東北・中国・四国電力で完了。`configuration/iceberg/schema/bronze/supply_demand_actuals_{tohoku,chugoku,shikoku}.csv`
+      → 需給実績も東北・中国・四国電力で完了。`configuration/iceberg/schema/bronze/supply_demand_actuals/supply_demand_actuals_{tohoku,chugoku,shikoku}.csv`
       （`power_usage`と同じくエリアごとに独立テーブル、共有1テーブル案は不採用）。東京電力は
       今年分の年次アーカイブが未公開で別方式検討中、関西・北海道・沖縄・中部・系統の需給は未調査。
 - [ ] ローカルファイルを Raw（RustFS）にアップロードするスクリプトを実装する
@@ -269,7 +269,7 @@ partition spec を渡さず、既存テーブルの spec 差分は警告ログ�
       （3テーブル目で重複を検出した際に、base/block だけ更新済みになる部分適用が起きないこと）
 - [ ] `--silver-all-fiscal-years` と `--silver-fiscal-year` の同時指定が
       `parser.error` で弾かれることのテスト（`src/main.py` と
-      `src/orchestration/jepx_pipeline.py` の2箇所）
+      `src/orchestration/pl_jepx_spot_price.py` の2箇所）
 
 ### 8.3 ドキュメントの追従（優先度: 中、解決済み）
 

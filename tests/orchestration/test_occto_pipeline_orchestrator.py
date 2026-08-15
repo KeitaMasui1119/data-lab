@@ -7,7 +7,11 @@ from typing import Any
 from orchestration import pl_occto_unit_generation_actuals as occto_pipeline
 
 BRONZE_SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv"
+    "/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals/"
+    "occto_unit_generation_actuals.csv"
+)
+SILVER_SCHEMA_DIR = (
+    "/workspace/configuration/iceberg/schema/silver/occto_unit_generation_actuals"
 )
 
 
@@ -22,7 +26,7 @@ def _pipeline_kwargs(**overrides: Any) -> dict[str, Any]:
         "bronze_schema_path": BRONZE_SCHEMA_PATH,
         "allow_duplicate_source": False,
         "bronze_location": "s3://jp-power-grid-dev/bronze/occto_unit_generation_actuals",
-        "silver_schema_dir": "/workspace/configuration/iceberg/schema/silver",
+        "silver_schema_dir": SILVER_SCHEMA_DIR,
         "silver_from_date": None,
         "silver_to_date": None,
         "silver_all_dates": False,
@@ -131,7 +135,7 @@ def test_run_bronze_to_silver_step_reports_written_and_dropped(monkeypatch) -> N
     result = occto_pipeline.run_bronze_to_silver_step(
         catalog_name="dlh_dev",
         bronze_location="s3://bucket/bronze/occto_unit_generation_actuals",
-        silver_schema_dir="/workspace/configuration/iceberg/schema/silver",
+        silver_schema_dir=SILVER_SCHEMA_DIR,
         from_date=date(2026, 8, 7),
         to_date=date(2026, 8, 7),
     )

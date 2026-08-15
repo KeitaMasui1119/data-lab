@@ -36,7 +36,8 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv"
+    "/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals/"
+    "occto_unit_generation_actuals.csv"
 )
 
 

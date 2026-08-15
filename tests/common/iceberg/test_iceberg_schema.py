@@ -12,8 +12,8 @@ from common.iceberg.schema import build_partition_spec, build_table_schema
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMA_DIR = ROOT / "configuration/iceberg/schema"
 
-BRONZE_SCHEMA_CSVS = sorted((SCHEMA_DIR / "bronze").glob("*.csv"))
-REPO_SCHEMA_CSVS = BRONZE_SCHEMA_CSVS + sorted((SCHEMA_DIR / "silver").glob("*.csv"))
+BRONZE_SCHEMA_CSVS = sorted((SCHEMA_DIR / "bronze").rglob("*.csv"))
+REPO_SCHEMA_CSVS = BRONZE_SCHEMA_CSVS + sorted((SCHEMA_DIR / "silver").rglob("*.csv"))
 
 CSV_HEADER = [
     "field_id",

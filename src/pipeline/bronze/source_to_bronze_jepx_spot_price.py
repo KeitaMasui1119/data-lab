@@ -18,10 +18,8 @@ from common.raw_ingestion_log import (
 )
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
-from pipeline.jepx_common import (
-    resolve_spot_summary_object_key,
-    resolve_target_at,
-)
+from common.utilities import resolve_target_at
+from pipeline.jepx_common import resolve_spot_summary_object_key
 
 # ログ設定
 logging.basicConfig(
@@ -29,7 +27,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SCHEMA_PATH = "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv"
+SCHEMA_PATH = (
+    "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv"
+)
 INGESTION_LOG_KEY = DEFAULT_INGESTION_LOG_KEY
 
 

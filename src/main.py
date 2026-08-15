@@ -11,7 +11,8 @@ from common.iceberg.maintenance import (
     find_orphan_data_files,
 )
 from common.storage_client import RustFSClient
-from orchestration.jepx_pipeline import run_jepx_orchestrated_pipeline
+from common.utilities import resolve_target_at
+from orchestration.pl_jepx_spot_price import run_jepx_orchestrated_pipeline
 from orchestration.pl_occto_unit_generation_actuals import (
     run_occto_orchestrated_pipeline,
 )
@@ -34,7 +35,6 @@ from pipeline.bronze.source_to_bronze_supply_demand_actuals_shikoku import (
 from pipeline.bronze.source_to_bronze_supply_demand_actuals_tohoku import (
     ingest_supply_demand_actuals_tohoku,
 )
-from pipeline.jepx_common import resolve_target_at
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
     scrape_jepx_spot_price_raw,
@@ -86,6 +86,9 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
 )
 from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
     run_bronze_to_silver_occto_unit_generation,
+)
+from pipeline.silver.bronze_to_silver_power_usage_hokuriku import (
+    DEFAULT_SILVER_SCHEMA_DIR as POWER_USAGE_HOKURIKU_DEFAULT_SILVER_SCHEMA_DIR,
 )
 from pipeline.silver.bronze_to_silver_power_usage_hokuriku import (
     run_bronze_to_silver_power_usage_hokuriku,
@@ -192,7 +195,7 @@ def main():
     )
     bronze_parser.add_argument(
         "--schema-path",
-        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv",
         help="Schema CSV path",
     )
     bronze_parser.add_argument(
@@ -237,7 +240,7 @@ def main():
     )
     jepx_pipeline_parser.add_argument(
         "--schema-path",
-        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv",
         help="Schema CSV path",
     )
     jepx_pipeline_parser.add_argument(
@@ -272,7 +275,7 @@ def main():
     )
     jepx_orchestrator_parser.add_argument(
         "--bronze-schema-path",
-        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price.csv",
+        default="/workspace/configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv",
         help="Bronze schema CSV path",
     )
     jepx_orchestrator_parser.add_argument(
@@ -365,7 +368,10 @@ def main():
     )
     occto_bronze_parser.add_argument(
         "--schema-path",
-        default="/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals.csv",
+        default=(
+            "/workspace/configuration/iceberg/schema/bronze/"
+            "occto_unit_generation_actuals/occto_unit_generation_actuals.csv"
+        ),
         help="Schema CSV path",
     )
     occto_bronze_parser.add_argument(
@@ -533,7 +539,7 @@ def main():
     )
     power_usage_hokuriku_silver_parser.add_argument(
         "--schema-dir",
-        default="/workspace/configuration/iceberg/schema/silver",
+        default=POWER_USAGE_HOKURIKU_DEFAULT_SILVER_SCHEMA_DIR,
         help="Directory containing the silver schema CSV files",
     )
     power_usage_hokuriku_silver_parser.add_argument(
@@ -619,7 +625,7 @@ def main():
         "--bronze-schema-path",
         default=(
             "/workspace/configuration/iceberg/schema/bronze/"
-            "occto_unit_generation_actuals.csv"
+            "occto_unit_generation_actuals/occto_unit_generation_actuals.csv"
         ),
         help="Bronze schema CSV path",
     )
@@ -1344,7 +1350,7 @@ def main():
         if not schema_dir.exists():
             parser.error(f"Schema directory does not exist: {schema_dir}")
 
-        schema_files = sorted(schema_dir.glob("*.csv"))
+        schema_files = sorted(schema_dir.rglob("*.csv"))
         if not schema_files:
             parser.error(f"No schema CSV files found in: {schema_dir}")
 
@@ -1362,7 +1368,7 @@ def main():
         if not schema_dir.exists():
             parser.error(f"Schema directory does not exist: {schema_dir}")
 
-        schema_files = sorted(schema_dir.glob("*.csv"))
+        schema_files = sorted(schema_dir.rglob("*.csv"))
         if not schema_files:
             parser.error(f"No schema CSV files found in: {schema_dir}")
 
@@ -1381,7 +1387,7 @@ def main():
         if not schema_dir.exists():
             parser.error(f"Schema directory does not exist: {schema_dir}")
 
-        schema_files = sorted(schema_dir.glob("*.csv"))
+        schema_files = sorted(schema_dir.rglob("*.csv"))
         if not schema_files:
             parser.error(f"No schema CSV files found in: {schema_dir}")
 

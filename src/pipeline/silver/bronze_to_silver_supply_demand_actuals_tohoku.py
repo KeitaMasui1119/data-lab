@@ -37,7 +37,8 @@ TARGET_DATE_COLUMN = "target_date"
 DELIVERY_TIMEZONE = "Asia/Tokyo"
 DEFAULT_CATALOG_NAME = "dlh_dev"
 DEFAULT_SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/silver/supply_demand_actuals_tohoku.csv"
+    "/workspace/configuration/iceberg/schema/silver/supply_demand_actuals/"
+    "supply_demand_actuals_tohoku.csv"
 )
 BRONZE_LOCATION = "s3://jp-power-grid-dev/bronze/supply_demand_actuals_tohoku"
 SILVER_TABLE = "silver.supply_demand_actuals_tohoku"
