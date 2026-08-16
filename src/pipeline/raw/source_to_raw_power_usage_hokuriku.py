@@ -12,8 +12,7 @@ import io
 import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import UTC, date, datetime
 
 import polars as pl
 
@@ -36,19 +35,14 @@ DATASET_NAME = "power_usage_hokuriku"
 EARLIEST_AVAILABLE_DATE = date(2020, 4, 1)
 
 
-def resolve_default_target_date(now: datetime) -> date:
-    """Default target date: yesterday in JST.
-
-    Today's snapshot is a live, still-updating view (observed: a mid-day
-    fetch has empty values for the remaining hours of today and for
-    tomorrow's forecast blocks — see docs/architecture/data_model.md 3.1).
-    A date's file only becomes fully finalized shortly after midnight JST
-    the following day (observed UPDATE timestamps like "2020/04/02 00:10
-    UPDATE" for the 2020-04-01 snapshot), so "yesterday" is the latest date
-    that is reliably already published in full.
-    """
-    jst_now = now.astimezone(ZoneInfo("Asia/Tokyo"))
-    return (jst_now - timedelta(days=1)).date()
+# resolve_default_target_date() moved to common/utilities.py (shared by every
+# denki-yohou dataset). Hokuriku's own rationale for "yesterday": today's
+# snapshot is a live, still-updating view (observed: a mid-day fetch has
+# empty values for the remaining hours of today and for tomorrow's forecast
+# blocks — see docs/architecture/data_model.md 3.1). A date's file only
+# becomes fully finalized shortly after midnight JST the following day
+# (observed UPDATE timestamps like "2020/04/02 00:10 UPDATE" for the
+# 2020-04-01 snapshot).
 
 
 def _resolve_snapshot_prefix(target_date: date, ingested_at: datetime) -> str:

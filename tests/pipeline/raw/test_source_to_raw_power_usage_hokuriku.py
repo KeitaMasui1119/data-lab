@@ -14,13 +14,13 @@ from datetime import date, datetime
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
+from common.utilities import resolve_default_target_date
 from pipeline.raw.source_to_raw_power_usage_hokuriku import (
     DOWNLOAD_URL_TEMPLATE,
     HokurikuPowerUsageConfig,
     HokurikuPowerUsageScraper,
     HokurikuScrapedRawObject,
     _resolve_manifest_key,
-    resolve_default_target_date,
     scrape_power_usage_hokuriku_raw,
 )
 

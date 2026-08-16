@@ -11,7 +11,7 @@ from common.iceberg.maintenance import (
     find_orphan_data_files,
 )
 from common.storage_client import RustFSClient
-from common.utilities import resolve_target_at
+from common.utilities import resolve_default_target_date, resolve_target_at
 from orchestration.pl_jepx_spot_price import run_jepx_orchestrated_pipeline
 from orchestration.pl_occto_unit_generation_actuals import (
     run_occto_orchestrated_pipeline,
@@ -42,36 +42,23 @@ from pipeline.raw.source_to_raw_jepx_spot_price import (
 )
 from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     OCCTOUnitGenerationScraper,
-    resolve_default_target_date,
     scrape_occto_unit_generation_raw,
 )
 from pipeline.raw.source_to_raw_power_usage_hokuriku import (
     HokurikuPowerUsageScraper,
     scrape_power_usage_hokuriku_raw,
 )
-from pipeline.raw.source_to_raw_power_usage_hokuriku import (
-    resolve_default_target_date as resolve_default_power_usage_hokuriku_target_date,
-)
 from pipeline.raw.source_to_raw_supply_demand_actuals_chugoku import (
     ChugokuSupplyDemandActualsScraper,
     scrape_supply_demand_actuals_chugoku_raw,
-)
-from pipeline.raw.source_to_raw_supply_demand_actuals_chugoku import (
-    resolve_default_target_date as resolve_default_sda_chugoku_target_date,
 )
 from pipeline.raw.source_to_raw_supply_demand_actuals_shikoku import (
     ShikokuSupplyDemandActualsScraper,
     scrape_supply_demand_actuals_shikoku_raw,
 )
-from pipeline.raw.source_to_raw_supply_demand_actuals_shikoku import (
-    resolve_default_target_date as resolve_default_sda_shikoku_target_date,
-)
 from pipeline.raw.source_to_raw_supply_demand_actuals_tohoku import (
     TohokuSupplyDemandActualsScraper,
     scrape_supply_demand_actuals_tohoku_raw,
-)
-from pipeline.raw.source_to_raw_supply_demand_actuals_tohoku import (
-    resolve_default_target_date as resolve_default_sda_tohoku_target_date,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     DEFAULT_BRONZE_LOCATION,
@@ -1134,9 +1121,7 @@ def main() -> None:
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
         else:
-            from_date = resolve_default_power_usage_hokuriku_target_date(
-                datetime.now(UTC)
-            )
+            from_date = resolve_default_target_date(datetime.now(UTC))
 
         to_date = None
         if args.to_date:
@@ -1183,7 +1168,7 @@ def main() -> None:
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
         else:
-            target_date = resolve_default_sda_tohoku_target_date(datetime.now(UTC))
+            target_date = resolve_default_target_date(datetime.now(UTC))
 
         rustfs = RustFSClient()
         scraper = TohokuSupplyDemandActualsScraper()
@@ -1219,7 +1204,7 @@ def main() -> None:
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
         else:
-            target_date = resolve_default_sda_chugoku_target_date(datetime.now(UTC))
+            target_date = resolve_default_target_date(datetime.now(UTC))
 
         rustfs = RustFSClient()
         scraper = ChugokuSupplyDemandActualsScraper()
@@ -1255,7 +1240,7 @@ def main() -> None:
             except ValueError as exc:
                 parser.error(f"Invalid --target-date value: {args.target_date} ({exc})")
         else:
-            target_date = resolve_default_sda_shikoku_target_date(datetime.now(UTC))
+            target_date = resolve_default_target_date(datetime.now(UTC))
 
         rustfs = RustFSClient()
         scraper = ShikokuSupplyDemandActualsScraper()

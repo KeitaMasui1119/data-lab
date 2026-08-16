@@ -13,6 +13,7 @@ import json
 from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 
+from common.utilities import resolve_default_target_date
 from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     ALL_AREA_CODES,
     ALL_METHOD_CODES,
@@ -25,7 +26,6 @@ from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     OCCTOUnitGenerationConfig,
     OCCTOUnitGenerationScraper,
     _resolve_manifest_key,
-    resolve_default_target_date,
     scrape_occto_unit_generation_raw,
 )
 
