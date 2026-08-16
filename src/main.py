@@ -125,7 +125,7 @@ DEFAULT_BUCKET_PLANS = [
 ]
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Data platform orchestrator")
     subparsers = parser.add_subparsers(dest="command")
 
@@ -848,6 +848,11 @@ def main():
         help="Limit the run to one fiscal year (default: rebuild every year)",
     )
 
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
 
     if args.command in {None, "bootstrap-storage"}:
