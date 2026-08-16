@@ -18,8 +18,7 @@ import io
 import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import UTC, datetime
 
 import polars as pl
 
@@ -35,15 +34,8 @@ OBJECT_PREFIX = "raw/supply_demand_actuals/chugoku"
 DATASET_NAME = "supply_demand_actuals_chugoku"
 
 
-def resolve_default_target_date(now: datetime) -> date:
-    """Default target date: yesterday in JST.
-
-    Same rationale as power_usage_hokuriku and OCCTO: the year file's
-    latest row is consistently yesterday's (today has not fully elapsed /
-    been finalized and published yet), confirmed live.
-    """
-    jst_now = now.astimezone(ZoneInfo("Asia/Tokyo"))
-    return (jst_now - timedelta(days=1)).date()
+# resolve_default_target_date() moved to common/utilities.py (shared by every
+# denki-yohou dataset).
 
 
 def _resolve_snapshot_prefix(year: int, ingested_at: datetime) -> str:

@@ -15,8 +15,7 @@ import io
 import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import UTC, date, datetime
 
 import polars as pl
 
@@ -72,16 +71,11 @@ OBJECT_PREFIX = "raw/occto/unit_generation"
 DATASET_NAME = "occto_unit_generation"
 
 
-def resolve_default_target_date(now: datetime) -> date:
-    """Default target date: yesterday in JST.
-
-    OCCTO publishes each day's actuals around 15:30 JST the following day
-    (see plan_occto_pipeline.md Phase 0), so "yesterday" is the latest date
-    that is reliably already published. Shared by the scrape-occto CLI and
-    the orchestrator so both default to the same date.
-    """
-    jst_now = now.astimezone(ZoneInfo("Asia/Tokyo"))
-    return (jst_now - timedelta(days=1)).date()
+# resolve_default_target_date() moved to common/utilities.py (shared by every
+# denki-yohou dataset). OCCTO's own rationale for "yesterday": it publishes
+# each day's actuals around 15:30 JST the following day (see
+# plan_occto_pipeline.md Phase 0), so "yesterday" is the latest date that is
+# reliably already published.
 
 
 def _date_label(from_date: date, to_date: date) -> str:

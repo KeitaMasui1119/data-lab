@@ -18,13 +18,13 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 
 from common.storage_client import RustFSClient
+from common.utilities import resolve_default_target_date
 from orchestration.pipeline_result import PipelineStepResult
 from pipeline.bronze.source_to_bronze_occto_unit_generation_actuals import (
     ingest_occto_unit_generation,
 )
 from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     OCCTOUnitGenerationScraper,
-    resolve_default_target_date,
     scrape_occto_unit_generation_raw,
 )
 from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (

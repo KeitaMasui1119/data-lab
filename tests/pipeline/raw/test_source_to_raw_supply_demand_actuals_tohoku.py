@@ -13,12 +13,12 @@ from datetime import datetime
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
+from common.utilities import resolve_default_target_date
 from pipeline.raw.source_to_raw_supply_demand_actuals_tohoku import (
     DOWNLOAD_URL_TEMPLATE,
     TohokuScrapedRawObject,
     TohokuSupplyDemandActualsScraper,
     _resolve_manifest_key,
-    resolve_default_target_date,
     scrape_supply_demand_actuals_tohoku_raw,
 )
 
