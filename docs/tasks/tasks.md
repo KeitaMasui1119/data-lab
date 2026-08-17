@@ -441,3 +441,78 @@ bronze 380,256 / base 374,400 / block 374,400 / area 3,364,896 と**全テーブ
 実害は解消しているが、将来 `upsert` 系の処理を書く場合は再燃する。
 
 - [ ] 変更検知の比較対象からメタデータ列を除外する方針を決める
+
+---
+
+## 9. JEPX Gold 層
+
+詳細な計画は [`plan_jepx_gold.md`](./plan_jepx_gold.md) を参照。
+
+### タスク
+
+- [x] `gold.jepx_spot_price_daily` を実装する →
+      完了。`src/pipeline/gold/silver_to_gold_jepx_spot_price.py` + CLI
+      `ingest-jepx-silver-to-gold`。Silver の area/base を
+      `(delivery_date, time_code)` で JOIN し、1日48コマを
+      (受渡日 × エリア) 1行へ集約する。実測 70,102行（FY2005–FY2026）。
+      **粒度の判断**: `system_price` は intensive（エリア横断で平均しても
+      システム価格に戻る）なので各エリア行に非正規化した。一方 volume 系は
+      extensive で全国値のため**意図的に持たせていない**（9行に複製すると
+      エリア横断の SUM が9倍になる）。全国粒度の別テーブルの持ち物。
+      **命名**: 計画の `gold_jepx_daily` ではなく `gold.jepx_spot_price_daily`。
+      既存の `silver.jepx_spot_price_*` と `{layer}.{table}` 規約に合わせた。
+      **パーティションなし**: 全期間で7万行しかなく、年単位で切ると
+      1ファイル数千行の small files になるため。区間置換は全件書き直しになるが
+      7万行では一瞬。
+- [x] `gold_jepx_period_profile`（日内カーブ）を実装する →
+      完了。`gold.jepx_spot_price_period_profile`。同じ `ingest-jepx-silver-to-gold`
+      が daily と一緒に書く（Silver が base/block/area を1コマンドで書くのと同じ形）。
+      **粒度**: (対象月 × エリア × 曜日区分 × コマ)。実測 **221,856行**。
+      季節ではなく月を最小軸にしたのは、月→季節/年代へは畳めるが逆はできないため。
+      **曜日区分**: `weekday` / `holiday`（土日＋祝日）。祝日は `jpholiday` を追加して判定。
+      祝日を平日に混ぜると平日カーブが濁るため（年16〜18日 ≒ 平日の6%）。
+      **レート値ではなくカウントを保存**: 月や曜日区分を跨いで畳むとき、
+      保存済みの割合を単純平均すると観測数の重みが消えるため。
+      `avg_price` は `sum(avg_price*observation_count)/sum(observation_count)` で畳める
+      （中央値・パーセンタイルは原理的に畳めない）。
+- [x] `gold_jepx_area_spread`（簡易版: システム価格乖離）を実装する →
+      完了。`gold.jepx_spot_price_area_spread`。**唯一集約しないGoldテーブル**で、
+      粒度は silver の area テーブルと同じ (受渡日 × コマ × エリア) = **3,364,896行**。
+      置く理由: ヒートマップが必要とする粒度であり、ダッシュボードが Silver を
+      直読みすると層の規律に反する。事前 JOIN 済みにすることで、336万行 × base の
+      JOIN をクエリのたびに回さずに済み、分断閾値の適用箇所も1箇所に収まる。
+      `year(delivery_date)` でパーティション（daily と違い行数が多いため）。
+      **3テーブル相互の整合を実測で確認済み**: area_spread の行数 =
+      daily の `sum(time_code_count)`、`is_split` 行数 = daily の
+      `sum(split_time_code_count)` = profile の `sum(split_observation_count)`、
+      daily の `avg_price` を area_spread から再計算しても不一致0。
+- [ ] 可視化をデプロイする（Streamlit 想定）
+- [ ] `gold_jepx_monthly` / `gold_jepx_price_events` を実装する
+- [ ] Gold のデータ品質モニタリング（Silver に quarantine が無いため唯一の検知経路）
+- [ ] `common/silver_write.py` の命名を層非依存に変える（Gold が2テーブルになったため）
+- [ ] `run-jepx-orchestrator` の gold ステップをどうするか決める
+      → 現状 `--run-gold-step` は dbt を叩くが、dbt にモデルは無く Gold は Python 実装。
+      Python 版に差し替えるか、gold ステップ自体を廃止するか未決。
+
+### 実装時に判明した事実
+
+**JEPX は2回エリア取引を停止している。** 全年度ビルドが 7,800日 × 9エリア = 70,200 ではなく
+**70,102行**になるのはこのため（パイプラインの欠損ではない）:
+
+| エリア | 期間 | 日数 | 事象 |
+|---|---|---:|---|
+| 東京 | 2011-03-15 〜 2011-05-31 | 78 | 東日本大震災（2011-03-11）後の取引停止 |
+| 北海道 | 2018-09-07 〜 2018-09-26 | 20 | 北海道胆振東部地震（2018-09-06）のブラックアウト後 |
+
+該当エリア日は Silver に行が無いため集約対象にならない。
+なお `time_code_count` は全70,102行で48であり、コマ単位の欠損はゼロ。
+`period_profile` 側にも同じ影響が出ており、257ヶ月 × 9エリア × 2区分 × 48コマ = 222,048 に対し
+**221,856行**。差の192行は東京の2011年4月・5月（丸2ヶ月停止）× 2区分 × 48コマ。
+`sum(observation_count)` は 3,364,896 で `silver.jepx_spot_price_area` の行数と完全一致しており、
+全行が過不足なく1回ずつ集計されていることを確認済み。
+
+**市場分断率の定義を1ティック境界に確定した。** 探索時は `> 0.01` で測っていたが、
+きっかり0.01円差の分断を取りこぼすため実装は `>= 0.01`。
+これにより実測値が 2007年 17.3%→17.7%、2026年 92.1%→92.8% とわずかに上がる。
+
+---

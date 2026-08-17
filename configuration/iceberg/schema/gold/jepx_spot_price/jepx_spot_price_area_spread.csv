@@ -1,0 +1,9 @@
+field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
+1,delivery_date,date,TRUE,TRUE,Business delivery date in JST calendar,year,受渡日,
+2,time_code,int,TRUE,TRUE,Business time code (1-48),,時刻コード,
+3,area_name,string,TRUE,TRUE,"Area name(hokkaido, tohoku, tokyo, chubu, hokuriku, kansai, chugoku, shikoku, kyushu)",,エリア名,
+4,delivery_datetime,timestamptz,FALSE,TRUE,Delivery timestamp in UTC derived from delivery_date and time_code,,受渡日時,
+5,area_price,decimal,FALSE,FALSE,Area price (Yen/kWh),,エリア価格(円/kWh),
+6,system_price,decimal,FALSE,FALSE,System price for the same slot (Yen/kWh),,システムプライス(円/kWh),
+7,spread,decimal,FALSE,FALSE,area_price - system_price,,システムプライス乖離,
+8,is_split,boolean,FALSE,TRUE,Whether the area cleared at a different price from the system,,市場分断フラグ,

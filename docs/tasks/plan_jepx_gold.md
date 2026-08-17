@@ -10,7 +10,7 @@
 | source → RustFS | 実装済み |
 | Bronze | 実装済み（`bronze.jepx_spot_price` 380,256行） |
 | Silver | 実装済み（3テーブル、FY2005–FY2026） |
-| **Gold** | **未実装 ← 本計画の対象** |
+| **Gold** | 0-1 / 0-3 / 0-4 実装済み。0-2 `monthly` と 0-5 `price_events` は未着手 |
 | 可視化・予測 | 未実装 |
 
 ---
@@ -74,21 +74,34 @@ Gold の設計はこの4点を説明することに集約される。
 
 外部データ不要。Silver から直接導出できるもの。
 
-### 0-1. `gold_jepx_daily`
+### 0-1. `gold_jepx_daily` → **実装済み: `gold.jepx_spot_price_daily`**
 
 日次 × エリアの基本統計。ダッシュボードと後続分析の土台。
 
+> **実装時の変更点**（`src/pipeline/gold/silver_to_gold_jepx_spot_price.py`、CLI `ingest-jepx-silver-to-gold`）
+>
+> - **テーブル名**は `gold.jepx_spot_price_daily`。既存の `silver.jepx_spot_price_*` と
+>   `{layer}.{table}` 規約に合わせた（`gold.gold_jepx_daily` は冗長）
+> - **volume 系は持たせなかった**。全国値なので9エリア行に複製すると SUM が9倍になる。
+>   `system_price` は intensive（横断平均してもシステム価格に戻る）なので非正規化して保持
+> - **パーティションなし**。全期間で7万行しかなく、年単位で切ると小ファイル化するため
+> - 下記の追加列を入れた: `avg_system_price` / `avg_spread` / `max_abs_spread` /
+>   `split_time_code_count`（0-4 の分断分析を daily の粒度で先取り）
+> - 実測 **70,102行**（FY2005–FY2026、7,800日 × 9エリア − 停止期間98日分）
+
+実装された列（元計画の `total_contracted_volume` は上記の理由で不採用）:
+
 | カラム | 内容 |
 | --- | --- |
-| `delivery_date` | JST 暦日 |
-| `area_name` | エリア |
+| `delivery_date` / `area_name` | 業務キー |
 | `avg_price` / `min_price` / `max_price` | 平均・最小・最大 |
 | `median_price` / `p05_price` / `p95_price` | 中央値・分位点 |
-| `stddev_price` | 標準偏差（日次ボラティリティ） |
+| `stddev_price` | 標準偏差（母集団。1コマの日でも NULL にしないため） |
 | `intraday_range` | 日中レンジ = max − min |
-| `total_contracted_volume` | 約定量合計 |
-| `spike_period_count` | 閾値超過コマ数 |
-| `floor_price_period_count` | 下限（0.01円）張り付きコマ数 |
+| `avg_system_price` / `avg_spread` / `max_abs_spread` | システム価格と乖離 |
+| `split_time_code_count` | 市場分断コマ数 |
+| `spike_time_code_count` | 閾値（50円/kWh）超過コマ数 |
+| `floor_time_code_count` | 下限（0.01円）張り付きコマ数 |
 | `time_code_count` | 実在コマ数（48 でなければ欠損） |
 
 `time_code_count` は品質チェックを兼ねる。日本には DST がないため 48 が常に正。
@@ -98,14 +111,24 @@ FY2005 のみ 274日分（2005-04-02 開始）である点に注意。
 
 `gold_jepx_daily` からの再集計。年月 × エリア。前年同月比を持たせる。
 
-### 0-3. `gold_jepx_period_profile`
+### 0-3. `gold_jepx_period_profile` → **実装済み: `gold.jepx_spot_price_period_profile`**
 
 日内の価格カーブ。集計軸は `time_code`(1–48) × `area_name` × 季節 or 月 × 曜日区分（平日/土日祝）。
 
 朝夕のピーク形成、昼間の太陽光による価格低下、季節ごとのカーブ差が見える。
 **上記「ダックカーブ」の実測はこのテーブルの粒度で得られたもので、効果は確認済み。**
 
-### 0-4. `gold_jepx_area_spread`
+> **実装時の判断**
+>
+> - 集計軸は「季節 or 月」のうち **月**。月→季節/年代へは畳めるが逆はできないため
+> - 曜日区分は `weekday` / `holiday`（土日＋祝日）。祝日判定に `jpholiday` を追加した。
+>   年16〜18日 ≒ 平日の6% にあたり、平日カーブに混ぜると濁るため
+> - **レート値ではなくカウントを保存**（`observation_count` など）。畳むときに
+>   観測数の重みが消えるのを防ぐ
+> - 実測 **221,856行**。Gold から再計算したダックカーブ（九州・平日・4-5月、
+>   昼/夕の平均）は 2010-15年 `15.1 / 14.7` → 2021-26年 **`4.3 / 15.4`**
+
+### 0-4. `gold_jepx_area_spread` → **実装済み: `gold.jepx_spot_price_area_spread`**
 
 **簡易版（システム価格との乖離）から始める。** 元計画にある通り実装が軽く、実測で 92.1% という明確な結果が既に出ている。
 
@@ -118,6 +141,18 @@ FY2005 のみ 274日分（2005-04-02 開始）である点に注意。
 
 1コマあたり9行。全エリアペア版なら36行になるが、物理的意味が明確になる代わりに
 連系線の接続グラフが必要。**必要になってから**でよい。
+
+> **実装時の判断**
+>
+> - 列は `delivery_date` / `time_code` / `area_name` / `delivery_datetime` /
+>   `area_price` / `system_price` / `spread` / `is_split`。両方の価格を持たせたのは、
+>   持たせないとヒートマップ描画のたびに Silver へ JOIN し直すことになり、
+>   このテーブルを置く意味が消えるため
+> - `year(delivery_date)` でパーティション。daily（7万行・パーティションなし）と違い
+>   336万行あり、silver の area テーブルと同じ粒度・同じ分割が妥当
+> - スパイク/下限フラグは入れていない。名前どおり乖離に焦点を絞った。
+>   0-5 の `price_events` を作るときに必要なら widen する
+> - 実測 **3,364,896行**（silver area テーブルと完全一致）
 
 ### 0-5. `gold_jepx_price_events`
 
@@ -140,10 +175,10 @@ FY2005 のみ 274日分（2005-04-02 開始）である点に注意。
 **成果物としての強さは逆順**である。`area_spread` と `period_profile` が §1 の物語を運び、
 `monthly` は `daily` の再集計なので後回しでも失うものがない。
 
-1. `gold_jepx_daily`（土台。他が全部これに乗る）
-2. `gold_jepx_period_profile` → **日内カーブ可視化**
-3. `gold_jepx_area_spread`（簡易版）→ **分断ヒートマップ**
-4. 可視化をデプロイ（ここで一度完成品にする）
+1. `gold_jepx_daily`（土台。他が全部これに乗る） ✅
+2. `gold_jepx_period_profile` → **日内カーブ可視化** ✅
+3. `gold_jepx_area_spread`（簡易版）→ **分断ヒートマップ** ✅
+4. 可視化をデプロイ（ここで一度完成品にする） ← **次はここ**
 5. `gold_jepx_monthly` / `gold_jepx_price_events`
 6. データ品質モニタリング
 7. 予測
@@ -165,8 +200,8 @@ FY2005 のみ 274日分（2005-04-02 開始）である点に注意。
 ### 注意: ヒートマップと `period_profile` は粒度が違う
 
 `gold_jepx_period_profile` は季節/月で集約済みなので **そこからヒートマップは描けない。**
-日付 × コマの粒度が別途必要になる。1年1エリアで 17,520 行と小さいので、
-Silver 直読みか薄い Gold テーブルのどちらでもよい。**設計時に混同しないこと。**
+→ **解決済み**: 0-4 の `gold.jepx_spot_price_area_spread` が日付 × コマ × エリアの
+粒度を持つので、ヒートマップはこちらを読む。
 
 ### 実行環境（元計画の未決定事項への回答）
 

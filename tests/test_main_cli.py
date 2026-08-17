@@ -29,6 +29,7 @@ JEPX_SILVER_SCHEMA_DIR = (
 OCCTO_SILVER_SCHEMA_DIR = (
     "/workspace/configuration/iceberg/schema/silver/occto_unit_generation_actuals"
 )
+JEPX_GOLD_SCHEMA_DIR = "/workspace/configuration/iceberg/schema/gold/jepx_spot_price"
 POWER_USAGE_HOKURIKU_SILVER_SCHEMA_DIR = (
     "/workspace/configuration/iceberg/schema/silver/power_usage_hokuriku"
 )
@@ -241,6 +242,16 @@ EXPECTED_COMMANDS: dict[str, tuple[list[str], dict[str, object]]] = {
             "catalog": "dlh_dev",
             "bronze_location": "s3://jp-power-grid-dev/bronze/jepx_spot_price",
             "schema_dir": JEPX_SILVER_SCHEMA_DIR,
+            "fiscal_year": None,
+        },
+    ),
+    "ingest-jepx-silver-to-gold": (
+        [],
+        {
+            "catalog": "dlh_dev",
+            "area_location": "s3://jp-power-grid-dev/silver/jepx_spot_price_area",
+            "base_location": "s3://jp-power-grid-dev/silver/jepx_spot_price_base",
+            "schema_dir": JEPX_GOLD_SCHEMA_DIR,
             "fiscal_year": None,
         },
     ),

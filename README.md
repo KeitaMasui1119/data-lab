@@ -17,7 +17,7 @@ The project follows a medallion architecture.
 - Raw: source files stored as-is in object storage
 - Bronze: schema-conformed Iceberg tables (string-typed, source structure preserved, audit metadata columns)
 - Silver: DuckDB-transformed, typed, deduplicated Iceberg tables written via a window-replace (not upsert)
-- Gold: planned, not yet implemented
+- Gold: JEPX daily aggregates, intraday profile and interval spread fact (Python/DuckDB/PyIceberg, same shape as silver); other datasets not yet implemented
 
 Datasets implemented so far, each following Raw -> Bronze -> Silver:
 
@@ -224,6 +224,51 @@ leaves only the silver rebuild to do (Silver Corruption Recovery). Clearing
 the affected bronze rows first is what makes it re-ingest them (Bronze
 Corruption Recovery).
 
+#### Build the JEPX gold daily table
+
+```bash
+uv run python src/main.py ingest-jepx-silver-to-gold
+uv run python src/main.py ingest-jepx-silver-to-gold --fiscal-year 2026
+```
+
+Builds two tables from the area and base silver tables. Scoping and the
+window replace work exactly as they do for silver, so a rerun is safe.
+
+`gold.jepx_spot_price_daily` rolls each delivery date's 48 time codes up to
+one row per area: price statistics, the spread against the system price, and
+counts of the time codes that split, spiked or sat at the price floor.
+
+`gold.jepx_spot_price_area_spread` aggregates nothing at all: one row per
+slot per area carrying the area price, the system price and their gap, plus
+an `is_split` flag. It is the pre-joined interval fact a dashboard reads, so
+a heatmap over date x time code does not join 3.3M area rows against the base
+table on every query, and the split threshold is applied in exactly one
+place. Partitioned on `year(delivery_date)` like the silver tables it mirrors.
+
+`gold.jepx_spot_price_period_profile` keeps the time code and collapses the
+dates instead, giving the intraday price curve per month, area and day type
+(`weekday` / `holiday`, the latter covering Saturdays, Sundays and Japanese
+national holidays via `jpholiday`). Month is the finest axis: a caller can
+roll months up into seasons or eras, but cannot recover months from a table
+that only stored seasons. It stores counts rather than rates so that rollups
+stay correct -- `avg_price` rolls up as
+`sum(avg_price * observation_count) / sum(observation_count)`, while medians
+and percentiles cannot be rolled up at all.
+
+The grain is one row per (`delivery_date`, `area_name`). `system_price` is
+denormalized onto every area row because averaging it across areas still
+returns the system price. The volume columns are deliberately absent: they
+are national figures, so repeating them across nine rows would make any SUM
+over areas nine times too large. They belong in a national-grain table that
+does not exist yet.
+
+`time_code_count` doubles as a completeness check -- Japan has no DST, so
+anything other than 48 is a gap. A full rebuild currently produces 70,102
+rows rather than 7,800 x 9 because JEPX suspended area trading twice:
+Tokyo for 2011-03-15..2011-05-31 after the Great East Japan Earthquake, and
+Hokkaido for 2018-09-07..2018-09-26 after the Iburi earthquake blackout.
+Those area-days have no silver rows to aggregate.
+
 ### 6) Build OCCTO silver layer with Python + DuckDB + PyIceberg
 
 Transform OCCTO bronze unit generation actuals into the silver Iceberg table:
@@ -341,13 +386,13 @@ is idempotent (diffs and evolves an existing table's schema, additive only
 - `src/pipeline/raw/`: HTTP scraping and raw-layer upload (`source_to_raw_<pipeline>.py`)
 - `src/pipeline/bronze/`: raw-to-bronze ingestion (`source_to_bronze_<pipeline>.py`)
 - `src/pipeline/silver/`: bronze-to-silver DuckDB transforms (`bronze_to_silver_<pipeline>.py`)
-- `src/pipeline/gold/`: reserved for a future dbt-based gold layer (empty)
+- `src/pipeline/gold/`: silver-to-gold aggregation (`silver_to_gold_<pipeline>.py`)
 - `src/pipeline/jepx_common.py`: JEPX-specific shared helpers (fiscal-year resolution, etc.)
 - `src/common/`: dataset-agnostic shared primitives (`BaseHttpScraper`, `RustFSClient`,
 	Polars/DuckDB utilities, the window-replace silver write path, `common/iceberg/`
 	catalog+schema+maintenance helpers) -- anything dataset-specific belongs under `src/pipeline/` instead
 - `src/setup/`: infra provisioning (bucket creation, `manage_iceberg.py` admin CLI)
-- `src/dbt/jepx_power/`: dbt project kept in reserve for a possible future gold layer (no models currently)
+- `src/dbt/jepx_power/`: dbt project with no models. Gold went the same Python/DuckDB/PyIceberg route as silver, so dbt is currently unused
 - `src/Jupyter/`: scraping prototypes and ad-hoc analysis notebooks (not part of the production path)
 - `tests/`: pytest unit tests, one file per `src/pipeline/**` module
 
@@ -416,4 +461,4 @@ uv run ruff check <changed paths>
 	(each step currently run as separate CLI commands): not yet implemented
 - Other utility companies (Kansai, Hokkaido, Okinawa, Chubu, Kyushu) and the
 	`grid_supply_demand`（系統の需給）category: not yet investigated
-- Gold layer: not yet implemented
+- Gold layer: `gold.jepx_spot_price_daily` (70,102 rows), `gold.jepx_spot_price_period_profile` (221,856 rows) and `gold.jepx_spot_price_area_spread` (3,364,896 rows) implemented for FY2005-FY2026; monthly, price events, monitoring and the dashboard in `docs/tasks/plan_jepx_gold.md` are open
