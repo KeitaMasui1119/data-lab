@@ -475,7 +475,17 @@ bronze 380,256 / base 374,400 / block 374,400 / area 3,364,896 と**全テーブ
       保存済みの割合を単純平均すると観測数の重みが消えるため。
       `avg_price` は `sum(avg_price*observation_count)/sum(observation_count)` で畳める
       （中央値・パーセンタイルは原理的に畳めない）。
-- [ ] `gold_jepx_area_spread`（簡易版: システム価格乖離）を実装する
+- [x] `gold_jepx_area_spread`（簡易版: システム価格乖離）を実装する →
+      完了。`gold.jepx_spot_price_area_spread`。**唯一集約しないGoldテーブル**で、
+      粒度は silver の area テーブルと同じ (受渡日 × コマ × エリア) = **3,364,896行**。
+      置く理由: ヒートマップが必要とする粒度であり、ダッシュボードが Silver を
+      直読みすると層の規律に反する。事前 JOIN 済みにすることで、336万行 × base の
+      JOIN をクエリのたびに回さずに済み、分断閾値の適用箇所も1箇所に収まる。
+      `year(delivery_date)` でパーティション（daily と違い行数が多いため）。
+      **3テーブル相互の整合を実測で確認済み**: area_spread の行数 =
+      daily の `sum(time_code_count)`、`is_split` 行数 = daily の
+      `sum(split_time_code_count)` = profile の `sum(split_observation_count)`、
+      daily の `avg_price` を area_spread から再計算しても不一致0。
 - [ ] 可視化をデプロイする（Streamlit 想定）
 - [ ] `gold_jepx_monthly` / `gold_jepx_price_events` を実装する
 - [ ] Gold のデータ品質モニタリング（Silver に quarantine が無いため唯一の検知経路）

@@ -1,6 +1,6 @@
 """Aggregate JEPX silver spot prices into the gold tables.
 
-DuckDB joins the area and base silver tables and rolls them up two ways;
+DuckDB joins the area and base silver tables and projects them three ways;
 PyIceberg then replaces the affected window of each gold table. Same shape as
 the bronze-to-silver transform: daily and full-refresh runs share this code
 path and only the fiscal year filter differs.
@@ -10,11 +10,16 @@ path and only the fiscal year filter differs.
 - ``gold.jepx_spot_price_period_profile`` keeps the time code and collapses
   the dates instead, giving the intraday price curve per month, area and day
   type. This is the shape that shows the duck curve emerging.
+- ``gold.jepx_spot_price_area_spread`` aggregates nothing at all: it is the
+  pre-joined interval fact, one row per slot per area carrying the area
+  price, the system price and their gap. It exists so a heatmap over date x
+  time code does not join 3.3M rows against the base table on every query,
+  and so the split threshold is applied in exactly one place.
 
 Grain and what is deliberately absent
 -------------------------------------
-Both tables are keyed per area. ``system_price`` is denormalized onto every
-area row because it is an *intensive* quantity: averaging it across areas
+All three tables are keyed per area. ``system_price`` is denormalized onto
+every area row because it is an *intensive* quantity: averaging it across areas
 still returns the system price. The volume columns are *extensive* and are
 left out entirely -- they are national figures, so repeating them across nine
 rows would make any SUM over areas nine times too large. They belong in a
@@ -52,8 +57,8 @@ from common.iceberg.catalog import get_catalog
 
 # The window-replace write path is layer-agnostic despite its name: it
 # provisions from a schema CSV, guards the business key and replaces a
-# window. Gold needs exactly that. Worth renaming now that a second gold
-# table has landed; filed in docs/tasks/tasks.md section 9.
+# window. Gold needs exactly that. Worth renaming now that three gold
+# tables depend on it; filed in docs/tasks/tasks.md section 9.
 from common.silver_write import column_bound, ensure_unique_keys, write_silver_table
 from common.utilities import gen_uuid
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
@@ -75,8 +80,12 @@ PROFILE_TABLE_IDENTIFIER = "gold.jepx_spot_price_period_profile"
 PROFILE_KEY_COLUMNS = ("profile_month", "area_name", "day_type", "time_code")
 PROFILE_MONTH_COLUMN = "profile_month"
 
+AREA_SPREAD_TABLE_IDENTIFIER = "gold.jepx_spot_price_area_spread"
+AREA_SPREAD_KEY_COLUMNS = ("delivery_date", "time_code", "area_name")
+
 DAILY_STAGING_RELATION = "jepx_gold_daily_staging"
 PROFILE_STAGING_RELATION = "jepx_gold_profile_staging"
+AREA_SPREAD_STAGING_RELATION = "jepx_gold_area_spread_staging"
 HOLIDAY_RELATION = "jepx_gold_holidays"
 
 # Lineage for the audit columns: gold rows come from two silver tables rather
@@ -156,6 +165,7 @@ SELECT
     a.delivery_date,
     a.time_code,
     a.area_name,
+    a.delivery_datetime,
     a.area_price,
     b.system_price,
     a.area_price - b.system_price AS spread
@@ -316,6 +326,43 @@ GROUP BY profile_month, area_name, day_type, time_code
 """)
 
 
+def build_area_spread_relation(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    area_relation: str,
+    base_relation: str,
+    fiscal_year: int | None = None,
+) -> None:
+    """Pair every area price with its system price, one row per slot.
+
+    Unlike the other two tables this one does not aggregate: the grain is the
+    same as ``silver.jepx_spot_price_area``. It earns its place by being the
+    pre-joined interval fact the dashboard reads, so a heatmap over date x
+    time code does not have to join 3.3M area rows against the base table on
+    every query, and so the split threshold is applied in exactly one place.
+    """
+    conn.execute(f"""
+CREATE OR REPLACE TEMP TABLE {AREA_SPREAD_STAGING_RELATION} AS
+WITH joined AS ({
+        _joined_cte(
+            area_relation=area_relation,
+            base_relation=base_relation,
+            fiscal_year=fiscal_year,
+        )
+    })
+SELECT
+    delivery_date,
+    time_code,
+    area_name,
+    delivery_datetime,
+    CAST(area_price AS {PRICE_TYPE}) AS area_price,
+    CAST(system_price AS {PRICE_TYPE}) AS system_price,
+    CAST(spread AS {PRICE_TYPE}) AS spread,
+    abs(spread) >= {SPLIT_THRESHOLD} AS is_split
+FROM joined
+""")
+
+
 def count_staged_rows(conn: duckdb.DuckDBPyConnection, relation: str) -> int:
     """Count the aggregated rows a staging relation will write."""
     row = conn.execute(f"SELECT count(*) FROM {relation}").fetchone()
@@ -356,6 +403,13 @@ def extract_period_profile_frame(conn: duckdb.DuckDBPyConnection) -> pl.DataFram
     """Select the staged profile rows, stamped with their lineage."""
     return conn.execute(f"""
         SELECT *, '{SOURCE_DATA}' AS source_data FROM {PROFILE_STAGING_RELATION}
+    """).pl()
+
+
+def extract_area_spread_frame(conn: duckdb.DuckDBPyConnection) -> pl.DataFrame:
+    """Select the staged interval rows, stamped with their lineage."""
+    return conn.execute(f"""
+        SELECT *, '{SOURCE_DATA}' AS source_data FROM {AREA_SPREAD_STAGING_RELATION}
     """).pl()
 
 
@@ -487,6 +541,26 @@ def run_silver_to_gold_jepx_spot_price(
                 staged_row_count=count_staged_rows(conn, DAILY_STAGING_RELATION),
             )
         ]
+
+        build_area_spread_relation(
+            conn,
+            area_relation=area_relation,
+            base_relation=base_relation,
+            fiscal_year=fiscal_year,
+        )
+        targets.append(
+            _GoldTarget(
+                table_identifier=AREA_SPREAD_TABLE_IDENTIFIER,
+                schema_file="jepx_spot_price_area_spread.csv",
+                key_cols=AREA_SPREAD_KEY_COLUMNS,
+                frame=extract_area_spread_frame(conn),
+                overwrite_filter=build_delivery_window(
+                    fiscal_year=fiscal_year,
+                    staged_range=resolve_staged_delivery_range(conn),
+                ),
+                staged_row_count=count_staged_rows(conn, AREA_SPREAD_STAGING_RELATION),
+            )
+        )
 
         scanned_range = resolve_scanned_date_range(
             conn, base_relation=base_relation, fiscal_year=fiscal_year

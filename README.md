@@ -17,7 +17,7 @@ The project follows a medallion architecture.
 - Raw: source files stored as-is in object storage
 - Bronze: schema-conformed Iceberg tables (string-typed, source structure preserved, audit metadata columns)
 - Silver: DuckDB-transformed, typed, deduplicated Iceberg tables written via a window-replace (not upsert)
-- Gold: JEPX daily aggregates and intraday profile (Python/DuckDB/PyIceberg, same shape as silver); other datasets not yet implemented
+- Gold: JEPX daily aggregates, intraday profile and interval spread fact (Python/DuckDB/PyIceberg, same shape as silver); other datasets not yet implemented
 
 Datasets implemented so far, each following Raw -> Bronze -> Silver:
 
@@ -238,6 +238,13 @@ window replace work exactly as they do for silver, so a rerun is safe.
 one row per area: price statistics, the spread against the system price, and
 counts of the time codes that split, spiked or sat at the price floor.
 
+`gold.jepx_spot_price_area_spread` aggregates nothing at all: one row per
+slot per area carrying the area price, the system price and their gap, plus
+an `is_split` flag. It is the pre-joined interval fact a dashboard reads, so
+a heatmap over date x time code does not join 3.3M area rows against the base
+table on every query, and the split threshold is applied in exactly one
+place. Partitioned on `year(delivery_date)` like the silver tables it mirrors.
+
 `gold.jepx_spot_price_period_profile` keeps the time code and collapses the
 dates instead, giving the intraday price curve per month, area and day type
 (`weekday` / `holiday`, the latter covering Saturdays, Sundays and Japanese
@@ -454,4 +461,4 @@ uv run ruff check <changed paths>
 	(each step currently run as separate CLI commands): not yet implemented
 - Other utility companies (Kansai, Hokkaido, Okinawa, Chubu, Kyushu) and the
 	`grid_supply_demand`（系統の需給）category: not yet investigated
-- Gold layer: `gold.jepx_spot_price_daily` (70,102 rows) and `gold.jepx_spot_price_period_profile` (221,856 rows) implemented for FY2005-FY2026; the rest of `docs/tasks/plan_jepx_gold.md` is open
+- Gold layer: `gold.jepx_spot_price_daily` (70,102 rows), `gold.jepx_spot_price_period_profile` (221,856 rows) and `gold.jepx_spot_price_area_spread` (3,364,896 rows) implemented for FY2005-FY2026; monthly, price events, monitoring and the dashboard in `docs/tasks/plan_jepx_gold.md` are open

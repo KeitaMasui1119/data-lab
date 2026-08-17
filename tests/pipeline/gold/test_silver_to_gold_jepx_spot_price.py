@@ -7,7 +7,7 @@ The aggregation SQL runs against locally registered relations instead of
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 import duckdb
@@ -17,15 +17,18 @@ from pyiceberg.expressions import And, GreaterThanOrEqual, LessThan, LessThanOrE
 
 from common.silver_write import column_bound
 from pipeline.gold.silver_to_gold_jepx_spot_price import (
+    AREA_SPREAD_STAGING_RELATION,
     DAILY_STAGING_RELATION,
     EXPECTED_TIME_CODES_PER_DAY,
     HOLIDAY_RELATION,
+    build_area_spread_relation,
     build_daily_relation,
     build_period_profile_relation,
     build_profile_month_window,
     count_delivery_dates,
     count_incomplete_days,
     count_staged_rows,
+    extract_area_spread_frame,
     extract_daily_frame,
     extract_period_profile_frame,
     register_holidays,
@@ -38,6 +41,16 @@ AREA_RELATION = "silver_area"
 BASE_RELATION = "silver_base"
 
 AREAS = ("tokyo", "kyushu")
+
+# Time code 1 starts at 00:00 JST, which is 15:00 UTC the previous day. The
+# silver area table carries this alongside the business date and time code.
+JST = timezone(timedelta(hours=9))
+
+
+def _slot_start(delivery_date: date, time_code: int) -> datetime:
+    """Build the UTC instant a time code starts at, as silver stores it."""
+    start = datetime.combine(delivery_date, time.min, tzinfo=JST)
+    return (start + timedelta(minutes=30 * (time_code - 1))).astimezone(UTC)
 
 
 def _rows(
@@ -72,6 +85,7 @@ def _rows(
                     "time_code": time_code,
                     "area_name": area_name,
                     "area_price": Decimal(str(price)),
+                    "delivery_datetime": _slot_start(delivery_date, time_code),
                 }
             )
     return area_rows, base_rows
@@ -590,3 +604,118 @@ def test_scanned_date_range_is_none_for_an_empty_scope(conn) -> None:
         resolve_scanned_date_range(conn, base_relation=BASE_RELATION, fiscal_year=1999)
         is None
     )
+
+
+# --- Area spread -------------------------------------------------------------
+#
+# The only table here that does not aggregate. It is the pre-joined interval
+# fact the dashboard reads, so the heatmap does not have to join the silver
+# area and base tables on every query.
+
+
+def _build_spread(conn: duckdb.DuckDBPyConnection, **kwargs: object) -> None:
+    build_area_spread_relation(
+        conn,
+        area_relation=AREA_RELATION,
+        base_relation=BASE_RELATION,
+        **kwargs,  # pyright: ignore[reportArgumentType]
+    )
+
+
+def test_area_spread_keeps_one_row_per_slot_and_area(conn) -> None:
+    """No aggregation: the grain matches the silver area table exactly."""
+    # Arrange
+    _register(conn, *_rows(time_codes=3))
+
+    # Act
+    _build_spread(conn)
+    frame = extract_area_spread_frame(conn)
+
+    # Assert
+    assert frame.height == 3 * len(AREAS)
+    assert sorted(frame["time_code"].unique().to_list()) == [1, 2, 3]
+
+
+def test_area_spread_carries_both_prices_and_their_gap(conn) -> None:
+    """The prices ride along so a chart never has to join back to silver."""
+    # Arrange
+    _register(
+        conn,
+        *_rows(
+            time_codes=1, area_price={"tokyo": 12.0, "kyushu": 7.0}, system_price=10.0
+        ),
+    )
+
+    # Act
+    _build_spread(conn)
+    frame = extract_area_spread_frame(conn)
+    tokyo = frame.filter(pl.col("area_name") == "tokyo")
+    kyushu = frame.filter(pl.col("area_name") == "kyushu")
+
+    # Assert
+    assert tokyo["area_price"][0] == Decimal("12.000")
+    assert tokyo["system_price"][0] == Decimal("10.000")
+    assert tokyo["spread"][0] == Decimal("2.000")
+    assert kyushu["spread"][0] == Decimal("-3.000")
+
+
+def test_area_spread_flags_a_one_tick_difference_as_split(conn) -> None:
+    """The same threshold the aggregates count with, applied in one place."""
+    # Arrange
+    area_rows, base_rows = _rows(time_codes=2, area_price=10.0, system_price=10.0)
+    area_rows[0]["area_price"] = Decimal("10.01")  # tokyo, time_code 1
+    _register(conn, area_rows, base_rows)
+
+    # Act
+    _build_spread(conn)
+    frame = extract_area_spread_frame(conn)
+
+    # Assert
+    split = frame.filter(pl.col("is_split"))
+    assert split.height == 1
+    assert split["area_name"][0] == "tokyo"
+    assert split["time_code"][0] == 1
+
+
+def test_area_spread_is_not_split_when_the_prices_match(conn) -> None:
+    # Arrange
+    _register(conn, *_rows(time_codes=2, area_price=10.0, system_price=10.0))
+
+    # Act
+    _build_spread(conn)
+    frame = extract_area_spread_frame(conn)
+
+    # Assert
+    assert set(frame["is_split"].to_list()) == {False}
+
+
+def test_area_spread_fiscal_year_narrows_the_rows(conn) -> None:
+    # Arrange
+    area_rows: list[dict[str, object]] = []
+    base_rows: list[dict[str, object]] = []
+    for day in (date(2025, 3, 31), date(2025, 4, 1)):
+        day_area, day_base = _rows(delivery_date=day, time_codes=1)
+        area_rows.extend(day_area)
+        base_rows.extend(day_base)
+    _register(conn, area_rows, base_rows)
+
+    # Act
+    _build_spread(conn, fiscal_year=2025)
+    frame = extract_area_spread_frame(conn)
+
+    # Assert
+    assert set(frame["delivery_date"].to_list()) == {date(2025, 4, 1)}
+
+
+def test_area_spread_row_count_matches_the_daily_time_code_counts(conn) -> None:
+    """The two tables are two views of the same joined rows."""
+    # Arrange
+    _register(conn, *_rows(time_codes=5))
+
+    # Act
+    _build(conn)
+    _build_spread(conn)
+
+    # Assert
+    daily_total = sum(extract_daily_frame(conn)["time_code_count"].to_list())
+    assert count_staged_rows(conn, AREA_SPREAD_STAGING_RELATION) == daily_total
