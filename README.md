@@ -189,6 +189,41 @@ by the scope filter before validation ever sees it, so without that check it
 reported `dropped=0, written=0, status=success` while silver went unwritten.
 See `docs/tasks/tasks.md` section 8.4.
 
+#### Backfilling and replaying a range of fiscal years
+
+`backfill-jepx` runs one raw+bronze pass per fiscal year and then rebuilds
+silver once for every year:
+
+```bash
+uv run python src/main.py backfill-jepx \
+	--from-fiscal-year 2005 --to-fiscal-year 2026
+```
+
+`--to-fiscal-year` defaults to `--from-fiscal-year`, so a single year needs
+only the one flag. Silver runs once at the end rather than per year: a scoped
+silver run re-scans the whole bronze table (the fiscal year filter applies to
+a cast column, so it cannot be pushed into the Iceberg scan), and one unscoped
+pass covers every year for the cost of a single scan. A year that fails is
+recorded and the range continues; the command exits non-zero afterwards and
+names the years needing attention.
+
+Add `--from-raw` to replay from the raw snapshots already in storage instead
+of fetching them again -- the rebuild procedure
+`docs/architecture/replay_strategy.md` defines, where raw is the source of
+truth. This makes no HTTP request at all, so `--request-delay-seconds`
+(default 3, applied between each year's request otherwise) does not apply:
+
+```bash
+uv run python src/main.py backfill-jepx \
+	--from-fiscal-year 2005 --to-fiscal-year 2026 --from-raw
+```
+
+Bronze ingestion still skips a snapshot whose `source_data` is already
+present, so replaying into an intact bronze table is a per-year no-op that
+leaves only the silver rebuild to do (Silver Corruption Recovery). Clearing
+the affected bronze rows first is what makes it re-ingest them (Bronze
+Corruption Recovery).
+
 ### 6) Build OCCTO silver layer with Python + DuckDB + PyIceberg
 
 Transform OCCTO bronze unit generation actuals into the silver Iceberg table:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from common.silver_write import SilverWriteResult  # noqa: E402 -- needs SRC on sys.path
+from orchestration.pipeline_result import has_failed_step  # noqa: E402 -- same
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (  # noqa: E402 -- same
     BronzeToSilverResult,
 )
@@ -580,3 +582,231 @@ def test_main_exits_nonzero_when_a_step_failed(monkeypatch, tmp_path: Path) -> N
         jepx_pipeline.main()
 
     assert exit_info.value.code == 1
+
+
+# --- Fiscal-year backfill (docs/tasks/tasks.md section 8.5) -------------------
+#
+# The FY2005-FY2026 backfill ran as a throwaway shell loop, so the rebuild
+# procedure docs/architecture/replay_strategy.md defines was not executable.
+# These pin down the loop: one raw+bronze pass per fiscal year, then a single
+# silver rebuild covering every year.
+
+
+def _backfill_kwargs(**overrides: object) -> dict[str, object]:
+    """Build the backfill arguments with per-test overrides."""
+    kwargs: dict[str, object] = {
+        "bucket_name": "jp-power-grid-dev",
+        "from_fiscal_year": 2005,
+        "to_fiscal_year": 2007,
+        "catalog_name": "dlh_dev",
+        "bronze_table_identifier": "bronze.jepx_spot_price",
+        "bronze_schema_path": BRONZE_SCHEMA_PATH,
+        "allow_duplicate_source": False,
+        "bronze_location": "s3://jp-power-grid-dev/bronze/jepx_spot_price",
+        "silver_schema_dir": SILVER_SCHEMA_DIR,
+        "from_raw": False,
+        "request_delay_seconds": 3.0,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+class _RecordingScraper:
+    """Scraper stand-in that records whether it was closed."""
+
+    instances: list[_RecordingScraper] = []
+
+    def __init__(self) -> None:
+        self.closed = False
+        _RecordingScraper.instances.append(self)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.fixture
+def backfill_calls(monkeypatch):
+    """Stub every step the backfill drives and record how it called them."""
+    _RecordingScraper.instances = []
+    calls: dict[str, list] = {"raw": [], "bronze": [], "silver": [], "sleep": []}
+
+    monkeypatch.setattr(jepx_pipeline, "RustFSClient", lambda: "rustfs-client")
+    monkeypatch.setattr(jepx_pipeline, "JEPXSpotSummaryScraper", _RecordingScraper)
+    monkeypatch.setattr(jepx_pipeline.time, "sleep", lambda s: calls["sleep"].append(s))
+
+    def fake_raw_step(*, target_at: datetime, **kwargs: object):
+        calls["raw"].append({"target_at": target_at, **kwargs})
+        return (
+            jepx_pipeline.PipelineStepResult("source_to_raw", "success", "ok"),
+            # Every backfill target is April 1, so the year names the fiscal year.
+            target_at.year,
+        )
+
+    def fake_bronze_step(**kwargs: object):
+        calls["bronze"].append(kwargs)
+        return jepx_pipeline.PipelineStepResult("raw_to_bronze", "success", "ok")
+
+    def fake_silver_step(**kwargs: object):
+        calls["silver"].append(kwargs)
+        return jepx_pipeline.PipelineStepResult("bronze_to_silver", "success", "ok")
+
+    monkeypatch.setattr(jepx_pipeline, "run_source_to_raw_step", fake_raw_step)
+    monkeypatch.setattr(jepx_pipeline, "run_raw_to_bronze_step", fake_bronze_step)
+    monkeypatch.setattr(jepx_pipeline, "run_bronze_to_silver_step", fake_silver_step)
+    return calls
+
+
+def test_backfill_runs_one_raw_and_bronze_pass_per_fiscal_year(
+    monkeypatch, backfill_calls
+) -> None:
+    """Every year in the range is scraped and ingested exactly once."""
+    # Arrange / Act
+    jepx_pipeline.run_jepx_backfill_pipeline(**_backfill_kwargs())
+
+    # Assert
+    scraped_years = [call["target_at"].year for call in backfill_calls["raw"]]
+    assert scraped_years == [2005, 2006, 2007]
+    assert [call["fiscal_year"] for call in backfill_calls["bronze"]] == [
+        2005,
+        2006,
+        2007,
+    ]
+
+
+def test_backfill_targets_the_first_day_of_each_fiscal_year(
+    monkeypatch, backfill_calls
+) -> None:
+    """The scrape target follows scrape-jepx --fiscal-year's own convention."""
+    # Arrange / Act
+    jepx_pipeline.run_jepx_backfill_pipeline(**_backfill_kwargs(to_fiscal_year=2005))
+
+    # Assert
+    assert backfill_calls["raw"][0]["target_at"] == datetime(2005, 4, 1, tzinfo=UTC)
+
+
+def test_backfill_builds_silver_once_for_every_fiscal_year(
+    monkeypatch, backfill_calls
+) -> None:
+    """Silver runs once at the end, not per year.
+
+    A scoped run re-scans the whole bronze table, so 22 of them would repeat
+    that scan 22 times; one unscoped pass rebuilds every year in a single scan.
+    """
+    # Arrange / Act
+    results = jepx_pipeline.run_jepx_backfill_pipeline(**_backfill_kwargs())
+
+    # Assert
+    assert len(backfill_calls["silver"]) == 1
+    assert backfill_calls["silver"][0]["fiscal_year"] is None
+    assert [result.name for result in results][-1] == "bronze_to_silver"
+
+
+def test_backfill_waits_between_years_but_not_after_the_last(
+    monkeypatch, backfill_calls
+) -> None:
+    """Three years means two waits; the source is hit once per year."""
+    # Arrange / Act
+    jepx_pipeline.run_jepx_backfill_pipeline(**_backfill_kwargs())
+
+    # Assert
+    assert backfill_calls["sleep"] == [3.0, 3.0]
+
+
+def test_backfill_from_raw_never_touches_the_source(
+    monkeypatch, backfill_calls
+) -> None:
+    """Replaying from raw must not scrape, wait, or open a session."""
+    # Arrange / Act
+    results = jepx_pipeline.run_jepx_backfill_pipeline(
+        **_backfill_kwargs(from_raw=True)
+    )
+
+    # Assert
+    assert backfill_calls["raw"] == []
+    assert backfill_calls["sleep"] == []
+    assert _RecordingScraper.instances == []
+    assert [call["fiscal_year"] for call in backfill_calls["bronze"]] == [
+        2005,
+        2006,
+        2007,
+    ]
+    assert "source_to_raw" not in [result.name for result in results]
+
+
+def test_backfill_from_raw_reingests_already_processed_snapshots(
+    monkeypatch, backfill_calls
+) -> None:
+    """The ingestion log marks replayed snapshots processed, so the filter must go.
+
+    With require_unprocessed left on, every already-ingested year resolves to
+    no snapshot and the whole replay silently does nothing.
+    """
+    # Arrange / Act
+    jepx_pipeline.run_jepx_backfill_pipeline(**_backfill_kwargs(from_raw=True))
+
+    # Assert
+    assert all(
+        call["require_unprocessed"] is False for call in backfill_calls["bronze"]
+    )
+
+
+def test_backfill_keeps_require_unprocessed_when_scraping(
+    monkeypatch, backfill_calls
+) -> None:
+    """A scraping run has just written a fresh, unprocessed snapshot per year."""
+    # Arrange / Act
+    jepx_pipeline.run_jepx_backfill_pipeline(**_backfill_kwargs())
+
+    # Assert
+    assert all(call["require_unprocessed"] is True for call in backfill_calls["bronze"])
+
+
+def test_backfill_continues_after_a_year_fails(monkeypatch, backfill_calls) -> None:
+    """One bad year must not cost the other twenty-one."""
+
+    # Arrange
+    def failing_bronze_step(**kwargs: object):
+        if kwargs["fiscal_year"] == 2006:
+            raise RuntimeError("bronze exploded")
+        return jepx_pipeline.PipelineStepResult("raw_to_bronze", "success", "ok")
+
+    monkeypatch.setattr(jepx_pipeline, "run_raw_to_bronze_step", failing_bronze_step)
+
+    # Act
+    results = jepx_pipeline.run_jepx_backfill_pipeline(**_backfill_kwargs())
+
+    # Assert
+    failed = [result for result in results if result.status == "failed"]
+    assert len(failed) == 1
+    assert "2006" in failed[0].detail
+    assert len(backfill_calls["raw"]) == 3  # the loop kept going
+    assert len(backfill_calls["silver"]) == 1
+    assert has_failed_step(results) is True
+
+
+def test_backfill_closes_the_scraper_even_when_a_year_fails(
+    monkeypatch, backfill_calls
+) -> None:
+    """The session is opened once for the whole range and always closed."""
+
+    # Arrange
+    def failing_raw_step(**kwargs: object):
+        raise RuntimeError("scrape exploded")
+
+    monkeypatch.setattr(jepx_pipeline, "run_source_to_raw_step", failing_raw_step)
+
+    # Act
+    jepx_pipeline.run_jepx_backfill_pipeline(**_backfill_kwargs())
+
+    # Assert
+    assert len(_RecordingScraper.instances) == 1  # one session for every year
+    assert _RecordingScraper.instances[0].closed is True
+
+
+def test_backfill_rejects_a_reversed_fiscal_year_range() -> None:
+    """to < from would silently loop zero times."""
+    # Arrange / Act / Assert
+    with pytest.raises(ValueError, match="to_fiscal_year"):
+        jepx_pipeline.run_jepx_backfill_pipeline(
+            **_backfill_kwargs(from_fiscal_year=2026, to_fiscal_year=2005)
+        )

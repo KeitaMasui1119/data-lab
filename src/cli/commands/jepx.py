@@ -6,9 +6,7 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from cli.args import add_catalog_arg
 from cli.defaults import DEFAULT_BUCKET, DEFAULT_DBT_PROJECT_DIR, bronze_schema_path
@@ -16,11 +14,16 @@ from cli.registry import CommandSpec
 from common.storage_client import RustFSClient
 from common.utilities import resolve_target_at
 from orchestration.pipeline_result import has_failed_step
-from orchestration.pl_jepx_spot_price import run_jepx_orchestrated_pipeline
+from orchestration.pl_jepx_spot_price import (
+    DEFAULT_REQUEST_DELAY_SECONDS,
+    run_jepx_backfill_pipeline,
+    run_jepx_orchestrated_pipeline,
+)
 from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
 )
+from pipeline.jepx_common import resolve_fiscal_year_start
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
     scrape_jepx_spot_price_raw,
@@ -62,7 +65,7 @@ def _handle_scrape(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     rustfs = RustFSClient()
     scraper = JEPXSpotSummaryScraper()
     if args.fiscal_year is not None:
-        target_at = datetime(args.fiscal_year, 4, 1, tzinfo=ZoneInfo("UTC"))
+        target_at = resolve_fiscal_year_start(args.fiscal_year)
     else:
         target_at = resolve_target_at(args.timestamp_ms)
 
@@ -363,6 +366,107 @@ def _handle_orchestrator(
         raise SystemExit(1)
 
 
+def _configure_backfill(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--from-fiscal-year",
+        type=int,
+        required=True,
+        help="First fiscal year to rebuild (e.g. 2005)",
+    )
+    parser.add_argument(
+        "--to-fiscal-year",
+        type=int,
+        help="Last fiscal year to rebuild (default: same as --from-fiscal-year)",
+    )
+    parser.add_argument(
+        "--from-raw",
+        action="store_true",
+        help=(
+            "Rebuild from the raw snapshots already in storage instead of "
+            "fetching them again (replay_strategy.md's rebuild procedure)"
+        ),
+    )
+    parser.add_argument(
+        "--request-delay-seconds",
+        type=float,
+        default=DEFAULT_REQUEST_DELAY_SECONDS,
+        help=(
+            "Pause between each year's source request "
+            f"(default: {DEFAULT_REQUEST_DELAY_SECONDS}; ignored with --from-raw)"
+        ),
+    )
+    parser.add_argument(
+        "--bucket",
+        default=DEFAULT_BUCKET,
+        help=f"Source/target bucket name (default: {DEFAULT_BUCKET})",
+    )
+    add_catalog_arg(parser)
+    parser.add_argument(
+        "--bronze-table",
+        default="bronze.jepx_spot_price",
+        help="Target bronze Iceberg table identifier",
+    )
+    parser.add_argument(
+        "--bronze-schema-path",
+        default=DEFAULT_BRONZE_SCHEMA_PATH,
+        help="Bronze schema CSV path",
+    )
+    parser.add_argument(
+        "--allow-duplicate-source",
+        action="store_true",
+        help="Allow append even if source_data already exists",
+    )
+    parser.add_argument(
+        "--bronze-location",
+        default=DEFAULT_BRONZE_LOCATION,
+        help="Bronze table location scanned by the silver transform",
+    )
+    parser.add_argument(
+        "--silver-schema-dir",
+        default=DEFAULT_SILVER_SCHEMA_DIR,
+        help="Directory containing the silver schema CSV files",
+    )
+
+
+def _handle_backfill(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    to_fiscal_year = (
+        args.to_fiscal_year
+        if args.to_fiscal_year is not None
+        else args.from_fiscal_year
+    )
+    if to_fiscal_year < args.from_fiscal_year:
+        parser.error(
+            f"--to-fiscal-year ({to_fiscal_year}) is before --from-fiscal-year "
+            f"({args.from_fiscal_year}); the range would cover no years"
+        )
+
+    results = run_jepx_backfill_pipeline(
+        bucket_name=args.bucket,
+        from_fiscal_year=args.from_fiscal_year,
+        to_fiscal_year=to_fiscal_year,
+        catalog_name=args.catalog,
+        bronze_table_identifier=args.bronze_table,
+        bronze_schema_path=args.bronze_schema_path,
+        allow_duplicate_source=args.allow_duplicate_source,
+        bronze_location=args.bronze_location,
+        silver_schema_dir=args.silver_schema_dir,
+        from_raw=args.from_raw,
+        request_delay_seconds=args.request_delay_seconds,
+    )
+    for result in results:
+        logger.info(
+            "Backfill step result: step=%s, status=%s, detail=%s",
+            result.name,
+            result.status,
+            result.detail,
+        )
+
+    # A failed step that only reaches the log still exits 0, which is how both
+    # backfill incidents passed for clean runs.
+    if has_failed_step(results):
+        raise SystemExit(1)
+
+
 def _configure_silver(parser: argparse.ArgumentParser) -> None:
     add_catalog_arg(parser)
     parser.add_argument(
@@ -435,5 +539,11 @@ COMMANDS = [
         help="Transform JEPX bronze spot prices into silver Iceberg tables",
         configure=_configure_silver,
         handler=_handle_silver,
+    ),
+    CommandSpec(
+        name="backfill-jepx",
+        help="Rebuild a range of JEPX fiscal years (raw/bronze per year, silver once)",
+        configure=_configure_backfill,
+        handler=_handle_backfill,
     ),
 ]

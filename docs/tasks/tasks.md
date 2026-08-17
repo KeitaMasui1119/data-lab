@@ -378,13 +378,61 @@ JEPX/OCCTO 両オーケストレーターが呼ぶ共通実装）。次の3つ�
   ともに期待 22,224 行に対し Silver 実測 22,224 行、JEPX は FY2024 → 17,520 行、
   FY2026 → 6,288 行で完全一致。
 
-### 8.5 バックフィル用 CLI コマンドの追加（優先度: 中）
+### 8.5 バックフィル用 CLI コマンドの追加（優先度: 中、解決済み）
 
 今回の22年度バックフィルは使い捨てのシェルループで実施しており、
-`docs/architecture/replay_strategy.md` が定める再構築手順が実行可能な形で残っていない。
+`docs/architecture/replay_strategy.md` が定める再構築手順が実行可能な形で残っていなかった。
 
-- [ ] 年度範囲を受け取る一次コマンドを `src/main.py` に実装する
-      （例: `backfill-jepx --from-fiscal-year 2005 --to-fiscal-year 2026`）
+- [x] ~~年度範囲を受け取る一次コマンドを `src/main.py` に実装する
+      （例: `backfill-jepx --from-fiscal-year 2005 --to-fiscal-year 2026`）~~ →
+      `backfill-jepx` を追加（`src/cli/commands/jepx.py` + `run_jepx_backfill_pipeline()`）。
+      `--to-fiscal-year` の既定は `--from-fiscal-year`（OCCTO の `--to-date` と同じ規約）、
+      逆順範囲は `parser.error`。
+
+**処理フロー**: 年度ごとに raw→bronze を回し、**Silver は最後に全年度1回**。
+スコープ付き Silver 実行は会計年度フィルタがキャスト後の列に掛かるため Iceberg
+スキャンに押し込めず Bronze 全体を再スキャンする。22回繰り返すより、スコープ無しの
+1パスで全年度を1スキャン分のコストで賄う方が安い（8.1 の実測で約12秒）。
+
+**`--from-raw`（replay_strategy.md の再構築手順）**: 実装時に、単にスクレイプを
+飛ばすだけでは**機能しない**ことが判明した。Bronze 取り込みは
+`require_unprocessed=True` で呼ばれており、取り込み済みスナップショットは ingestion log で
+`bronze_status='processed'` になるため、全年度が `ValueError` → skipped となって
+Raw→Bronze が何もしない（`src/common/raw_ingestion_log.py:52-60`）。よって
+`--from-raw` では `require_unprocessed=False` を渡す。`skip_if_exists` は既定のままなので、
+
+- Bronze が健全 → 年度ごとに no-op、最後に Silver だけ再構築（Silver Corruption Recovery）
+- Bronze を消したあと → `source_data` が無いので再 append（Bronze Corruption Recovery）
+
+と、消したかどうかで自然に分岐する。専用フラグは不要。
+
+**その他の設計判断**:
+
+- 年度が1つ失敗しても範囲は継続し、`status="failed"` のステップを記録して最後に
+  失敗年度一覧をログ出力、8.4 の `has_failed_step()` で `SystemExit(1)`。
+  1年度で止まるより、対応が必要な年度が分かる方が replay として有用と判断。
+- スクレイパーには sleep も retry も無く、範囲実行は1年度=1リクエストが連続するため、
+  年度間に固定待機（`--request-delay-seconds`、既定3秒）を入れた。最終年度の後と
+  `--from-raw` 時は待機しない。
+- スクレイパーセッションは範囲全体で1つだけ開き、`finally` で必ず閉じる（OCCTO の
+  日次ループと同じ形）。
+- gold ステップは持たせない（モデルが無く、バックフィルに不要）。
+- `run_jepx_orchestrated_pipeline` に埋まっていた raw / bronze のステップ本体を
+  `run_source_to_raw_step()` / `run_raw_to_bronze_step()` に抽出し、日次とバックフィルで
+  共有した。会計年度→対象日時の変換も `resolve_fiscal_year_start()`
+  （`pipeline/jepx_common.py`）に集約し、`scrape-jepx --fiscal-year` と共用している。
+
+**実データ確認**: `backfill-jepx --from-fiscal-year 2024 --to-fiscal-year 2026 --from-raw`
+を実行。3年度とも `raw_to_bronze status=success rows=0`（＝スナップショットは解決できた
+が `source_data` 既存のため append 無し）、Silver は `staged=374,400 / written=4,113,696`
+（374,400 + 374,400 + 3,364,896）で success、終了コード0。実行前後で
+bronze 380,256 / base 374,400 / block 374,400 / area 3,364,896 と**全テーブル行数が不変**
+であることを確認した。あわせて ingestion log 上で対象3年度が `bronze_status='processed'`
+であることも確認しており、`require_unprocessed=False` が無ければ全年度 skipped に
+なっていた状況で正しく再解決できたことが裏付けられている。
+
+**スコープ外**: Bronze の行を範囲削除する CLI は作っていない
+（replay_strategy.md の "Remove invalid Bronze data" は手動前提）。必要になったら別タスク。
 
 ### 8.6 メタデータ列と変更検知（優先度: 低）
 
