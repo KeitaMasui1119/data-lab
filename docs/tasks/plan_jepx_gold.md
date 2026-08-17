@@ -74,9 +74,20 @@ Gold の設計はこの4点を説明することに集約される。
 
 外部データ不要。Silver から直接導出できるもの。
 
-### 0-1. `gold_jepx_daily`
+### 0-1. `gold_jepx_daily` → **実装済み: `gold.jepx_spot_price_daily`**
 
 日次 × エリアの基本統計。ダッシュボードと後続分析の土台。
+
+> **実装時の変更点**（`src/pipeline/gold/silver_to_gold_jepx_spot_price.py`、CLI `ingest-jepx-silver-to-gold`）
+>
+> - **テーブル名**は `gold.jepx_spot_price_daily`。既存の `silver.jepx_spot_price_*` と
+>   `{layer}.{table}` 規約に合わせた（`gold.gold_jepx_daily` は冗長）
+> - **volume 系は持たせなかった**。全国値なので9エリア行に複製すると SUM が9倍になる。
+>   `system_price` は intensive（横断平均してもシステム価格に戻る）なので非正規化して保持
+> - **パーティションなし**。全期間で7万行しかなく、年単位で切ると小ファイル化するため
+> - 下記の追加列を入れた: `avg_system_price` / `avg_spread` / `max_abs_spread` /
+>   `split_time_code_count`（0-4 の分断分析を daily の粒度で先取り）
+> - 実測 **70,102行**（FY2005–FY2026、7,800日 × 9エリア − 停止期間98日分）
 
 | カラム | 内容 |
 | --- | --- |

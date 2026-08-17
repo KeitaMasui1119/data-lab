@@ -23,6 +23,12 @@ from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     ingest_jepx_spot_summary,
     resolve_default_raw_object,
 )
+from pipeline.gold.silver_to_gold_jepx_spot_price import (
+    DEFAULT_AREA_LOCATION,
+    DEFAULT_BASE_LOCATION,
+    DEFAULT_GOLD_SCHEMA_DIR,
+    run_silver_to_gold_jepx_spot_price,
+)
 from pipeline.jepx_common import resolve_fiscal_year_start
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
@@ -509,6 +515,51 @@ def _handle_silver(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         )
 
 
+def _configure_gold(parser: argparse.ArgumentParser) -> None:
+    add_catalog_arg(parser)
+    parser.add_argument(
+        "--area-location",
+        default=DEFAULT_AREA_LOCATION,
+        help="Silver area table location scanned by DuckDB",
+    )
+    parser.add_argument(
+        "--base-location",
+        default=DEFAULT_BASE_LOCATION,
+        help="Silver base table location scanned by DuckDB",
+    )
+    parser.add_argument(
+        "--schema-dir",
+        default=DEFAULT_GOLD_SCHEMA_DIR,
+        help="Directory containing the gold schema CSV files",
+    )
+    parser.add_argument(
+        "--fiscal-year",
+        type=int,
+        help="Limit the run to one fiscal year (default: rebuild every year)",
+    )
+
+
+def _handle_gold(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    result = run_silver_to_gold_jepx_spot_price(
+        catalog_name=args.catalog,
+        area_location=args.area_location,
+        base_location=args.base_location,
+        schema_dir=args.schema_dir,
+        fiscal_year=args.fiscal_year,
+    )
+    logger.info(
+        "JEPX silver-to-gold completed: execution_id=%s, dates=%s, staged=%s",
+        result.execution_id,
+        result.delivery_date_count,
+        result.staged_row_count,
+    )
+    logger.info(
+        " - table=%s, written=%s",
+        result.write.table_identifier,
+        result.write.rows_written,
+    )
+
+
 COMMANDS = [
     CommandSpec(
         name="scrape-jepx",
@@ -539,6 +590,12 @@ COMMANDS = [
         help="Transform JEPX bronze spot prices into silver Iceberg tables",
         configure=_configure_silver,
         handler=_handle_silver,
+    ),
+    CommandSpec(
+        name="ingest-jepx-silver-to-gold",
+        help="Aggregate JEPX silver spot prices into the gold daily table",
+        configure=_configure_gold,
+        handler=_handle_gold,
     ),
     CommandSpec(
         name="backfill-jepx",
