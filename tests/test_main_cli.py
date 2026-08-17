@@ -244,6 +244,22 @@ EXPECTED_COMMANDS: dict[str, tuple[list[str], dict[str, object]]] = {
             "fiscal_year": None,
         },
     ),
+    "backfill-jepx": (
+        ["--from-fiscal-year", "2005"],
+        {
+            "from_fiscal_year": 2005,
+            "to_fiscal_year": None,
+            "from_raw": False,
+            "request_delay_seconds": 3.0,
+            "bucket": "jp-power-grid-dev",
+            "catalog": "dlh_dev",
+            "bronze_table": "bronze.jepx_spot_price",
+            "bronze_schema_path": JEPX_BRONZE_SCHEMA_PATH,
+            "allow_duplicate_source": False,
+            "bronze_location": "s3://jp-power-grid-dev/bronze/jepx_spot_price",
+            "silver_schema_dir": JEPX_SILVER_SCHEMA_DIR,
+        },
+    ),
 }
 
 
@@ -335,6 +351,16 @@ def test_required_target_date_is_enforced(
             ],
             id="power-usage-hokuriku-bronze-invalid-target-date",
         ),
+        pytest.param(
+            [
+                "backfill-jepx",
+                "--from-fiscal-year",
+                "2026",
+                "--to-fiscal-year",
+                "2005",
+            ],
+            id="backfill-jepx-reversed-fiscal-year-range",
+        ),
     ],
 )
 def test_dispatch_validation_exits_before_touching_external_systems(
@@ -347,6 +373,24 @@ def test_dispatch_validation_exits_before_touching_external_systems(
     monkeypatch.setattr("sys.argv", ["main.py", *argv])
     with pytest.raises(SystemExit):
         main_module.main()
+
+
+def test_backfill_jepx_requires_a_starting_fiscal_year(
+    parser: argparse.ArgumentParser,
+) -> None:
+    """Without a range the command has nothing to rebuild; there is no default."""
+    with pytest.raises(SystemExit):
+        parser.parse_args(["backfill-jepx"])
+
+
+def test_backfill_jepx_accepts_a_single_fiscal_year(
+    parser: argparse.ArgumentParser,
+) -> None:
+    """--to-fiscal-year is optional; omitting it rebuilds the one year given."""
+    args = parser.parse_args(["backfill-jepx", "--from-fiscal-year", "2005"])
+
+    assert args.from_fiscal_year == 2005
+    assert args.to_fiscal_year is None
 
 
 def test_dbt_project_dir_validation_exits_before_touching_external_systems(
