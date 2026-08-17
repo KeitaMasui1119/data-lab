@@ -28,6 +28,9 @@ uv run python src/main.py ingest-occto-raw-to-bronze --object-key raw/occto/unit
 uv run python src/main.py provision-silver-tables
 uv run python src/main.py ingest-jepx-bronze-to-silver
 uv run python src/main.py ingest-jepx-silver-to-gold
+
+# Dashboard
+PYTHONPATH=src uv run streamlit run src/dashboard/app.py
 uv run python src/main.py ingest-occto-bronze-to-silver
 ```
 
@@ -58,6 +61,7 @@ Source → Raw (RustFS s3://jp-power-grid-dev/raw/)
 - **`src/common/`** — Dataset-agnostic shared primitives only; anything dataset-specific belongs under `src/pipeline/` (e.g. `pipeline/jepx_common.py`). Contents: `BaseHttpScraper` (`http_scraper.py`), `RustFSClient` boto3 wrapper (`storage_client.py`), `build_schema_exprs` / `add_metadata` Polars utilities (`pipeline_utilities.py`), `create_duckdb_connection` (`duckdb_utils.py`), window-replace write path (`silver_write.py`), plus the `common/iceberg/` subpackage: `catalog.py` (`get_catalog` / `provision_table` / `evolve_partition_spec`), `schema.py` (schema CSV → PyIceberg `Schema` / `PartitionSpec`), `maintenance.py` (snapshot expiry, orphan file cleanup).
 - **`src/setup/`** — Infra provisioning: bucket creation with Object Lock, prefix initialization.
 - **`src/pipeline/gold/`** — Silver → Gold aggregation. `silver_to_gold_jepx_spot_price.py` joins the area and base silver tables and writes three tables in one run: `jepx_spot_price_daily` (collapse the time codes), `jepx_spot_price_period_profile` (collapse the dates, keeping the intraday curve per month/area/day type) and `jepx_spot_price_area_spread` (no aggregation -- the pre-joined interval fact for heatmaps). Grain notes: prices are denormalized across areas but volumes are not (they are national, so repeating them would make a SUM over areas nine times too large), and the profile stores counts rather than rates so rollups stay correct. Both frames are key-checked before either is written.
+- **`src/dashboard/`** — Streamlit app over gold. `queries.py` (DuckDB reads) and `charts.py` (Plotly figures) are Streamlit-free so they can be tested without a server; `app.py` is glue. Palette and its validation rationale live in `theme.py` — three categorical slots is a hard cap, and colour follows the entity rather than its rank.
 - **`src/dbt/jepx_power/`** — dbt project using DuckDB adapter, currently unused. Gold took the same Python/DuckDB/PyIceberg route as silver, so no models remain. profiles.yml lives in the same directory.
 - **`configuration/iceberg/schema/`** — **Source of truth for all table schemas.** CSV format has columns `source_name`, `name`, `type`. `provision_table()` creates or evolves tables from these files.
 - **`configuration/iceberg/.pyiceberg.yaml`** — Catalog config. The `dlh_dev` catalog is SQLite-backed (`catalog/dlh_dev.db`), warehoused on RustFS at `http://rustfs:9000`.

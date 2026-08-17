@@ -70,3 +70,14 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --chown=appuser:appuser src ./src
 USER 1000
 CMD ["python", "-m", "src.main"]
+
+# === 5. Dashboard Stage(Streamlit) ===
+FROM prd AS dashboard
+# The app imports `dashboard.*` / `common.*`, so src itself is the import root
+# rather than a `src.` prefix -- same convention the CLI uses.
+ENV PYTHONPATH=/app/src \
+    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
+    STREAMLIT_SERVER_PORT=8501
+COPY --chown=appuser:appuser .streamlit ./.streamlit
+EXPOSE 8501
+CMD ["streamlit", "run", "src/dashboard/app.py"]

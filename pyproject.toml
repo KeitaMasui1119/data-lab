@@ -30,6 +30,7 @@ dependencies = [
     'Scrapy>=2.14.2',
     'seaborn>=0.13.2',
     'shandy-sqlfmt[jinjafmt]>=0.29.0',
+    "streamlit>=1.61.1",
 ]
 
 [dependency-groups]

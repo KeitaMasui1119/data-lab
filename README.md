@@ -353,6 +353,45 @@ current year's actuals archive is not published live;
 only a Hokuriku-style rich snapshot (`juyo-d1-j.csv`) is available for
 it, which needs a different extraction approach.
 
+## Dashboard
+
+A Streamlit app over the gold layer. It reads gold only -- never silver --
+which is what `gold.jepx_spot_price_area_spread` exists for.
+
+```bash
+# locally
+PYTHONPATH=src uv run streamlit run src/dashboard/app.py
+
+# containerised, alongside RustFS
+docker compose up dashboard   # http://localhost:8501
+```
+
+Three tabs, one per finding the gold tables were built to carry:
+
+| Tab | Source table | Shows |
+|---|---|---|
+| 価格ヒートマップ | `_area_spread` | delivery date x time code for one fiscal year and area |
+| 市場分断 | `_daily` | share of slots that split, per fiscal year and area |
+| 日内カーブ | `_period_profile` | intraday price curve, up to three fiscal years overlaid |
+
+Design notes worth knowing before editing the charts:
+
+- The palette is validated, not chosen by eye: three categorical slots
+  (`#2a78d6`, `#eb6834`, `#1baf7a`) clear the colourblind and normal-vision
+  separation floors on the light surface. Three is the cap -- a fourth series
+  is not a generated hue. One slot sits below 3:1 contrast, so every line
+  carries a direct label and every chart ships a table view.
+- Colour follows the entity, not its rank. Deselecting a year does not
+  repaint the others (`charts.assign_series_slots`).
+- Both heatmaps use one sequential hue. The price ramp clips at the 99th
+  percentile because a single 2021-style spike would otherwise flatten every
+  ordinary day into the lightest step; the caption states the true peak.
+- The app commits to light mode (`.streamlit/config.toml`) rather than
+  shipping a dark mode whose colours were never validated.
+
+`src/dashboard/queries.py` and `src/dashboard/charts.py` are free of
+Streamlit so both can be tested without a server; `app.py` is only glue.
+
 ## Bronze Table Schema
 
 `configuration/iceberg/schema/{bronze,silver}/` is the source of truth for

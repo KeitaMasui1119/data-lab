@@ -17,6 +17,20 @@ services:
       - 1.1.1.1 # Cloudflare DNS Primary
     depends_on:
       - rustfs
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard
+      args:
+        UV_VERSION: latest
+    ports:
+      - "8501:8501"
+    env_file:
+      - ./.env
+    depends_on:
+      - rustfs
+    restart: unless-stopped
   rustfs:
     image: rustfs/rustfs:latest
     ports:
