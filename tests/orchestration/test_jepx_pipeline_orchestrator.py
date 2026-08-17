@@ -486,28 +486,43 @@ def test_run_jepx_orchestrated_pipeline_skips_raw_to_bronze_when_no_unprocessed(
 # docs/tasks/tasks.md section 8.2 lists as untested.
 
 
-def _run_module_main(monkeypatch, argv: list[str], results: list[object]) -> None:
-    """Invoke the module's main() with every external system stubbed out."""
-    monkeypatch.setattr(sys, "argv", ["pl_jepx_spot_price.py", *argv])
-    monkeypatch.setattr(
-        jepx_pipeline, "run_jepx_orchestrated_pipeline", lambda **_: results
-    )
+def _run_module_main(
+    monkeypatch, argv: list[str], results: list[object], dbt_dir: Path
+) -> None:
+    """Invoke the module's main() with every external system stubbed out.
 
-
-def test_main_rejects_both_silver_scope_flags(monkeypatch) -> None:
-    """--silver-all-fiscal-years would discard the year --silver-fiscal-year names."""
-    # Arrange
-    pipeline_calls: list[dict[str, object]] = []
-
+    ``main()`` calls parser.error() when the dbt directories do not exist,
+    and its defaults point at /workspace, which only exists in the dev
+    container. Pointing them at a real directory keeps these tests about the
+    checks they are named for rather than about where the repo is checked out.
+    """
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "pl_jepx_spot_price.py",
-            "--silver-all-fiscal-years",
-            "--silver-fiscal-year",
-            "2026",
+            "--dbt-project-dir",
+            str(dbt_dir),
+            "--dbt-profiles-dir",
+            str(dbt_dir),
+            *argv,
         ],
+    )
+    monkeypatch.setattr(
+        jepx_pipeline, "run_jepx_orchestrated_pipeline", lambda **_: results
+    )
+
+
+def test_main_rejects_both_silver_scope_flags(monkeypatch, tmp_path: Path) -> None:
+    """--silver-all-fiscal-years would discard the year --silver-fiscal-year names."""
+    # Arrange
+    pipeline_calls: list[dict[str, object]] = []
+
+    _run_module_main(
+        monkeypatch,
+        ["--silver-all-fiscal-years", "--silver-fiscal-year", "2026"],
+        [],
+        tmp_path,
     )
     monkeypatch.setattr(
         jepx_pipeline,
@@ -531,20 +546,23 @@ def test_main_rejects_both_silver_scope_flags(monkeypatch) -> None:
         pytest.param([], id="neither"),
     ],
 )
-def test_main_accepts_either_silver_scope_flag_alone(monkeypatch, argv) -> None:
+def test_main_accepts_either_silver_scope_flag_alone(
+    monkeypatch, argv, tmp_path: Path
+) -> None:
     """The guard rejects the combination only, not each flag on its own."""
     # Arrange
     _run_module_main(
         monkeypatch,
         argv,
         [jepx_pipeline.PipelineStepResult("bronze_to_silver", "success", "ok")],
+        tmp_path,
     )
 
     # Act / Assert
     jepx_pipeline.main()
 
 
-def test_main_exits_nonzero_when_a_step_failed(monkeypatch) -> None:
+def test_main_exits_nonzero_when_a_step_failed(monkeypatch, tmp_path: Path) -> None:
     """A failed step has to reach the shell, or the run still looks clean."""
     # Arrange
     _run_module_main(
@@ -554,6 +572,7 @@ def test_main_exits_nonzero_when_a_step_failed(monkeypatch) -> None:
             jepx_pipeline.PipelineStepResult("source_to_raw", "success", "ok"),
             jepx_pipeline.PipelineStepResult("bronze_to_silver", "failed", "no rows"),
         ],
+        tmp_path,
     )
 
     # Act / Assert
