@@ -184,6 +184,12 @@ FROM validated
 """)
 
 
+def count_staged_rows(conn: duckdb.DuckDBPyConnection) -> int:
+    """Count every staged row, whether or not it passed validation."""
+    row = conn.execute(f"SELECT count(*) FROM {STAGING_RELATION}").fetchone()
+    return int(row[0]) if row else 0
+
+
 def count_dropped_rows(conn: duckdb.DuckDBPyConnection) -> int:
     """Count staged rows excluded from silver because they failed validation."""
     row = conn.execute(
@@ -362,12 +368,37 @@ SILVER_KEY_COLUMNS = ("power_plant_code", "unit_name", "target_date", "time_code
 
 @dataclass(frozen=True)
 class OcctoBronzeToSilverResult:
-    """Outcome of one OCCTO bronze-to-silver run."""
+    """Outcome of one OCCTO bronze-to-silver run.
+
+    ``staged_row_count`` covers every row the staging relation held, valid or
+    not, which is what separates "bronze had nothing in scope" from "bronze
+    had rows and validation rejected them". Without it a run whose
+    ``target_date`` stopped parsing reports dropped=0 and written=0 -- the
+    target_date filter discards those rows before validation ever sees them --
+    and looks exactly like a legitimately empty scope.
+    """
 
     execution_id: str
     write: SilverWriteResult
     dropped_row_count: int
     daily_amount_mismatch: dict[str, int]
+    staged_row_count: int
+
+    @property
+    def valid_row_count(self) -> int:
+        """Staged rows that passed validation and are unpivoted into silver."""
+        return self.staged_row_count - self.dropped_row_count
+
+    @property
+    def expected_silver_row_count(self) -> int:
+        """Rows the silver table should receive for this run.
+
+        The unpivot is ``INCLUDE NULLS``, so every validated row becomes
+        exactly one row per timeslot -- an empty slot still gets a row with a
+        null ``generation_kwh``. The expectation is therefore exact rather
+        than an upper bound.
+        """
+        return self.valid_row_count * len(TIMESLOT_COLUMNS)
 
 
 def run_bronze_to_silver_occto_unit_generation(
@@ -396,6 +427,7 @@ def run_bronze_to_silver_occto_unit_generation(
             to_date=to_date,
         )
 
+        staged_row_count = count_staged_rows(conn)
         dropped_row_count = count_dropped_rows(conn)
         if dropped_row_count:
             logger.warning(
@@ -444,4 +476,5 @@ def run_bronze_to_silver_occto_unit_generation(
         write=write,
         dropped_row_count=dropped_row_count,
         daily_amount_mismatch=daily_amount_mismatch,
+        staged_row_count=staged_row_count,
     )

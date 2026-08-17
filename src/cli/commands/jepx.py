@@ -15,6 +15,7 @@ from cli.defaults import DEFAULT_BUCKET, DEFAULT_DBT_PROJECT_DIR, bronze_schema_
 from cli.registry import CommandSpec
 from common.storage_client import RustFSClient
 from common.utilities import resolve_target_at
+from orchestration.pipeline_result import has_failed_step
 from orchestration.pl_jepx_spot_price import run_jepx_orchestrated_pipeline
 from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     ingest_jepx_spot_summary,
@@ -356,6 +357,11 @@ def _handle_orchestrator(
             result.detail,
         )
 
+    # A failed step that only reaches the log still exits 0, which is how both
+    # backfill incidents passed for clean runs.
+    if has_failed_step(results):
+        raise SystemExit(1)
+
 
 def _configure_silver(parser: argparse.ArgumentParser) -> None:
     add_catalog_arg(parser)
@@ -384,8 +390,11 @@ def _handle_silver(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         fiscal_year=args.fiscal_year,
     )
     logger.info(
-        "JEPX bronze-to-silver completed: execution_id=%s, dropped=%s",
+        "JEPX bronze-to-silver completed: execution_id=%s, staged=%s, valid=%s, "
+        "dropped=%s",
         result.execution_id,
+        result.staged_row_count,
+        result.valid_row_count,
         result.dropped_row_count,
     )
     for write in result.writes:

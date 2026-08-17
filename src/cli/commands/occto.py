@@ -19,6 +19,7 @@ from cli.registry import CommandSpec
 from cli.scraping import run_daily_scrape_loop
 from common.storage_client import RustFSClient
 from common.utilities import resolve_default_target_date
+from orchestration.pipeline_result import has_failed_step
 from orchestration.pl_occto_unit_generation_actuals import (
     run_occto_orchestrated_pipeline,
 )
@@ -186,9 +187,11 @@ def _handle_silver(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         to_date=to_date,
     )
     logger.info(
-        "OCCTO bronze-to-silver completed: execution_id=%s, dropped=%s, "
-        "daily_amount_mismatch=%s",
+        "OCCTO bronze-to-silver completed: execution_id=%s, staged=%s, valid=%s, "
+        "dropped=%s, daily_amount_mismatch=%s",
         result.execution_id,
+        result.staged_row_count,
+        result.valid_row_count,
         result.dropped_row_count,
         result.daily_amount_mismatch,
     )
@@ -296,6 +299,11 @@ def _handle_orchestrator(
             result.status,
             result.detail,
         )
+
+    # A failed step that only reaches the log still exits 0, which is how both
+    # JEPX backfill incidents passed for clean runs.
+    if has_failed_step(results):
+        raise SystemExit(1)
 
 
 COMMANDS = [

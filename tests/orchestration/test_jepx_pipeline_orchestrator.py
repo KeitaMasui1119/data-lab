@@ -5,10 +5,17 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+
+from common.silver_write import SilverWriteResult  # noqa: E402 -- needs SRC on sys.path
+from pipeline.silver.bronze_to_silver_jepx_spot_price import (  # noqa: E402 -- same
+    BronzeToSilverResult,
+)
 
 ORCHESTRATOR_PATH = SRC / "orchestration/pl_jepx_spot_price.py"
 SPEC = importlib.util.spec_from_file_location("jepx_pipeline", ORCHESTRATOR_PATH)
@@ -111,6 +118,47 @@ def test_run_dbt_step_executes_expected_command(monkeypatch) -> None:
     )
 
 
+def _transform_result(
+    *,
+    staged: int,
+    dropped: int = 0,
+    base_written: int | None = None,
+) -> BronzeToSilverResult:
+    """Build the transform's result with the row counts a real run reports.
+
+    ``base_written`` defaults to the number of rows that passed validation,
+    which is what the base table receives when nothing goes wrong.
+    """
+    written = staged - dropped if base_written is None else base_written
+    return BronzeToSilverResult(
+        execution_id="exec-1",
+        writes=[
+            SilverWriteResult("silver.jepx_spot_price_base", written),
+            SilverWriteResult("silver.jepx_spot_price_block", written),
+            SilverWriteResult("silver.jepx_spot_price_area", written * 9),
+        ],
+        dropped_row_count=dropped,
+        staged_row_count=staged,
+    )
+
+
+def _run_silver_step(monkeypatch, transform_result: BronzeToSilverResult, **overrides):
+    """Run the silver step against a stubbed transform."""
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "run_bronze_to_silver_jepx_spot_price",
+        lambda **_: transform_result,
+    )
+    kwargs: dict[str, object] = {
+        "catalog_name": "dlh_dev",
+        "bronze_location": "s3://bucket/bronze/jepx_spot_price",
+        "silver_schema_dir": SILVER_SCHEMA_DIR,
+        "fiscal_year": 2026,
+    }
+    kwargs.update(overrides)
+    return jepx_pipeline.run_bronze_to_silver_step(**kwargs)
+
+
 def test_run_bronze_to_silver_step_summarizes_written_rows(monkeypatch) -> None:
     """The silver step should total the per-table written row counts."""
     # Arrange
@@ -118,14 +166,7 @@ def test_run_bronze_to_silver_step_summarizes_written_rows(monkeypatch) -> None:
 
     def fake_run(**kwargs: object) -> object:
         captured.update(kwargs)
-        return SimpleNamespace(
-            execution_id="exec-1",
-            dropped_row_count=2,
-            writes=[
-                SimpleNamespace(rows_written=10),
-                SimpleNamespace(rows_written=20),
-            ],
-        )
+        return _transform_result(staged=12, dropped=2)
 
     monkeypatch.setattr(jepx_pipeline, "run_bronze_to_silver_jepx_spot_price", fake_run)
 
@@ -141,8 +182,70 @@ def test_run_bronze_to_silver_step_summarizes_written_rows(monkeypatch) -> None:
     assert captured["fiscal_year"] == 2026
     assert result.name == "bronze_to_silver"
     assert result.status == "success"
-    assert "written=30" in result.detail
+    assert "written=110" in result.detail
     assert "dropped=2" in result.detail
+
+
+# --- Step result verification (docs/tasks/tasks.md section 8.4) ---------------
+#
+# Both backfill incidents looked like clean exits. The step now carries the
+# row counts it expected against the ones it observed so a run that quietly
+# wrote nothing cannot report success.
+
+
+def test_silver_step_reports_expected_and_actual_row_counts(monkeypatch) -> None:
+    """A healthy run records both counts so the numbers are auditable."""
+    # Arrange / Act
+    result = _run_silver_step(monkeypatch, _transform_result(staged=12, dropped=2))
+
+    # Assert
+    assert result.status == "success"
+    assert result.expected_row_count == 10
+    assert result.actual_row_count == 10
+
+
+def test_silver_step_fails_when_nothing_reached_the_staging_relation(
+    monkeypatch,
+) -> None:
+    """The silent no-op that hid the backfill incident must not read as success.
+
+    An unparseable delivery_date is discarded by the fiscal year filter before
+    validation ever runs, so the step reported dropped=0, written=0 and
+    status=success while silver was left untouched.
+    """
+    # Arrange / Act
+    result = _run_silver_step(monkeypatch, _transform_result(staged=0))
+
+    # Assert
+    assert result.status == "failed"
+    assert result.expected_row_count == 0
+    assert result.actual_row_count == 0
+    assert "no bronze rows" in result.detail
+
+
+def test_silver_step_fails_when_every_staged_row_failed_validation(monkeypatch) -> None:
+    """Staging rows that all fail validation leave the window holding stale rows."""
+    # Arrange / Act
+    result = _run_silver_step(monkeypatch, _transform_result(staged=8, dropped=8))
+
+    # Assert
+    assert result.status == "failed"
+    assert "dropped=8" in result.detail
+
+
+def test_silver_step_fails_when_written_rows_diverge_from_valid_rows(
+    monkeypatch,
+) -> None:
+    """Losing rows between the staging relation and the table is a failure."""
+    # Arrange / Act
+    result = _run_silver_step(
+        monkeypatch, _transform_result(staged=12, dropped=2, base_written=7)
+    )
+
+    # Assert
+    assert result.status == "failed"
+    assert result.expected_row_count == 10
+    assert result.actual_row_count == 7
 
 
 def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
@@ -373,3 +476,107 @@ def test_run_jepx_orchestrated_pipeline_skips_raw_to_bronze_when_no_unprocessed(
     assert results[1].name == "raw_to_bronze"
     assert results[1].status == "skipped"
     assert len(silver_calls) == 1
+
+
+# --- The module's own CLI entrypoint ------------------------------------------
+#
+# src/cli/commands/jepx.py carries a second copy of the silver-scope validation
+# for `python src/main.py run-jepx-orchestrator`; tests/test_main_cli.py covers
+# that one. These cover running this module directly, which is the path
+# docs/tasks/tasks.md section 8.2 lists as untested.
+
+
+def _run_module_main(
+    monkeypatch, argv: list[str], results: list[object], dbt_dir: Path
+) -> None:
+    """Invoke the module's main() with every external system stubbed out.
+
+    ``main()`` calls parser.error() when the dbt directories do not exist,
+    and its defaults point at /workspace, which only exists in the dev
+    container. Pointing them at a real directory keeps these tests about the
+    checks they are named for rather than about where the repo is checked out.
+    """
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pl_jepx_spot_price.py",
+            "--dbt-project-dir",
+            str(dbt_dir),
+            "--dbt-profiles-dir",
+            str(dbt_dir),
+            *argv,
+        ],
+    )
+    monkeypatch.setattr(
+        jepx_pipeline, "run_jepx_orchestrated_pipeline", lambda **_: results
+    )
+
+
+def test_main_rejects_both_silver_scope_flags(monkeypatch, tmp_path: Path) -> None:
+    """--silver-all-fiscal-years would discard the year --silver-fiscal-year names."""
+    # Arrange
+    pipeline_calls: list[dict[str, object]] = []
+
+    _run_module_main(
+        monkeypatch,
+        ["--silver-all-fiscal-years", "--silver-fiscal-year", "2026"],
+        [],
+        tmp_path,
+    )
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "run_jepx_orchestrated_pipeline",
+        lambda **kwargs: pipeline_calls.append(kwargs),
+    )
+
+    # Act / Assert
+    with pytest.raises(SystemExit) as exit_info:
+        jepx_pipeline.main()
+
+    assert exit_info.value.code == 2  # argparse's usage-error exit code
+    assert pipeline_calls == []
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["--silver-all-fiscal-years"], id="all-fiscal-years"),
+        pytest.param(["--silver-fiscal-year", "2026"], id="one-fiscal-year"),
+        pytest.param([], id="neither"),
+    ],
+)
+def test_main_accepts_either_silver_scope_flag_alone(
+    monkeypatch, argv, tmp_path: Path
+) -> None:
+    """The guard rejects the combination only, not each flag on its own."""
+    # Arrange
+    _run_module_main(
+        monkeypatch,
+        argv,
+        [jepx_pipeline.PipelineStepResult("bronze_to_silver", "success", "ok")],
+        tmp_path,
+    )
+
+    # Act / Assert
+    jepx_pipeline.main()
+
+
+def test_main_exits_nonzero_when_a_step_failed(monkeypatch, tmp_path: Path) -> None:
+    """A failed step has to reach the shell, or the run still looks clean."""
+    # Arrange
+    _run_module_main(
+        monkeypatch,
+        [],
+        [
+            jepx_pipeline.PipelineStepResult("source_to_raw", "success", "ok"),
+            jepx_pipeline.PipelineStepResult("bronze_to_silver", "failed", "no rows"),
+        ],
+        tmp_path,
+    )
+
+    # Act / Assert
+    with pytest.raises(SystemExit) as exit_info:
+        jepx_pipeline.main()
+
+    assert exit_info.value.code == 1

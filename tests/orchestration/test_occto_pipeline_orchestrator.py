@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import sys
 from datetime import date
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
+from common.silver_write import SilverWriteResult
 from orchestration import pl_occto_unit_generation_actuals as occto_pipeline
+from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
+    DEFAULT_SILVER_TABLE,
+    TIMESLOT_COLUMNS,
+    OcctoBronzeToSilverResult,
+)
 
 BRONZE_SCHEMA_PATH = (
     "/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals/"
@@ -117,16 +126,51 @@ def test_resolve_silver_target_date_window_can_rebuild_every_date() -> None:
     assert window == (None, None)
 
 
+def _transform_result(
+    *,
+    staged: int,
+    dropped: int = 0,
+    rows_written: int | None = None,
+) -> OcctoBronzeToSilverResult:
+    """Build the transform's result with the row counts a real run reports.
+
+    ``rows_written`` defaults to one row per timeslot for every staged row
+    that passed validation, which is what the table receives when nothing
+    goes wrong -- the unpivot is INCLUDE NULLS, so the factor is exact.
+    """
+    valid = staged - dropped
+    written = valid * len(TIMESLOT_COLUMNS) if rows_written is None else rows_written
+    return OcctoBronzeToSilverResult(
+        execution_id="exec-1",
+        write=SilverWriteResult(DEFAULT_SILVER_TABLE, written),
+        dropped_row_count=dropped,
+        daily_amount_mismatch={"mismatch_count": 0, "max_deviation": 0},
+        staged_row_count=staged,
+    )
+
+
+def _run_silver_step(monkeypatch, transform_result: OcctoBronzeToSilverResult):
+    """Run the silver step against a stubbed transform."""
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_bronze_to_silver_occto_unit_generation",
+        lambda **_: transform_result,
+    )
+    return occto_pipeline.run_bronze_to_silver_step(
+        catalog_name="dlh_dev",
+        bronze_location="s3://bucket/bronze/occto_unit_generation_actuals",
+        silver_schema_dir=SILVER_SCHEMA_DIR,
+        from_date=date(2026, 8, 7),
+        to_date=date(2026, 8, 7),
+    )
+
+
 def test_run_bronze_to_silver_step_reports_written_and_dropped(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_run(**kwargs: object) -> object:
         captured.update(kwargs)
-        return SimpleNamespace(
-            execution_id="exec-1",
-            dropped_row_count=5,
-            write=SimpleNamespace(rows_written=48),
-        )
+        return _transform_result(staged=6, dropped=5)
 
     monkeypatch.setattr(
         occto_pipeline, "run_bronze_to_silver_occto_unit_generation", fake_run
@@ -145,6 +189,60 @@ def test_run_bronze_to_silver_step_reports_written_and_dropped(monkeypatch) -> N
     assert result.status == "success"
     assert "written=48" in result.detail
     assert "dropped=5" in result.detail
+
+
+# --- Step result verification (docs/tasks/tasks.md section 8.4) ---------------
+#
+# Same three failure shapes JEPX guards against; OCCTO's staging relation can
+# go silently empty the same way when target_date stops parsing.
+
+
+def test_silver_step_reports_expected_and_actual_row_counts(monkeypatch) -> None:
+    """A healthy run records both counts so the numbers are auditable."""
+    # Arrange / Act
+    result = _run_silver_step(monkeypatch, _transform_result(staged=3))
+
+    # Assert
+    assert result.status == "success"
+    assert result.expected_row_count == 3 * len(TIMESLOT_COLUMNS)
+    assert result.actual_row_count == 3 * len(TIMESLOT_COLUMNS)
+
+
+def test_silver_step_fails_when_nothing_reached_the_staging_relation(
+    monkeypatch,
+) -> None:
+    """An unparseable target_date is dropped by the scope filter, not flagged."""
+    # Arrange / Act
+    result = _run_silver_step(monkeypatch, _transform_result(staged=0))
+
+    # Assert
+    assert result.status == "failed"
+    assert "no bronze rows" in result.detail
+
+
+def test_silver_step_fails_when_every_staged_row_failed_validation(monkeypatch) -> None:
+    """Staged rows that all fail validation leave the window holding stale rows."""
+    # Arrange / Act
+    result = _run_silver_step(monkeypatch, _transform_result(staged=4, dropped=4))
+
+    # Assert
+    assert result.status == "failed"
+    assert "dropped=4" in result.detail
+
+
+def test_silver_step_fails_when_written_rows_diverge_from_the_unpivot_factor(
+    monkeypatch,
+) -> None:
+    """Every validated row must produce exactly one row per timeslot."""
+    # Arrange / Act
+    result = _run_silver_step(
+        monkeypatch, _transform_result(staged=3, rows_written=47 * 3)
+    )
+
+    # Assert
+    assert result.status == "failed"
+    assert result.expected_row_count == 3 * len(TIMESLOT_COLUMNS)
+    assert result.actual_row_count == 47 * 3
 
 
 def test_run_occto_orchestrated_pipeline_runs_all_three_steps(monkeypatch) -> None:
@@ -355,3 +453,77 @@ def test_run_occto_orchestrated_pipeline_defaults_from_date_to_yesterday_jst(
     assert len(scrape_calls) == 1
     assert scrape_calls[0]["from_date"] == date(2026, 8, 9)
     assert scrape_calls[0]["to_date"] == date(2026, 8, 9)
+
+
+# --- The module's own CLI entrypoint ------------------------------------------
+#
+# src/cli/commands/occto.py carries a second copy of the silver-scope
+# validation for `python src/main.py run-occto-orchestrator`;
+# tests/test_main_cli.py covers that one. These cover running this module
+# directly, mirroring the JEPX orchestrator's tests.
+
+
+def test_main_rejects_both_silver_scope_flags(monkeypatch) -> None:
+    """--silver-all-dates would discard the range --silver-from-date names."""
+    # Arrange
+    pipeline_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pl_occto_unit_generation_actuals.py",
+            "--silver-all-dates",
+            "--silver-from-date",
+            "2026-08-07",
+        ],
+    )
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_occto_orchestrated_pipeline",
+        lambda **kwargs: pipeline_calls.append(kwargs),
+    )
+
+    # Act / Assert
+    with pytest.raises(SystemExit) as exit_info:
+        occto_pipeline.main()
+
+    assert exit_info.value.code == 2  # argparse's usage-error exit code
+    assert pipeline_calls == []
+
+
+def test_main_exits_nonzero_when_a_step_failed(monkeypatch) -> None:
+    """A failed step has to reach the shell, or the run still looks clean."""
+    # Arrange
+    monkeypatch.setattr(sys, "argv", ["pl_occto_unit_generation_actuals.py"])
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_occto_orchestrated_pipeline",
+        lambda **_: [
+            occto_pipeline.PipelineStepResult("source_to_raw", "success", "ok"),
+            occto_pipeline.PipelineStepResult("bronze_to_silver", "failed", "no rows"),
+        ],
+    )
+
+    # Act / Assert
+    with pytest.raises(SystemExit) as exit_info:
+        occto_pipeline.main()
+
+    assert exit_info.value.code == 1
+
+
+def test_main_exits_zero_when_every_step_succeeded(monkeypatch) -> None:
+    """The guard fires on failure only, not on any completed run."""
+    # Arrange
+    monkeypatch.setattr(sys, "argv", ["pl_occto_unit_generation_actuals.py"])
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_occto_orchestrated_pipeline",
+        lambda **_: [
+            occto_pipeline.PipelineStepResult("source_to_raw", "skipped", "no change"),
+            occto_pipeline.PipelineStepResult("bronze_to_silver", "success", "ok"),
+        ],
+    )
+
+    # Act / Assert
+    occto_pipeline.main()
