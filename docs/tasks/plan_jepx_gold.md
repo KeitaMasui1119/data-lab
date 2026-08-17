@@ -10,7 +10,7 @@
 | source → RustFS | 実装済み |
 | Bronze | 実装済み（`bronze.jepx_spot_price` 380,256行） |
 | Silver | 実装済み（3テーブル、FY2005–FY2026） |
-| **Gold** | **未実装 ← 本計画の対象** |
+| **Gold** | 0-1 `jepx_spot_price_daily` / 0-3 `jepx_spot_price_period_profile` 実装済み。0-2/0-4/0-5 は未着手 |
 | 可視化・予測 | 未実装 |
 
 ---
@@ -89,17 +89,19 @@ Gold の設計はこの4点を説明することに集約される。
 >   `split_time_code_count`（0-4 の分断分析を daily の粒度で先取り）
 > - 実測 **70,102行**（FY2005–FY2026、7,800日 × 9エリア − 停止期間98日分）
 
+実装された列（元計画の `total_contracted_volume` は上記の理由で不採用）:
+
 | カラム | 内容 |
 | --- | --- |
-| `delivery_date` | JST 暦日 |
-| `area_name` | エリア |
+| `delivery_date` / `area_name` | 業務キー |
 | `avg_price` / `min_price` / `max_price` | 平均・最小・最大 |
 | `median_price` / `p05_price` / `p95_price` | 中央値・分位点 |
-| `stddev_price` | 標準偏差（日次ボラティリティ） |
+| `stddev_price` | 標準偏差（母集団。1コマの日でも NULL にしないため） |
 | `intraday_range` | 日中レンジ = max − min |
-| `total_contracted_volume` | 約定量合計 |
-| `spike_period_count` | 閾値超過コマ数 |
-| `floor_price_period_count` | 下限（0.01円）張り付きコマ数 |
+| `avg_system_price` / `avg_spread` / `max_abs_spread` | システム価格と乖離 |
+| `split_time_code_count` | 市場分断コマ数 |
+| `spike_time_code_count` | 閾値（50円/kWh）超過コマ数 |
+| `floor_time_code_count` | 下限（0.01円）張り付きコマ数 |
 | `time_code_count` | 実在コマ数（48 でなければ欠損） |
 
 `time_code_count` は品質チェックを兼ねる。日本には DST がないため 48 が常に正。
@@ -109,12 +111,22 @@ FY2005 のみ 274日分（2005-04-02 開始）である点に注意。
 
 `gold_jepx_daily` からの再集計。年月 × エリア。前年同月比を持たせる。
 
-### 0-3. `gold_jepx_period_profile`
+### 0-3. `gold_jepx_period_profile` → **実装済み: `gold.jepx_spot_price_period_profile`**
 
 日内の価格カーブ。集計軸は `time_code`(1–48) × `area_name` × 季節 or 月 × 曜日区分（平日/土日祝）。
 
 朝夕のピーク形成、昼間の太陽光による価格低下、季節ごとのカーブ差が見える。
 **上記「ダックカーブ」の実測はこのテーブルの粒度で得られたもので、効果は確認済み。**
+
+> **実装時の判断**
+>
+> - 集計軸は「季節 or 月」のうち **月**。月→季節/年代へは畳めるが逆はできないため
+> - 曜日区分は `weekday` / `holiday`（土日＋祝日）。祝日判定に `jpholiday` を追加した。
+>   年16〜18日 ≒ 平日の6% にあたり、平日カーブに混ぜると濁るため
+> - **レート値ではなくカウントを保存**（`observation_count` など）。畳むときに
+>   観測数の重みが消えるのを防ぐ
+> - 実測 **221,856行**。Gold から再計算したダックカーブ（九州・平日・4-5月、
+>   昼/夕の平均）は 2010-15年 `15.1 / 14.7` → 2021-26年 **`4.3 / 15.4`**
 
 ### 0-4. `gold_jepx_area_spread`
 

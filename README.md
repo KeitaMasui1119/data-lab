@@ -17,7 +17,7 @@ The project follows a medallion architecture.
 - Raw: source files stored as-is in object storage
 - Bronze: schema-conformed Iceberg tables (string-typed, source structure preserved, audit metadata columns)
 - Silver: DuckDB-transformed, typed, deduplicated Iceberg tables written via a window-replace (not upsert)
-- Gold: daily aggregates for JEPX (Python/DuckDB/PyIceberg, same shape as silver); other datasets not yet implemented
+- Gold: JEPX daily aggregates and intraday profile (Python/DuckDB/PyIceberg, same shape as silver); other datasets not yet implemented
 
 Datasets implemented so far, each following Raw -> Bronze -> Silver:
 
@@ -231,11 +231,22 @@ uv run python src/main.py ingest-jepx-silver-to-gold
 uv run python src/main.py ingest-jepx-silver-to-gold --fiscal-year 2026
 ```
 
-Joins the area and base silver tables and rolls each delivery date's 48 time
-codes up to one row per area in `gold.jepx_spot_price_daily`: price
-statistics, the spread against the system price, and counts of the time codes
-that split, spiked or sat at the price floor. Scoping and the window replace
-work exactly as they do for silver, so a rerun is safe.
+Builds two tables from the area and base silver tables. Scoping and the
+window replace work exactly as they do for silver, so a rerun is safe.
+
+`gold.jepx_spot_price_daily` rolls each delivery date's 48 time codes up to
+one row per area: price statistics, the spread against the system price, and
+counts of the time codes that split, spiked or sat at the price floor.
+
+`gold.jepx_spot_price_period_profile` keeps the time code and collapses the
+dates instead, giving the intraday price curve per month, area and day type
+(`weekday` / `holiday`, the latter covering Saturdays, Sundays and Japanese
+national holidays via `jpholiday`). Month is the finest axis: a caller can
+roll months up into seasons or eras, but cannot recover months from a table
+that only stored seasons. It stores counts rather than rates so that rollups
+stay correct -- `avg_price` rolls up as
+`sum(avg_price * observation_count) / sum(observation_count)`, while medians
+and percentiles cannot be rolled up at all.
 
 The grain is one row per (`delivery_date`, `area_name`). `system_price` is
 denormalized onto every area row because averaging it across areas still
@@ -443,4 +454,4 @@ uv run ruff check <changed paths>
 	(each step currently run as separate CLI commands): not yet implemented
 - Other utility companies (Kansai, Hokkaido, Okinawa, Chubu, Kyushu) and the
 	`grid_supply_demand`（系統の需給）category: not yet investigated
-- Gold layer: `gold.jepx_spot_price_daily` implemented (70,102 rows, FY2005-FY2026); the rest of `docs/tasks/plan_jepx_gold.md` is open
+- Gold layer: `gold.jepx_spot_price_daily` (70,102 rows) and `gold.jepx_spot_price_period_profile` (221,856 rows) implemented for FY2005-FY2026; the rest of `docs/tasks/plan_jepx_gold.md` is open

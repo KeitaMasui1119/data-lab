@@ -1,4 +1,4 @@
-"""Unit tests for the JEPX silver-to-gold daily aggregation.
+"""Unit tests for the JEPX silver-to-gold aggregations.
 
 The aggregation SQL runs against locally registered relations instead of
 ``iceberg_scan``, so these tests need neither RustFS nor an Iceberg catalog.
@@ -13,14 +13,23 @@ from decimal import Decimal
 import duckdb
 import polars as pl
 import pytest
+from pyiceberg.expressions import And, GreaterThanOrEqual, LessThan, LessThanOrEqual
 
+from common.silver_write import column_bound
 from pipeline.gold.silver_to_gold_jepx_spot_price import (
+    DAILY_STAGING_RELATION,
     EXPECTED_TIME_CODES_PER_DAY,
+    HOLIDAY_RELATION,
     build_daily_relation,
+    build_period_profile_relation,
+    build_profile_month_window,
     count_delivery_dates,
     count_incomplete_days,
     count_staged_rows,
     extract_daily_frame,
+    extract_period_profile_frame,
+    register_holidays,
+    resolve_scanned_date_range,
     resolve_staged_delivery_range,
     summarize_incomplete_days,
 )
@@ -288,7 +297,7 @@ def test_staged_counts_describe_the_run(conn) -> None:
     _build(conn)
 
     # Assert
-    assert count_staged_rows(conn) == 2 * len(AREAS)
+    assert count_staged_rows(conn, DAILY_STAGING_RELATION) == 2 * len(AREAS)
     assert count_delivery_dates(conn) == 2
 
 
@@ -319,7 +328,7 @@ def test_staged_delivery_range_is_none_when_nothing_matched(conn) -> None:
 
     # Assert
     assert resolve_staged_delivery_range(conn) is None
-    assert count_staged_rows(conn) == 0
+    assert count_staged_rows(conn, DAILY_STAGING_RELATION) == 0
 
 
 def test_gold_rows_carry_their_silver_lineage(conn) -> None:
@@ -350,3 +359,234 @@ def test_delivery_date_is_kept_as_a_date_not_a_timestamp(conn) -> None:
     assert frame["delivery_date"][0] == date(2026, 4, 1)
     assert not isinstance(frame["delivery_date"][0], datetime)
     assert datetime(2026, 4, 1, tzinfo=UTC).date() == frame["delivery_date"][0]
+
+
+# --- Period profile ----------------------------------------------------------
+#
+# The profile keeps the time code and collapses the dates, which is the shape
+# that shows the intraday curve. Month is the finest time axis the plan calls
+# for: a caller can roll months into seasons or eras, but cannot recover months
+# from a table that only stored seasons.
+
+
+def _build_profile(conn: duckdb.DuckDBPyConnection, **kwargs: object) -> None:
+    build_period_profile_relation(
+        conn,
+        area_relation=AREA_RELATION,
+        base_relation=BASE_RELATION,
+        holiday_relation=HOLIDAY_RELATION,
+        **kwargs,  # pyright: ignore[reportArgumentType]
+    )
+
+
+def _register_days(
+    conn: duckdb.DuckDBPyConnection,
+    days: list[date],
+    *,
+    time_codes: int = 1,
+    area_price: float | dict[str, float] = 10.0,
+) -> None:
+    """Register one row per area per time code for each of the given days."""
+    area_rows: list[dict[str, object]] = []
+    base_rows: list[dict[str, object]] = []
+    for day in days:
+        day_area, day_base = _rows(
+            delivery_date=day, time_codes=time_codes, area_price=area_price
+        )
+        area_rows.extend(day_area)
+        base_rows.extend(day_base)
+    _register(conn, area_rows, base_rows)
+    register_holidays(conn, from_date=min(days), to_date=max(days))
+
+
+def test_profile_keeps_the_time_code_and_collapses_the_dates(conn) -> None:
+    """Two dates in the same month become one row per slot, area and day type."""
+    # Arrange: 2026-04-01 and 2026-04-02 are both weekdays (Wed, Thu)
+    _register_days(conn, [date(2026, 4, 1), date(2026, 4, 2)], time_codes=2)
+
+    # Act
+    _build_profile(conn)
+    frame = extract_period_profile_frame(conn)
+
+    # Assert
+    assert frame.height == 2 * len(AREAS)  # 2 time codes x 2 areas, one month
+    assert set(frame["profile_month"].to_list()) == {date(2026, 4, 1)}
+    assert set(frame["observation_count"].to_list()) == {2}
+
+
+def test_profile_month_is_the_first_of_the_month(conn) -> None:
+    """The month is stored as a date so the window replace is a range check."""
+    # Arrange
+    _register_days(conn, [date(2026, 4, 17)])
+
+    # Act
+    _build_profile(conn)
+    frame = extract_period_profile_frame(conn)
+
+    # Assert
+    assert set(frame["profile_month"].to_list()) == {date(2026, 4, 1)}
+
+
+def test_profile_separates_months(conn) -> None:
+    # Arrange
+    _register_days(conn, [date(2026, 4, 30), date(2026, 5, 1)])
+
+    # Act
+    _build_profile(conn)
+    frame = extract_period_profile_frame(conn)
+
+    # Assert
+    assert sorted(set(frame["profile_month"].to_list())) == [
+        date(2026, 4, 1),
+        date(2026, 5, 1),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("day", "expected"),
+    [
+        pytest.param(date(2026, 4, 17), "weekday", id="friday"),
+        pytest.param(date(2026, 4, 18), "holiday", id="saturday"),
+        pytest.param(date(2026, 4, 19), "holiday", id="sunday"),
+        pytest.param(date(2026, 4, 29), "holiday", id="showa-day-on-a-wednesday"),
+    ],
+)
+def test_day_type_covers_weekends_and_national_holidays(conn, day, expected) -> None:
+    """A national holiday on a weekday must not land in the weekday profile."""
+    # Arrange
+    _register_days(conn, [day])
+
+    # Act
+    _build_profile(conn)
+    frame = extract_period_profile_frame(conn)
+
+    # Assert
+    assert set(frame["day_type"].to_list()) == {expected}
+
+
+def test_day_type_splits_the_same_month_in_two(conn) -> None:
+    """Weekday and holiday curves are aggregated separately, not blended."""
+    # Arrange: Friday and Saturday of the same week
+    _register_days(conn, [date(2026, 4, 17), date(2026, 4, 18)])
+
+    # Act
+    _build_profile(conn)
+    frame = extract_period_profile_frame(conn)
+
+    # Assert
+    assert sorted(set(frame["day_type"].to_list())) == ["holiday", "weekday"]
+    assert set(frame["observation_count"].to_list()) == {1}
+
+
+def test_profile_counts_are_stored_rather_than_rates(conn) -> None:
+    """Counts roll up across months; a stored percentage would not."""
+    # Arrange: two days, one of which sits at the floor
+    _register_days(conn, [date(2026, 4, 1)], area_price=0.01)
+    frame_floor = None
+
+    # Act
+    _build_profile(conn)
+    frame_floor = extract_period_profile_frame(conn)
+
+    # Assert
+    assert set(frame_floor["floor_observation_count"].to_list()) == {1}
+    assert set(frame_floor["observation_count"].to_list()) == {1}
+    assert "floor_rate_pct" not in frame_floor.columns
+
+
+def test_profile_averages_prices_across_the_dates(conn) -> None:
+    """The curve is the mean of each slot over the month's matching days."""
+    # Arrange
+    area_rows: list[dict[str, object]] = []
+    base_rows: list[dict[str, object]] = []
+    for day, price in ((date(2026, 4, 1), 8.0), (date(2026, 4, 2), 12.0)):
+        day_area, day_base = _rows(delivery_date=day, time_codes=1, area_price=price)
+        area_rows.extend(day_area)
+        base_rows.extend(day_base)
+    _register(conn, area_rows, base_rows)
+    register_holidays(conn, from_date=date(2026, 4, 1), to_date=date(2026, 4, 2))
+
+    # Act
+    _build_profile(conn)
+    frame = extract_period_profile_frame(conn)
+
+    # Assert
+    assert set(frame["avg_price"].to_list()) == {Decimal("10.000")}
+    assert set(frame["observation_count"].to_list()) == {2}
+
+
+def test_profile_fiscal_year_narrows_the_months(conn) -> None:
+    # Arrange
+    _register_days(conn, [date(2025, 3, 31), date(2025, 4, 1), date(2026, 3, 31)])
+
+    # Act
+    _build_profile(conn, fiscal_year=2025)
+    frame = extract_period_profile_frame(conn)
+
+    # Assert
+    assert sorted(set(frame["profile_month"].to_list())) == [
+        date(2025, 4, 1),
+        date(2026, 3, 1),
+    ]
+
+
+def test_profile_month_window_covers_the_fiscal_year(conn) -> None:
+    """April through the following March, as a range on profile_month."""
+    # Arrange / Act
+    window = build_profile_month_window(fiscal_year=2026, staged_range=None)
+
+    # Assert
+    assert window == And(
+        left=column_bound("profile_month", GreaterThanOrEqual, date(2026, 4, 1)),
+        right=column_bound("profile_month", LessThan, date(2027, 4, 1)),
+    )
+
+
+def test_profile_month_window_falls_back_to_the_staged_months() -> None:
+    # Arrange / Act
+    window = build_profile_month_window(
+        fiscal_year=None, staged_range=(date(2005, 4, 1), date(2026, 8, 1))
+    )
+
+    # Assert
+    assert window == And(
+        left=column_bound("profile_month", GreaterThanOrEqual, date(2005, 4, 1)),
+        right=column_bound("profile_month", LessThanOrEqual, date(2026, 8, 1)),
+    )
+
+
+def test_profile_month_window_is_none_when_nothing_was_staged() -> None:
+    assert build_profile_month_window(fiscal_year=None, staged_range=None) is None
+
+
+def test_register_holidays_keeps_only_dates_inside_the_range(conn) -> None:
+    """The relation covers the scanned span, not whole calendar years."""
+    # Arrange / Act
+    register_holidays(conn, from_date=date(2026, 4, 28), to_date=date(2026, 4, 30))
+    rows = conn.execute(f"SELECT holiday_date FROM {HOLIDAY_RELATION}").fetchall()
+
+    # Assert
+    assert [row[0] for row in rows] == [date(2026, 4, 29)]  # Showa Day only
+
+
+def test_scanned_date_range_reports_what_a_run_will_read(conn) -> None:
+    """The range drives which years the holiday calendar has to cover."""
+    # Arrange
+    _register_days(conn, [date(2026, 4, 1), date(2026, 5, 9)])
+
+    # Act / Assert
+    assert resolve_scanned_date_range(conn, base_relation=BASE_RELATION) == (
+        date(2026, 4, 1),
+        date(2026, 5, 9),
+    )
+
+
+def test_scanned_date_range_is_none_for_an_empty_scope(conn) -> None:
+    # Arrange
+    _register_days(conn, [date(2026, 4, 1)])
+
+    # Act / Assert
+    assert (
+        resolve_scanned_date_range(conn, base_relation=BASE_RELATION, fiscal_year=1999)
+        is None
+    )

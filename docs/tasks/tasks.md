@@ -464,11 +464,22 @@ bronze 380,256 / base 374,400 / block 374,400 / area 3,364,896 と**全テーブ
       **パーティションなし**: 全期間で7万行しかなく、年単位で切ると
       1ファイル数千行の small files になるため。区間置換は全件書き直しになるが
       7万行では一瞬。
-- [ ] `gold_jepx_period_profile`（日内カーブ）を実装する
+- [x] `gold_jepx_period_profile`（日内カーブ）を実装する →
+      完了。`gold.jepx_spot_price_period_profile`。同じ `ingest-jepx-silver-to-gold`
+      が daily と一緒に書く（Silver が base/block/area を1コマンドで書くのと同じ形）。
+      **粒度**: (対象月 × エリア × 曜日区分 × コマ)。実測 **221,856行**。
+      季節ではなく月を最小軸にしたのは、月→季節/年代へは畳めるが逆はできないため。
+      **曜日区分**: `weekday` / `holiday`（土日＋祝日）。祝日は `jpholiday` を追加して判定。
+      祝日を平日に混ぜると平日カーブが濁るため（年16〜18日 ≒ 平日の6%）。
+      **レート値ではなくカウントを保存**: 月や曜日区分を跨いで畳むとき、
+      保存済みの割合を単純平均すると観測数の重みが消えるため。
+      `avg_price` は `sum(avg_price*observation_count)/sum(observation_count)` で畳める
+      （中央値・パーセンタイルは原理的に畳めない）。
 - [ ] `gold_jepx_area_spread`（簡易版: システム価格乖離）を実装する
 - [ ] 可視化をデプロイする（Streamlit 想定）
 - [ ] `gold_jepx_monthly` / `gold_jepx_price_events` を実装する
 - [ ] Gold のデータ品質モニタリング（Silver に quarantine が無いため唯一の検知経路）
+- [ ] `common/silver_write.py` の命名を層非依存に変える（Gold が2テーブルになったため）
 - [ ] `run-jepx-orchestrator` の gold ステップをどうするか決める
       → 現状 `--run-gold-step` は dbt を叩くが、dbt にモデルは無く Gold は Python 実装。
       Python 版に差し替えるか、gold ステップ自体を廃止するか未決。
@@ -485,6 +496,10 @@ bronze 380,256 / base 374,400 / block 374,400 / area 3,364,896 と**全テーブ
 
 該当エリア日は Silver に行が無いため集約対象にならない。
 なお `time_code_count` は全70,102行で48であり、コマ単位の欠損はゼロ。
+`period_profile` 側にも同じ影響が出ており、257ヶ月 × 9エリア × 2区分 × 48コマ = 222,048 に対し
+**221,856行**。差の192行は東京の2011年4月・5月（丸2ヶ月停止）× 2区分 × 48コマ。
+`sum(observation_count)` は 3,364,896 で `silver.jepx_spot_price_area` の行数と完全一致しており、
+全行が過不足なく1回ずつ集計されていることを確認済み。
 
 **市場分断率の定義を1ティック境界に確定した。** 探索時は `> 0.01` で測っていたが、
 きっかり0.01円差の分断を取りこぼすため実装は `>= 0.01`。

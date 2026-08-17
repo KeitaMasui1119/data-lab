@@ -548,16 +548,17 @@ def _handle_gold(args: argparse.Namespace, parser: argparse.ArgumentParser) -> N
         fiscal_year=args.fiscal_year,
     )
     logger.info(
-        "JEPX silver-to-gold completed: execution_id=%s, dates=%s, staged=%s",
+        "JEPX silver-to-gold completed: execution_id=%s, dates=%s",
         result.execution_id,
         result.delivery_date_count,
-        result.staged_row_count,
     )
-    logger.info(
-        " - table=%s, written=%s",
-        result.write.table_identifier,
-        result.write.rows_written,
-    )
+    for table in result.tables:
+        logger.info(
+            " - table=%s, staged=%s, written=%s",
+            table.table_identifier,
+            table.staged_row_count,
+            table.rows_written,
+        )
 
 
 COMMANDS = [
