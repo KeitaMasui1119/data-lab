@@ -1,0 +1,15 @@
+# The dashboard commits to light mode rather than shipping a half-working dark
+# one: every chart colour in src/dashboard/theme.py was validated against this
+# light surface. Revisit both together if dark mode is ever wanted.
+[theme]
+base = "light"
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#f9f9f7"
+textColor = "#0b0b0b"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

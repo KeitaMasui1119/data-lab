@@ -178,8 +178,8 @@ FY2005 のみ 274日分（2005-04-02 開始）である点に注意。
 1. `gold_jepx_daily`（土台。他が全部これに乗る） ✅
 2. `gold_jepx_period_profile` → **日内カーブ可視化** ✅
 3. `gold_jepx_area_spread`（簡易版）→ **分断ヒートマップ** ✅
-4. 可視化をデプロイ（ここで一度完成品にする） ← **次はここ**
-5. `gold_jepx_monthly` / `gold_jepx_price_events`
+4. 可視化をデプロイ（ここで一度完成品にする） ✅
+5. `gold_jepx_monthly` / `gold_jepx_price_events` ← **次はここ**
 6. データ品質モニタリング
 7. 予測
 
@@ -208,6 +208,9 @@ FY2005 のみ 274日分（2005-04-02 開始）である点に注意。
 **Streamlit を推す。** Gold が数千〜数万行に収まるため重い基盤が不要で、
 リポジトリに Docker ビルドの CI（`.github/workflows/deploy.yml`）が既にありデプロイ経路も揃っている。
 Databricks SQL は本環境では選択肢外。
+
+→ **実装済み**（`src/dashboard/`）。`compose.yaml` に `dashboard` サービス、
+Dockerfile に `dashboard` ステージを追加。詳細は README の Dashboard 節。
 
 ---
 

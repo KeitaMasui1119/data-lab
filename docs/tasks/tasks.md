@@ -486,7 +486,19 @@ bronze 380,256 / base 374,400 / block 374,400 / area 3,364,896 と**全テーブ
       daily の `sum(time_code_count)`、`is_split` 行数 = daily の
       `sum(split_time_code_count)` = profile の `sum(split_observation_count)`、
       daily の `avg_price` を area_spread から再計算しても不一致0。
-- [ ] 可視化をデプロイする（Streamlit 想定）
+- [x] 可視化をデプロイする（Streamlit 想定） →
+      完了。`src/dashboard/`（`queries.py` / `charts.py` / `app.py` / `theme.py`）と
+      `.streamlit/config.toml`。`docker compose up dashboard` で :8501。
+      Dockerfile に `dashboard` ステージを追加（`prd` を継承し PYTHONPATH=/app/src）。
+      3タブ: 価格ヒートマップ（`_area_spread`）/ 市場分断（`_daily`）/
+      日内カーブ（`_period_profile`）。**gold のみを参照**。
+      **配色は検証済み**: カテゴリ3色が色覚多様性・通常視の分離フロアを通過
+      （検証スクリプト実測、最悪ペア CVD ΔE 9.2 / 通常視 24.0）。3色が上限で、
+      4本目は「新しい色を作る」のではなく選択を制限する。1色がコントラスト3:1未満
+      だったため、全系列に直接ラベル＋全チャートに表テーブルを付けて救済。
+      **色は順位ではなく実体に従う**（`assign_series_slots`）。年度を1つ外しても
+      残りの線の色が変わらない。実装当初は選択順で色を割り当てており、
+      アンチパターンを踏んでいたのを修正した。
 - [ ] `gold_jepx_monthly` / `gold_jepx_price_events` を実装する
 - [ ] Gold のデータ品質モニタリング（Silver に quarantine が無いため唯一の検知経路）
 - [ ] `common/silver_write.py` の命名を層非依存に変える（Gold が2テーブルになったため）
