@@ -179,6 +179,16 @@ table's full history rather than with new data. Pass
 `--silver-all-fiscal-years` there to force a full rebuild across every year,
 or `--silver-fiscal-year <year>` to target one explicitly.
 
+Both orchestrators (`run-jepx-orchestrator` and `run-occto-orchestrator`)
+verify the silver step's row counts rather than reporting success on
+completion alone. A step fails -- and the command exits non-zero -- when no
+bronze row reached the staging relation, when every staged row failed
+validation, or when the table received a different number of rows than the
+staged rows account for. A run whose date column stops parsing is discarded
+by the scope filter before validation ever sees it, so without that check it
+reported `dropped=0, written=0, status=success` while silver went unwritten.
+See `docs/tasks/tasks.md` section 8.4.
+
 ### 6) Build OCCTO silver layer with Python + DuckDB + PyIceberg
 
 Transform OCCTO bronze unit generation actuals into the silver Iceberg table:

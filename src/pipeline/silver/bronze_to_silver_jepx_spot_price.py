@@ -61,17 +61,14 @@ STAGING_RELATION = "jepx_silver_staging"
 
 # The column every silver table is windowed on.
 #
-# The silver tables are currently unpartitioned: the schema CSVs carry a
-# `partition_transform` column, but `provision_table()` never passes a
-# partition spec to `create_table`, so it has no effect. Iceberg therefore
-# prunes the window delete using each data file's min/max metrics, and only
-# drops a file outright when every row in it falls inside the window. A file
-# straddling the window boundary is rewritten instead, which pulls it through
-# memory. That stays bounded while files are written per fiscal year, but a
-# full-refresh run writes files spanning every year, so the next scoped run
-# rewrites the whole table. Partitioning on `year(delivery_date)` would make
-# the pruning exact; see the follow-up in
-# docs/reports/reports_20260808_10c4679e-4370-49d3-9b8c-92f890c5eade.md.
+# All three tables are partitioned on `year(delivery_date)`, taken from the
+# schema CSVs' `partition_transform` column by `build_partition_spec()`, so
+# the window delete prunes whole partitions. Before that spec existed Iceberg
+# could only prune on each data file's min/max metrics: a file straddling the
+# window boundary was rewritten rather than dropped, which made a scoped run's
+# write cost scale with the table's entire history instead of with the window.
+# A single-fiscal-year run now rewrites exactly the one file for that year.
+# See docs/tasks/tasks.md section 8.1 for the migration and its measurements.
 DELIVERY_DATE_COLUMN = "delivery_date"
 
 # A time code identifies a 30-minute slot and denotes its START time in JST.
@@ -117,11 +114,32 @@ BLOCK_COLUMNS = (
 
 @dataclass(frozen=True)
 class BronzeToSilverResult:
-    """Outcome of one bronze-to-silver run."""
+    """Outcome of one bronze-to-silver run.
+
+    ``staged_row_count`` covers every row the staging relation held, valid or
+    not, which is what separates "bronze had nothing in scope" from "bronze
+    had rows and validation rejected them". Without it a run whose
+    ``delivery_date`` stopped parsing reports dropped=0 and written=0 -- the
+    fiscal year filter discards those rows before validation ever sees them --
+    and looks exactly like a legitimately empty scope.
+    """
 
     execution_id: str
     writes: list[SilverWriteResult]
     dropped_row_count: int
+    staged_row_count: int
+
+    @property
+    def valid_row_count(self) -> int:
+        """Staged rows that passed validation and are written to silver."""
+        return self.staged_row_count - self.dropped_row_count
+
+    def rows_written_to(self, table_identifier: str) -> int | None:
+        """Return how many rows one target received, or None if it was absent."""
+        for write in self.writes:
+            if write.table_identifier == table_identifier:
+                return write.rows_written
+        return None
 
 
 def _build_fiscal_year_filter(fiscal_year: int | None) -> str:
@@ -220,6 +238,12 @@ SELECT
     violations
 FROM validated
 """)
+
+
+def count_staged_rows(conn: duckdb.DuckDBPyConnection) -> int:
+    """Count every staged row, whether or not it passed validation."""
+    row = conn.execute(f"SELECT count(*) FROM {STAGING_RELATION}").fetchone()
+    return int(row[0]) if row else 0
 
 
 def count_dropped_rows(conn: duckdb.DuckDBPyConnection) -> int:
@@ -384,6 +408,7 @@ def run_bronze_to_silver_jepx_spot_price(
             fiscal_year=fiscal_year,
         )
 
+        staged_row_count = count_staged_rows(conn)
         dropped_row_count = count_dropped_rows(conn)
         if dropped_row_count:
             logger.warning(
@@ -448,6 +473,7 @@ def run_bronze_to_silver_jepx_spot_price(
         execution_id=run_execution_id,
         writes=writes,
         dropped_row_count=dropped_row_count,
+        staged_row_count=staged_row_count,
     )
 
 

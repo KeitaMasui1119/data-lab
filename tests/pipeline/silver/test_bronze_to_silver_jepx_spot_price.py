@@ -23,18 +23,22 @@ from pyiceberg.expressions import And, GreaterThanOrEqual, LessThan, LessThanOrE
 from common.pipeline_utilities import add_metadata
 from common.silver_write import (
     SILVER_STATUS_LOADED,
+    SilverWriteResult,
     ensure_unique_keys,
     write_silver_table,
 )
+from pipeline.silver import bronze_to_silver_jepx_spot_price as jepx_silver
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     build_delivery_window,
     build_staging_relation,
     count_dropped_rows,
+    count_staged_rows,
     delivery_date_bound,
     extract_area_frame,
     extract_base_frame,
     extract_block_frame,
     resolve_staged_delivery_range,
+    run_bronze_to_silver_jepx_spot_price,
 )
 
 AREA_SUFFIXES = (
@@ -573,3 +577,136 @@ def test_area_rows_are_unique_per_area(conn) -> None:
         key_cols=("delivery_date", "time_code", "area_name"),
         table_identifier="silver.jepx_spot_price_area",
     )
+
+
+# --- Whole-run guards --------------------------------------------------------
+#
+# docs/tasks/tasks.md sections 8.2 and 8.4: the checks that only hold across a
+# whole run -- every frame is validated before any table is written, and the
+# run counts what it staged so a silent no-op cannot pass for success.
+
+
+def _duplicate_key_area_frame() -> pl.DataFrame:
+    """An area frame holding one business key twice.
+
+    The staging SQL cannot produce this on its own -- it deduplicates by
+    (delivery_date, time_code) and UNPIVOT emits each area once -- so the
+    frame is injected to stand in for a future extract_area_frame() bug.
+    """
+    return pl.DataFrame(
+        {
+            "delivery_date": [date(2024, 4, 1)] * 2,
+            "time_code": [1, 1],
+            "delivery_datetime": [datetime(2024, 3, 31, 15, 0, tzinfo=UTC)] * 2,
+            "area_name": ["tokyo", "tokyo"],
+            "area_price": [Decimal("10.000"), Decimal("11.000")],
+            "source_data": ["raw/jepx/spot.csv.gz"] * 2,
+        }
+    )
+
+
+def _stub_run_dependencies(monkeypatch, conn, rows: list[dict[str, object]]):
+    """Run the transform against a registered relation, recording every write.
+
+    A real run scans ``iceberg_scan(<bronze location>)`` and loads a catalog;
+    the staging SQL and the ordering of the guards are what this exercises.
+    """
+    _register_bronze(conn, rows)
+    real_build_staging_relation = build_staging_relation
+
+    def build_from_registered_relation(
+        connection, *, source_relation: str, fiscal_year: int | None = None
+    ) -> None:
+        real_build_staging_relation(
+            connection, source_relation=SOURCE_RELATION, fiscal_year=fiscal_year
+        )
+
+    written_tables: list[str] = []
+
+    def record_write(_catalog, *, table_identifier: str, frame, **_kwargs):
+        written_tables.append(table_identifier)
+        return SilverWriteResult(table_identifier, frame.height)
+
+    monkeypatch.setattr(jepx_silver, "create_duckdb_connection", lambda: conn)
+    monkeypatch.setattr(jepx_silver, "get_catalog", lambda _name: object())
+    monkeypatch.setattr(
+        jepx_silver, "build_staging_relation", build_from_registered_relation
+    )
+    monkeypatch.setattr(jepx_silver, "write_silver_table", record_write)
+    return written_tables
+
+
+def test_run_writes_every_target_table(monkeypatch, conn) -> None:
+    """The happy path writes all three silver tables."""
+    # Arrange
+    written_tables = _stub_run_dependencies(monkeypatch, conn, [_bronze_row()])
+
+    # Act
+    result = run_bronze_to_silver_jepx_spot_price()
+
+    # Assert
+    assert written_tables == [
+        "silver.jepx_spot_price_base",
+        "silver.jepx_spot_price_block",
+        "silver.jepx_spot_price_area",
+    ]
+    assert result.staged_row_count == 1
+    assert result.valid_row_count == 1
+
+
+def test_run_validates_every_frame_before_writing_any_table(monkeypatch, conn) -> None:
+    """A duplicate key in the last target must not leave the first two rebuilt.
+
+    Each table is replaced in its own transaction, so validating lazily would
+    rebuild base and block against the new snapshot and then abort, leaving
+    the three tables disagreeing about the same delivery window.
+    """
+    # Arrange
+    written_tables = _stub_run_dependencies(monkeypatch, conn, [_bronze_row()])
+    monkeypatch.setattr(
+        jepx_silver, "extract_area_frame", lambda _conn: _duplicate_key_area_frame()
+    )
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="duplicate"):
+        run_bronze_to_silver_jepx_spot_price()
+
+    assert written_tables == []
+
+
+def test_count_staged_rows_counts_valid_and_invalid_rows(conn) -> None:
+    """The staged count spans the whole relation, not just the usable rows."""
+    # Arrange
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(delivery_date="2024/04/01"),
+            _bronze_row(delivery_date="2024/04/02", time_code="0"),
+        ],
+    )
+
+    # Act
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+
+    # Assert
+    assert count_staged_rows(conn) == 2
+    assert count_dropped_rows(conn) == 1
+
+
+def test_unparseable_delivery_dates_stage_nothing_under_a_fiscal_year(conn) -> None:
+    """The silent no-op that section 8.4's status check exists to catch.
+
+    Neither delivery_date format matches, so the cast yields NULL and the
+    fiscal year filter discards the row before validation can flag it. The
+    run then sees dropped=0 and written=0, which is indistinguishable from a
+    scope that legitimately held no rows -- hence the staged count.
+    """
+    # Arrange
+    _register_bronze(conn, [_bronze_row(delivery_date="01.04.2024")])
+
+    # Act
+    build_staging_relation(conn, source_relation=SOURCE_RELATION, fiscal_year=2024)
+
+    # Assert
+    assert count_staged_rows(conn) == 0
+    assert count_dropped_rows(conn) == 0

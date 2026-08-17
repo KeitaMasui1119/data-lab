@@ -260,16 +260,40 @@ partition spec を渡さず、既存テーブルの spec 差分は警告ログ�
       確認済み。単一年度スコープ実行（`--fiscal-year 2026`）の前後でファイルパスを比較し、
       22ファイル中 **変更は対象年度の1ファイルのみ**、残り21ファイルは完全に不変だったことを実測。
       書き込みコストがテーブル全体の履歴量ではなく対象年度のみに比例するようになったことを確認。
+- [x] 後日追記: `bronze_to_silver_jepx_spot_price.py` の `DELIVERY_DATE_COLUMN` に付いていた
+      コメントが「silverテーブルは未パーティション、`provision_table()` は partition spec を
+      渡さない」という移行前の記述のまま残っていたため、現状（3テーブルとも
+      `year(delivery_date)`）に合わせて書き直した。カタログ実測でも
+      `silver.jepx_spot_price_{base,block,area}` は `delivery_date_year: year(...)`、
+      `silver.occto_unit_generation_actuals` は `target_date_day: day(3)` を確認済み。
 
-### 8.2 新しいガードのテスト追加（優先度: 中）
+### 8.2 新しいガードのテスト追加（優先度: 中、解決済み）
 
-コードレビュー指摘で入れた防御が実挙動確認のみで、回帰防止のテストがない。
+コードレビュー指摘で入れた防御が実挙動確認のみで、回帰防止のテストがなかった。
 
-- [ ] `ensure_unique_keys()` を全フレームに対し**書き込み前に**一括実行することのテスト
-      （3テーブル目で重複を検出した際に、base/block だけ更新済みになる部分適用が起きないこと）
-- [ ] `--silver-all-fiscal-years` と `--silver-fiscal-year` の同時指定が
+- [x] ~~`ensure_unique_keys()` を全フレームに対し**書き込み前に**一括実行することのテスト
+      （3テーブル目で重複を検出した際に、base/block だけ更新済みになる部分適用が起きないこと）~~ →
+      `tests/pipeline/silver/test_bronze_to_silver_jepx_spot_price.py` に
+      `test_run_validates_every_frame_before_writing_any_table` を追加。
+      `run_bronze_to_silver_jepx_spot_price()` を通しで実行し、`write_silver_table` を
+      呼び出し記録用に差し替えたうえで、3番目の `extract_area_frame` だけ重複キーを持つ
+      フレームを返すよう注入する。`ValueError` が上がり、**どのテーブルも書かれていない**
+      （記録が空）ことを検証する。対になる `test_run_writes_every_target_table`
+      （正常時は3テーブルとも書かれる）も追加し、テストが「そもそも到達していないから
+      空」で通ってしまわないようにした。なお重複はステージングSQLからは発生し得ない
+      （`(delivery_date, time_code)` で dedup 済み、UNPIVOTは各エリア1回）ため、
+      将来の `extract_*` のバグを模した注入という形をとっている。
+- [x] ~~`--silver-all-fiscal-years` と `--silver-fiscal-year` の同時指定が
       `parser.error` で弾かれることのテスト（`src/main.py` と
-      `src/orchestration/pl_jepx_spot_price.py` の2箇所）
+      `src/orchestration/pl_jepx_spot_price.py` の2箇所）~~ →
+      CLI側（現 `src/cli/commands/jepx.py`）は `tests/test_main_cli.py` の
+      `test_dispatch_validation_exits_before_touching_external_systems` で既にカバー済みだった。
+      未カバーだったオーケストレーターモジュール自身の `main()` について
+      `tests/orchestration/test_jepx_pipeline_orchestrator.py` に
+      `test_main_rejects_both_silver_scope_flags`（`SystemExit` かつ終了コード2、
+      さらに `run_jepx_orchestrated_pipeline` が呼ばれていないこと）と、
+      ガードが広すぎないことを示す `test_main_accepts_either_silver_scope_flag_alone`
+      （片方のみ／どちらも無しの3パターン）を追加した。
 
 ### 8.3 ドキュメントの追従（優先度: 中、解決済み）
 
@@ -291,15 +315,68 @@ partition spec を渡さず、既存テーブルの spec 差分は警告ログ�
       該当2行を取り消し線付きで残し、後日`upsert`→区間`overwrite`へ置き換わった経緯
       （コミット`5525fab`/PR #72、障害の詳細、`run-jepx-orchestrator`の既定変更）を注記として追加。
 
-### 8.4 実行結果判定の厳格化（優先度: 中）
+### 8.4 実行結果判定の厳格化（優先度: 中、解決済み）
 
-障害2件はいずれも「正常終了」に見えた。さらに現在の実装では、
+障害2件はいずれも「正常終了」に見えた。さらに当時の実装では、
 `delivery_date` が両フォーマットとも解釈できなくなった場合、
 `_build_fiscal_year_filter` が violation 判定より前に全行を捨てるため、
-`dropped=0 / written=0 / status=success` で Silver が静かに更新されなくなる。
+`dropped=0 / written=0 / status=success` で Silver が静かに更新されなくなっていた。
 
-- [ ] `PipelineStepResult` に想定行数と実測行数を持たせ、乖離時に `status="failed"` とする
-- [ ] 書き込み0行かつ除外0行を異常として扱う（正常に0行となるケースの切り分けも含めて設計する）
+- [x] ~~`PipelineStepResult` に想定行数と実測行数を持たせ、乖離時に `status="failed"` とする~~ →
+      `expected_row_count` / `actual_row_count`（いずれも既定 `None`）を追加。
+      行を動かさないステップ（dbt・スクレイピング）は未設定のまま。
+      あわせて `STATUS_SUCCESS` / `STATUS_SKIPPED` / `STATUS_FAILED` 定数と
+      `has_failed_step()` を `src/orchestration/pipeline_result.py` に置いた。
+- [x] ~~書き込み0行かつ除外0行を異常として扱う（正常に0行となるケースの切り分けも含めて設計する）~~ →
+      `BronzeToSilverResult` に `staged_row_count`（ステージング関係の全行数、
+      正常・異常を問わない）と `valid_row_count` プロパティを追加し、
+      `count_staged_rows()` で採取するようにした。これが「スコープに該当行が無かった」と
+      「行はあったが検証で落ちた」を区別する。
+
+**判定ルール**（`verify_silver_row_counts()`、`src/orchestration/pipeline_result.py`。
+JEPX/OCCTO 両オーケストレーターが呼ぶ共通実装）。次の3つを success ではなく failed とする：
+
+1. `staged_row_count == 0` — Bronze にスコープ内の行が1行も無い。これが本節冒頭の
+   静かな失敗そのもの（解釈不能な `delivery_date` は検証より前に会計年度フィルタで
+   捨てられるため `dropped=0 / written=0` になる）。
+2. `valid_row_count == 0` — ステージングした行が全て検証で落ちた。何も書かれないので
+   対象ウィンドウには前回実行の値が残ったままになる。
+3. `actual != expected` — 期待行数と実際の書き込み行数が食い違う
+   （ステージングからテーブルまでの間で行が失われた）。
+
+期待行数の取り方はデータセットごとに異なる：
+
+- **JEPX**: 検証通過行数 = `silver.jepx_spot_price_base` の行数。base のみを見るのは、
+  block も同数・area はエリア数倍という関係のうち、base だけが「1検証行=1行」で
+  UNPIVOT の枚数に依存しないため（area の UNPIVOT は NULL のエリア価格を落とすので
+  固定倍にならない）。
+- **OCCTO**: 検証通過行数 × 48（`expected_silver_row_count` プロパティ）。
+  こちらの UNPIVOT は `INCLUDE NULLS` なので、空きコマも1行になり倍率が厳密に確定する。
+
+**「正常に0行」の切り分け**: どちらのパイプラインにも該当ケースが無いと判断した。
+オーケストレーターは直前に取り込んだスコープに対して Silver を走らせるので Bronze は
+必ず行を持つ。単体実行で未取り込みのスコープを指定した場合も、成功と報告されるより
+失敗として気づけた方がよい。よって carve-out 用のフラグは設けていない（判断理由は
+`verify_silver_row_counts()` の docstring にも記載）。
+
+**終了コード**: `status="failed"` がログに出るだけでは終了コード0のままで、
+「正常終了に見える」問題が半分残るため、`has_failed_step()` で失敗ステップを検出したら
+`SystemExit(1)` とするようにした（`src/cli/commands/{jepx,occto}.py` の
+オーケストレーターハンドラと、各 `pl_*.py` の `main()` の計4箇所）。あわせて
+`status` の文字列リテラルを `STATUS_SUCCESS` / `STATUS_SKIPPED` / `STATUS_FAILED`
+定数に置き換えた。
+
+**実データ確認**（いずれも読み取りのみ、Silver への書き込みなし）:
+
+- JEPX: FY1999（該当行なし）→ `staged=0 dropped=0` で failed。
+  FY2024 → `staged=17,520`（365日×48コマ）、FY2026 → `staged=6,288` で success。
+  書き込み行数を1行減らすと failed。
+- OCCTO: 1999年範囲（該当行なし）→ failed。全期間 → `staged=421,071 dropped=9,180`、
+  期待 19,770,768 行で success、1行減らすと failed。
+- 期待値の式が実態と一致することを Silver の実行数と突き合わせて確認した
+  （誤検知で毎回 failed になる回帰を避けるため）。OCCTO 2026-08-13 / 2026-08-12 は
+  ともに期待 22,224 行に対し Silver 実測 22,224 行、JEPX は FY2024 → 17,520 行、
+  FY2026 → 6,288 行で完全一致。
 
 ### 8.5 バックフィル用 CLI コマンドの追加（優先度: 中）
 

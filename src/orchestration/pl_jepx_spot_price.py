@@ -17,7 +17,13 @@ from pathlib import Path
 
 from common.storage_client import RustFSClient
 from common.utilities import resolve_target_at
-from orchestration.pipeline_result import PipelineStepResult
+from orchestration.pipeline_result import (
+    STATUS_SKIPPED,
+    STATUS_SUCCESS,
+    PipelineStepResult,
+    has_failed_step,
+    verify_silver_row_counts,
+)
 from pipeline.bronze.source_to_bronze_jepx_spot_price import ingest_jepx_spot_summary
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
@@ -35,6 +41,9 @@ DEFAULT_DBT_PROJECT_DIR = Path("/workspace/src/dbt/jepx_power")
 DEFAULT_SCHEMA_PATH = (
     "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv"
 )
+
+# The silver table that receives one row per validated delivery key.
+BASE_TABLE_IDENTIFIER = "silver.jepx_spot_price_base"
 
 
 def run_dbt_step(
@@ -65,7 +74,7 @@ def run_dbt_step(
     subprocess.run(dbt_command, check=True)
     return PipelineStepResult(
         name=step_name,
-        status="success",
+        status=STATUS_SUCCESS,
         detail=f"dbt select={select_expr}",
     )
 
@@ -104,15 +113,35 @@ def run_bronze_to_silver_step(
         fiscal_year=fiscal_year,
     )
 
+    # The base table takes exactly the rows that passed validation, one per
+    # delivery key; block does too, and area multiplies them by the area
+    # count. Checking base alone keeps the expectation independent of how many
+    # areas a row unpivots into -- its UNPIVOT drops null area prices, so the
+    # area table's own count is not a fixed multiple of the staged rows.
+    actual_row_count = result.rows_written_to(BASE_TABLE_IDENTIFIER)
+    status, reason = verify_silver_row_counts(
+        staged_row_count=result.staged_row_count,
+        expected_row_count=result.valid_row_count,
+        actual_row_count=actual_row_count,
+        target_description=BASE_TABLE_IDENTIFIER,
+    )
+
     written = sum(write.rows_written for write in result.writes)
     scope = "all fiscal years" if fiscal_year is None else f"fiscal_year={fiscal_year}"
+    detail = (
+        f"execution_id={result.execution_id}, {scope}, written={written}, "
+        f"dropped={result.dropped_row_count}, staged={result.staged_row_count}"
+    )
+    if reason:
+        detail = f"{detail}; {reason}"
+        logger.error("bronze_to_silver step failed verification: %s", reason)
+
     return PipelineStepResult(
         name="bronze_to_silver",
-        status="success",
-        detail=(
-            f"execution_id={result.execution_id}, {scope}, written={written}, "
-            f"dropped={result.dropped_row_count}"
-        ),
+        status=status,
+        detail=detail,
+        expected_row_count=result.valid_row_count,
+        actual_row_count=actual_row_count,
     )
 
 
@@ -155,7 +184,7 @@ def run_jepx_orchestrated_pipeline(
         results.append(
             PipelineStepResult(
                 name="source_to_raw",
-                status="skipped",
+                status=STATUS_SKIPPED,
                 detail=(
                     "No snapshot change detected. "
                     f"year={snapshot_result.year}, sha256={snapshot_result.sha256[:8]}"
@@ -166,7 +195,7 @@ def run_jepx_orchestrated_pipeline(
         results.append(
             PipelineStepResult(
                 name="source_to_raw",
-                status="success",
+                status=STATUS_SUCCESS,
                 detail=(
                     "Saved snapshot and updated metadata catalog. "
                     f"year={snapshot_result.year}, "
@@ -193,7 +222,7 @@ def run_jepx_orchestrated_pipeline(
         results.append(
             PipelineStepResult(
                 name="raw_to_bronze",
-                status="success",
+                status=STATUS_SUCCESS,
                 detail=f"table={bronze_table_identifier}, rows={row_count}",
             )
         )
@@ -201,7 +230,7 @@ def run_jepx_orchestrated_pipeline(
         results.append(
             PipelineStepResult(
                 name="raw_to_bronze",
-                status="skipped",
+                status=STATUS_SKIPPED,
                 detail=str(error),
             )
         )
@@ -233,7 +262,7 @@ def run_jepx_orchestrated_pipeline(
         results.append(
             PipelineStepResult(
                 name="silver_to_gold",
-                status="skipped",
+                status=STATUS_SKIPPED,
                 detail="Gold step is disabled. Use --run-gold-step to enable.",
             )
         )
@@ -378,6 +407,11 @@ def main() -> None:
             result.status,
             result.detail,
         )
+
+    # A failed step that only reaches the log still exits 0, which is how both
+    # backfill incidents passed for clean runs.
+    if has_failed_step(results):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -19,7 +19,13 @@ from datetime import UTC, date, datetime, timedelta
 
 from common.storage_client import RustFSClient
 from common.utilities import resolve_default_target_date
-from orchestration.pipeline_result import PipelineStepResult
+from orchestration.pipeline_result import (
+    STATUS_SKIPPED,
+    STATUS_SUCCESS,
+    PipelineStepResult,
+    has_failed_step,
+    verify_silver_row_counts,
+)
 from pipeline.bronze.source_to_bronze_occto_unit_generation_actuals import (
     ingest_occto_unit_generation,
 )
@@ -80,15 +86,29 @@ def run_bronze_to_silver_step(
         to_date=to_date,
     )
 
+    status, reason = verify_silver_row_counts(
+        staged_row_count=result.staged_row_count,
+        expected_row_count=result.expected_silver_row_count,
+        actual_row_count=result.write.rows_written,
+        target_description=result.write.table_identifier,
+    )
+
     scope = "all dates" if from_date is None else f"target_date={from_date}..{to_date}"
+    detail = (
+        f"execution_id={result.execution_id}, {scope}, "
+        f"written={result.write.rows_written}, "
+        f"dropped={result.dropped_row_count}, staged={result.staged_row_count}"
+    )
+    if reason:
+        detail = f"{detail}; {reason}"
+        logger.error("bronze_to_silver step failed verification: %s", reason)
+
     return PipelineStepResult(
         name="bronze_to_silver",
-        status="success",
-        detail=(
-            f"execution_id={result.execution_id}, {scope}, "
-            f"written={result.write.rows_written}, "
-            f"dropped={result.dropped_row_count}"
-        ),
+        status=status,
+        detail=detail,
+        expected_row_count=result.expected_silver_row_count,
+        actual_row_count=result.write.rows_written,
     )
 
 
@@ -136,7 +156,7 @@ def run_occto_orchestrated_pipeline(
                 results.append(
                     PipelineStepResult(
                         name="source_to_raw",
-                        status="skipped",
+                        status=STATUS_SKIPPED,
                         detail=(
                             "No snapshot change detected. "
                             f"from_date={snapshot_result.from_date}, "
@@ -148,7 +168,7 @@ def run_occto_orchestrated_pipeline(
                 results.append(
                     PipelineStepResult(
                         name="source_to_raw",
-                        status="success",
+                        status=STATUS_SUCCESS,
                         detail=(
                             "Saved snapshot and updated metadata catalog. "
                             f"from_date={snapshot_result.from_date}, "
@@ -175,7 +195,7 @@ def run_occto_orchestrated_pipeline(
                 results.append(
                     PipelineStepResult(
                         name="raw_to_bronze",
-                        status="success",
+                        status=STATUS_SUCCESS,
                         detail=f"table={bronze_table_identifier}, rows={row_count}",
                     )
                 )
@@ -183,7 +203,7 @@ def run_occto_orchestrated_pipeline(
                 results.append(
                     PipelineStepResult(
                         name="raw_to_bronze",
-                        status="skipped",
+                        status=STATUS_SKIPPED,
                         detail=str(error),
                     )
                 )
@@ -332,6 +352,11 @@ def main() -> None:
             result.status,
             result.detail,
         )
+
+    # A failed step that only reaches the log still exits 0, which is how both
+    # JEPX backfill incidents passed for clean runs.
+    if has_failed_step(results):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
     build_staging_relation,
     build_target_date_window,
     count_dropped_rows,
+    count_staged_rows,
     extract_unit_generation_frame,
     resolve_staged_target_date_range,
     summarize_daily_amount_mismatches,
@@ -366,6 +367,49 @@ def test_count_dropped_rows_counts_rows_with_violations(conn) -> None:
     build_staging_relation(conn, source_relation=SOURCE_RELATION)
 
     assert count_dropped_rows(conn) == 2
+
+
+def test_count_staged_rows_counts_valid_and_invalid_rows(conn) -> None:
+    """The staged count spans the whole relation, not just the usable rows."""
+    # Arrange
+    _register_bronze(
+        conn,
+        [
+            _bronze_row(),
+            _bronze_row(unit_name="別ユニット", power_plant_code=None),
+        ],
+    )
+
+    # Act
+    build_staging_relation(conn, source_relation=SOURCE_RELATION)
+
+    # Assert
+    assert count_staged_rows(conn) == 2
+    assert count_dropped_rows(conn) == 1
+
+
+def test_unparseable_target_dates_stage_nothing_under_a_date_range(conn) -> None:
+    """The silent no-op that section 8.4's status check exists to catch.
+
+    Neither target_date format matches, so the cast yields NULL and the
+    target_date filter discards the row before validation can flag it. The
+    run then sees dropped=0 and written=0, which is indistinguishable from a
+    scope that legitimately held no rows -- hence the staged count.
+    """
+    # Arrange
+    _register_bronze(conn, [_bronze_row(target_date="07.08.2026")])
+
+    # Act
+    build_staging_relation(
+        conn,
+        source_relation=SOURCE_RELATION,
+        from_date=date(2026, 8, 1),
+        to_date=date(2026, 8, 31),
+    )
+
+    # Assert
+    assert count_staged_rows(conn) == 0
+    assert count_dropped_rows(conn) == 0
 
 
 def test_summarize_violations_counts_each_reason(conn) -> None:
