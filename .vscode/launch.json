@@ -7,7 +7,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "python": "/home/vscode/.venv/bin/python3",
+            "python": "${workspaceFolder}/.venv/bin/python",
             "justMyCode": false,
             "env": {
                 "PYICEBERG_HOME": "${workspaceFolder}/configuration/iceberg"

@@ -19,9 +19,6 @@
             "path": "/bin/zsh"
         }
     },
-    "terminal.integrated.env.linux": {
-        "UV_PROJECT_ENVIRONMENT": ".venv"
-    },
     "[dockercompose]": {
         "editor.autoIndent": "advanced",
         "editor.defaultFormatter": "redhat.vscode-yaml",
