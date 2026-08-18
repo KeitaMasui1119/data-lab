@@ -541,8 +541,21 @@ docker 系 3 つはいずれもランナー v2.327.1 以上を要求するが、
 `python.defaultInterpreterPath` は元から `/workspace/.venv/bin/python` なので変更なし。これで
 **ターミナル・デバッガ・`uv run`・エディタの 4 者がすべて同じ環境を指す**。
 
-> `/home/vscode/.venv` (1.4GB) は残置。設定変更だけでは消えないため、不要が確認できたら
-> `rm -rf /home/vscode/.venv` で回収する(再生成は `uv sync` で可能)。
+> `/home/vscode/.venv` (1.4GB) は §10-7 で削除済み。
+
+**注意: `pre-commit install` の再実行が必要**
+
+`.git/hooks/pre-commit` は pre-commit が生成する shim で、**インストール時の Python 絶対パスを埋め込む**。
+
+```sh
+INSTALL_PYTHON=/home/vscode/.venv/bin/python   # 旧 venv を指したまま
+```
+
+旧 venv を消した直後の `git commit` はこれで失敗した(`pre-commit not found`)。
+`uv run pre-commit install --overwrite` で `/workspace/.venv/bin/python` を指すよう再生成して解消。
+
+devcontainer の `postStartCommand` が `uv run pre-commit install` を実行するため
+**コンテナを作り直す場合は自動で直る**が、既存コンテナで作業を続ける場合は手動実行が要る。
 
 ### 10-6. 検証結果
 
@@ -557,15 +570,121 @@ docker 系 3 つはいずれもランナー v2.327.1 以上を要求するが、
 | YAML 構文 (ci.yml / deploy.yml) | OK |
 | Docker ビルド | **未検証**(devcontainer 内に docker CLI なし) |
 
-### 10-7. 次にやること
+### 10-7. 後片付け
 
-フェーズ 2 (§9) が未着手。特に **Renovate 導入**は、今回手で上げた Action バージョンが再び陳腐化するのを防ぐためのもので、これを入れないと同じ作業を半年後に繰り返すことになる。
+- 参照リポジトリのクローン (13MB) を削除
+- `/home/vscode/.venv` (1.4GB) を削除。`uv run` は `/workspace/.venv` を使い続けることを確認済み
 
-併せて、今回の調査で新たに判明した以下も未対応:
+---
 
-- §7-5b: `deploy.yml` が `dashboard` ステージを publish している(`target: prd` の要否を判断)
-- §7-4: `devcontainer.json` の個人情報ハードコード
-- §7-3b: `apache-airflow` を任意グループへ移すか
+## 10b. フェーズ 2 実施記録 (2026-08-19)
+
+### 10b-1. Renovate を導入 (`renovate.json` 新規)
+
+参照元の設定をそのまま持ってくると voltlake では危険な箇所があるため、方針を変えて書いた。
+
+| 設定 | 参照元 | voltlake | 理由 |
+|------|-------|---------|------|
+| `schedule` | 毎時 (`* 0-23 * * *`) | **週次** (月曜 9 時前) | 個人開発で毎時は PR ノイズが過大 |
+| `lockFileMaintenance` | 有効・automerge | 有効・**月次・automerge なし** | 全依存が動くため目視したい |
+| minor/patch の automerge | **全パッケージ** | **限定**(下記) | CI が RustFS/Iceberg を検証しないため |
+| `separateMajorMinor` | `false` | 既定 (`true`) | major は分けて見たい |
+| `constraints.python` | なし | **`<3.14`** | §2 の上限を Renovate に守らせる |
+
+automerge の線引き:
+
+| 対象 | automerge | 根拠 |
+|------|:---:|------|
+| GitHub Actions (minor/patch/digest) | **する** | CI の合否がそのまま検証になる |
+| dev 依存 (minor/patch) | **する** | ビルドにしか影響せず、データを壊さない |
+| `polars` / `pyiceberg` / `duckdb` / `pyarrow` / `boto3` / dbt / airflow | **しない** + `minimumReleaseAge: 7 days` | **CI は `-m "not integration"` で RustFS・Iceberg を叩かない。CI が緑でもパイプラインが無事な証拠にならない** |
+| `python` | **更新自体を無効化** | 3.13 上限(§2)。Renovate が 3.14 を提案してくるのを防ぐ |
+| `ruff` + `astral-sh/ruff-pre-commit` | 同一グループ | 2 箇所ピンなので必ず一緒に動かす(§7-5) |
+
+> **未完了**: `renovate.json` を置いただけでは動かない。GitHub 側で
+> [Renovate App](https://github.com/apps/renovate) をこのリポジトリにインストールする必要がある。
+> インストール後、Renovate が「Dependency Dashboard」issue を作って初回 PR を出す。
+
+検証: `renovate-config-validator --strict` で `Config validated successfully`。
+
+### 10b-2. actionlint を導入
+
+| 場所 | 内容 |
+|------|------|
+| `.pre-commit-config.yaml` | `rhysd/actionlint` v1.7.12 を追加 |
+| `.github/workflows/ci.yml` | `reviewdog/action-actionlint@v1` のジョブを追加 |
+
+既存の 2 workflow に対して実行し、いずれも Passed。hadolint も同様に CI ジョブ化した
+(`hadolint/hadolint-action@v3.4.0`)。ローカルの `hadolint Dockerfile` も問題なし。
+
+### 10b-3. CI を composite action で DRY 化
+
+`.github/actions/setup-python-with-uv/action.yml` を新設し、4 ジョブが重複していた 3 ステップを 1 行に置換。
+
+```yaml
+# 変更前(4 ジョブで完全に同一の記述を反復)
+- uses: actions/checkout@v7
+- uses: astral-sh/setup-uv@v10
+  with:
+    enable-cache: true
+    python-version: "3.13"     # ← 4 箇所にハードコード
+- run: uv sync --frozen
+
+# 変更後
+- uses: actions/checkout@v7
+- uses: ./.github/actions/setup-python-with-uv
+```
+
+Python バージョンは `.python-version` から読むため、ハードコードは消えた。
+併せて `uv sync --frozen` → **`--locked`** に変更した。`--frozen` はロックファイルの
+鮮度を検査しないため、`pyproject.toml` だけ編集して `uv.lock` を更新し忘れた PR が
+CI を通ってしまう。`--locked` なら差分がある時点で落ちる。
+
+`ci.yml` は 4 ジョブ → 6 ジョブになったが、行数は 69 → 66 行。
+
+### 10b-4. ruff のバージョン乖離を解消 (§7-5)
+
+pre-commit と pyproject が別バージョンを使っていた問題。**両方を最新の 0.16.3 に揃えた。**
+
+| | 変更前 | 変更後 |
+|---|-------|-------|
+| `.pre-commit-config.yaml` の `rev` | `v0.12.8` | `v0.16.3` |
+| `pyproject.toml` の pin | `ruff>=0.15.8` | `ruff>=0.16.3` |
+
+0.15.8 → 0.16.3 で**新規の指摘・整形差分はゼロ**(事前に `uvx ruff@0.16.3` で確認してから上げた)。
+両ファイルに「もう一方と揃えること」というコメントを入れ、`renovate.json` でも同一グループにした。
+
+ついでに他の pre-commit hook も更新:
+
+| hook | 変更前 | 変更後 | 備考 |
+|------|-------|-------|------|
+| `pre-commit/pre-commit-hooks` | v5.0.0 | **v6.0.0** | 削除された `check-byte-order-marker` / `fix-encoding-pragma` は未使用 |
+| `hadolint/hadolint` | v2.12.0 | **v2.15.1** | |
+
+### 10b-5. 検証結果
+
+| 検査 | 結果 |
+|------|------|
+| `pre-commit run --all-files` | **全 12 hook Passed**(Actionlint / Lint Dockerfiles / Pyright 含む) |
+| `uv run pytest -m "not integration"` | **471 passed** |
+| `uv run ruff check` / `format --check` | All checks passed / 95 files already formatted |
+| `uv run pyright` | 0 errors, 0 warnings |
+| `renovate-config-validator --strict` | Config validated successfully |
+| GitHub Actions の実行 | **未検証**(push 後の初回 CI で確認) |
+
+### 10b-6. 残タスク
+
+**要操作(GitHub 側)**
+
+- **Renovate App のインストール** — これをやるまで `renovate.json` は効かない
+
+**未対応(判断が必要)**
+
+- §7-5b: `deploy.yml` が `dashboard` ステージを publish している(`target: prd` の要否)
+- §7-4: `devcontainer.json` の個人情報・GCP 鍵ファイル名のハードコード
+- §7-3b: `apache-airflow` を任意 dependency-group へ移すか
+- §4: カバレッジ下限 (`--cov-fail-under`) の設定 — 現状値の計測が先
+- §3.2: ruff `select` の段階的拡大 (`S` / `RUF` / `SIM` / `PTH`)
 - `ruff.toml` の `exclude` に実在しないパス (`src/stg/pydev`, `src/stg/scraper`) が残存
 
 ---
