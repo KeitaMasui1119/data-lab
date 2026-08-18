@@ -38,8 +38,9 @@ exclude = [
 line-length = 88
 indent-width = 4
 
-# Assume Python 3.14
-target-version = "py312"
+# Assume Python 3.13. This is the project's ceiling, not just its current version:
+# PyIceberg, Polars and DuckDB all stop at 3.13, so it will not move for a while.
+target-version = "py313"
 
 [lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.

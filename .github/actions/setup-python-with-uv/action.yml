@@ -1,0 +1,28 @@
+name: Setup Python with uv
+description: >
+  Install uv, provision the Python version named in .python-version, and sync
+  the locked dependencies. Every CI job needs this same preamble; keeping it
+  here means the Python version lives in one place instead of being repeated
+  as a literal in each job.
+
+runs:
+  using: composite
+
+  steps:
+    - name: Read the Python version
+      run: echo "PYTHON_VERSION=$(cat .python-version)" >> "$GITHUB_ENV"
+      shell: bash
+
+    - name: Install uv
+      # Exact version, not a floating major: setup-uv publishes only vX.Y.Z
+      # tags, so `@v10` does not resolve. Renovate keeps this pin current.
+      uses: astral-sh/setup-uv@v10.0.1
+      with:
+        enable-cache: true
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      # --locked rather than --frozen: a pyproject.toml edit that never made it
+      # into uv.lock should fail here, not resolve to something CI invented.
+      run: uv sync --locked
+      shell: bash

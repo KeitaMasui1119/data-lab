@@ -2,7 +2,7 @@ default_stages: [pre-commit]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: end-of-file-fixer
         name: End of file fixer
@@ -32,8 +32,12 @@ repos:
         name: Trailing whitespace
         description: "Remove trailing whitespace from files"
 
+  # Keep this rev in step with the `ruff` pin in pyproject.toml. pre-commit runs
+  # ruff from its own isolated environment, so a drift here means the hook and
+  # `uv run ruff` (what CI uses) enforce different rules -- commits pass locally
+  # and fail in CI, or the reverse.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.8
+    rev: v0.16.3
     hooks:
       - id: ruff
         name: Ruff check
@@ -45,8 +49,15 @@ repos:
         description: "Run 'ruff format' for extremely fast Python formatting"
         args: [--exclude, "*.ipynb", --exclude, "notebooks"]
 
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        name: Actionlint
+        description: "Lint GitHub Actions workflow files"
+
   - repo: https://github.com/hadolint/hadolint
-    rev: v2.12.0
+    rev: v2.15.1
     hooks:
       - id: hadolint
         name: Lint Dockerfiles
