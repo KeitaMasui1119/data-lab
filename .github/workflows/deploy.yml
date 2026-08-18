@@ -9,7 +9,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
@@ -31,19 +30,47 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
+      # The Dockerfile has two shippable stages. Naming neither one builds the
+      # last stage in the file, which is how the CLI image came to contain
+      # Streamlit -- so both targets are named explicitly below.
+      #
+      # Built in one job rather than a matrix on purpose: `dashboard` is
+      # FROM `prd`, so once prd is built its layers are already in this
+      # runner's build cache and the second image costs almost nothing. Split
+      # across two runners it would rebuild the whole chain twice.
+
+      - name: Extract metadata for the app image
+        id: meta-app
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/app
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=short
 
-      - name: Build and push Docker image
+      - name: Build and push the app image
         uses: docker/build-push-action@v7
         with:
           context: .
+          target: prd
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta-app.outputs.tags }}
+          labels: ${{ steps.meta-app.outputs.labels }}
+
+      - name: Extract metadata for the dashboard image
+        id: meta-dashboard
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/dashboard
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - name: Build and push the dashboard image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: dashboard
+          push: true
+          tags: ${{ steps.meta-dashboard.outputs.tags }}
+          labels: ${{ steps.meta-dashboard.outputs.labels }}

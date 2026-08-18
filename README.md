@@ -579,7 +579,18 @@ merge enforce different rules. Renovate groups the two for this reason.
 `hadolint`. The first four share `.github/actions/setup-python-with-uv`, which
 reads `.python-version`, installs uv with caching and runs `uv sync --locked`.
 
-`deploy.yml` builds and pushes to GHCR after CI succeeds on `main`.
+`deploy.yml` builds and pushes to GHCR after CI succeeds on `main`. The
+Dockerfile has two shippable stages and both are published, each named
+explicitly:
+
+| Image | Stage | Entrypoint |
+|---|---|---|
+| `ghcr.io/keitamasui1119/voltlake/app` | `prd` | `python -m src.main` |
+| `ghcr.io/keitamasui1119/voltlake/dashboard` | `dashboard` | `streamlit run src/dashboard/app.py` |
+
+Naming the target matters: with none given, Docker builds the *last* stage in
+the file, which is `dashboard`. That is how the CLI image spent a while
+containing Streamlit.
 
 Note what CI does **not** cover: `pytest -m "not integration"` excludes every
 test that touches RustFS, Iceberg or DuckDB-on-storage. A green CI run says the
