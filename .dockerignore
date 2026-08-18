@@ -1,0 +1,92 @@
+# Docker build context exclusions.
+#
+# The Dockerfile only copies `pyproject.toml`, `uv.lock`, `src` and `.streamlit`,
+# so nothing here is required by a build -- but the context is transferred to the
+# daemon in full before that COPY happens. Without this file every build ships
+# `.venv` (1.4GB), `data/` (163MB) and `.git` across, and `.secrets/` / `.env`
+# would land in the image the moment anyone writes a broader COPY.
+
+# --- Secrets: never in the build context ---
+.secrets/
+.env
+.env.*
+**/.env
+
+# --- Virtual environments ---
+.venv/
+**/.venv
+env/
+venv/
+ENV/
+
+# --- Version control & CI ---
+.git
+.gitignore
+.github
+
+# --- Editor / container / agent tooling ---
+.vscode
+.devcontainer
+.claude
+.mcp.json
+.zed
+
+# --- Docker itself ---
+.dockerignore
+Dockerfile
+compose.yaml
+**/compose.yaml
+**/docker-compose.yml
+
+# --- Data: fixtures and the local lake are not part of any image ---
+data/
+
+# --- Local Iceberg catalog (SQLite) ---
+configuration/iceberg/catalog/
+
+# --- dbt build artifacts ---
+**/target/
+**/dbt_packages/
+**/logs/
+
+# --- Notebooks and prototypes ---
+src/Jupyter/
+**/*.ipynb
+**/.ipynb_checkpoints
+
+# --- Python bytecode / build output ---
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.so
+build/
+dist/
+**/*.egg-info/
+**/*.egg
+
+# --- Test & coverage artifacts ---
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.nox/
+**/.tox/
+tests/
+
+# --- Logs ---
+**/*.log
+
+# --- Docs & repo meta ---
+docs/
+git/
+README.md
+LICENSE
+
+# --- Tool configuration not needed at runtime ---
+.pre-commit-config.yaml
+ruff.toml
+pyrightconfig.json
+.python-version
