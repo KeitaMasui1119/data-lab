@@ -47,36 +47,82 @@ Primary bucket layout:
 
 ## Tech Stack
 
-- Python 3.13+
+- Python 3.13 (a ceiling, not just the current choice -- see below)
 - RustFS (S3-compatible object storage)
 - PyIceberg
 - Polars (Bronze layer: cast + metadata)
-- DuckDB (Silver layer: cast, dedupe, unpivot where needed)
+- DuckDB (Silver and Gold layers: cast, dedupe, unpivot, aggregate)
 - uv (dependency management)
 - Ruff (linting/format), Pyright (type checking), pytest (tests)
+- pre-commit (local gate), GitHub Actions (CI), Renovate (dependency updates)
+
+### Python 3.13 is a ceiling
+
+PyIceberg, Polars and DuckDB all stop their published support at 3.13, and
+those three carry every silver and gold transform. `requires-python` on each is
+loose enough that a resolver will happily install them under 3.14, but that
+puts the core of the pipeline on wheels their own CI never tested. 3.14 is
+therefore off the table until all three ship for it.
+
+`.python-version` is the source of truth -- CI reads it through
+`.github/actions/setup-python-with-uv` rather than repeating the number. The
+Dockerfile's `ARG VARIANT`, `ruff.toml`'s `target-version` and
+`pyrightconfig.json`'s `pythonVersion` are separate declarations that have to
+be kept in agreement by hand. Renovate is configured not to propose Python
+updates at all, so this does not resurface as a recurring PR.
 
 ## Environment Setup
 
-1. Start the dev container (or run services defined in `compose.yaml`)
+1. Start the dev container (or run the services defined in `compose.yaml`).
+
 2. Install dependencies:
 
-```bash
-uv sync --all-groups
-```
+	```bash
+	uv sync --locked
+	```
 
-1. Authenticate GitHub CLI and enable Copilot CLI:
+	`--locked` fails when `uv.lock` no longer matches `pyproject.toml`, which is
+	what CI does as well -- a dependency edit that never got relocked should be
+	an error, not a silent re-resolve. Drop the flag only when you intend to
+	update the lock.
 
-```bash
-gh auth login
-gh auth refresh -h github.com -s copilot
-```
+	The environment lives at `/workspace/.venv`. `UV_PROJECT_ENVIRONMENT` in
+	`.devcontainer/devcontainer.json` is the only place that decides this; the
+	VS Code interpreter setting and the debug configuration point at the same
+	path deliberately, so the terminal, the debugger and `uv run` cannot end up
+	using different environments.
 
-Validation examples:
+3. Install the pre-commit hooks:
 
-```bash
-gh copilot -- --help
-gh copilot -p "explain this command" --allow-tool 'shell(uv)'
-```
+	```bash
+	uv run pre-commit install
+	```
+
+	The dev container's `postStartCommand` already runs this. Re-run it by hand
+	if the virtualenv is ever recreated somewhere else: `.git/hooks/pre-commit`
+	is generated with an absolute interpreter path baked in, and fails with
+	`pre-commit not found` once that path stops existing.
+
+4. Authenticate GitHub CLI and enable Copilot CLI:
+
+	```bash
+	gh auth login
+	gh auth refresh -h github.com -s copilot
+	```
+
+	Validation examples:
+
+	```bash
+	gh copilot -- --help
+	gh copilot -p "explain this command" --allow-tool 'shell(uv)'
+	```
+
+5. Ensure `.env` includes S3-compatible credentials and endpoint:
+
+	- `AWS_ACCESS_KEY_ID`
+	- `AWS_SECRET_ACCESS_KEY`
+	- `AWS_REGION`
+	- `AWS_ENDPOINT_URL`
 
 ### PyIceberg Catalog Config
 
@@ -86,13 +132,6 @@ gh copilot -p "explain this command" --allow-tool 'shell(uv)'
 	- Example: `dlh_prd` -> `/workspace/configuration/iceberg/catalog/dlh_prd.db`
 - Updating `uri` in `.pyiceberg.yaml` switches the referenced metadata DB.
 	It does not automatically migrate or rename existing DB files.
-
-1. Ensure `.env` includes S3-compatible credentials and endpoint:
-
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `AWS_REGION`
-- `AWS_ENDPOINT_URL`
 
 ## Orchestrator Commands
 
@@ -431,7 +470,10 @@ is idempotent (diffs and evolves an existing table's schema, additive only
 	Polars/DuckDB utilities, the window-replace silver write path, `common/iceberg/`
 	catalog+schema+maintenance helpers) -- anything dataset-specific belongs under `src/pipeline/` instead
 - `src/setup/`: infra provisioning (bucket creation, `manage_iceberg.py` admin CLI)
-- `src/dbt/jepx_power/`: dbt project with no models. Gold went the same Python/DuckDB/PyIceberg route as silver, so dbt is currently unused
+- `src/dbt/jepx_power/`: dbt project with no models yet. Gold went the same
+	Python/DuckDB/PyIceberg route as silver, so dbt is unused today, but it is
+	planned -- which is why `dbt-core` and `dbt-duckdb` stay in `pyproject.toml`
+	despite importing nowhere. SQLFluff comes in with the first models
 - `src/Jupyter/`: scraping prototypes and ad-hoc analysis notebooks (not part of the production path)
 - `tests/`: pytest unit tests, one file per `src/pipeline/**` module
 
@@ -439,19 +481,23 @@ is idempotent (diffs and evolves an existing table's schema, additive only
 
 This workspace is a local data lakehouse practice environment focused on Japanese power-market data.
 
-Current environment facts:
+Current environment facts (verified 2026-08-19):
 
 - OS: Debian GNU/Linux 13 (trixie)
 - Kernel: Linux 6.18.33.2-microsoft-standard-WSL2
 - Shell: zsh
-- Python requirement: 3.13+
-- uv: 0.12.4
+- Python: 3.13.15 (3.13 is a ceiling -- see Tech Stack)
+- uv: 0.12.5
 - git: 2.47.3
+- Ruff: 0.16.3, Pyright: 1.1.408
+- Virtualenv: `/workspace/.venv`
 
 Notes:
 
-- `rg` is not installed in this environment; use `grep` as a fallback.
 - Validate touched files with narrow checks first, such as `uv run ruff check <changed paths>`.
+- Docker builds read `.dockerignore`, which keeps the context to `src/`,
+	`pyproject.toml`, `uv.lock` and `.streamlit/`. Without it the context is
+	~1.7GB, and `.secrets/` and `.env` travel with it.
 
 ## Pipeline Design Notes
 
@@ -486,6 +532,61 @@ Implementation guidance:
 ```bash
 uv run ruff check <changed paths>
 ```
+
+## Quality Gates
+
+Three layers, each catching what the previous one cannot.
+
+### pre-commit (local, on every commit)
+
+```bash
+uv run pre-commit run --all-files   # run the whole set by hand
+```
+
+| Hook | Covers |
+|---|---|
+| `end-of-file-fixer`, `trailing-whitespace` | whitespace hygiene |
+| `check-json`, `check-toml`, `check-yaml`, `check-xml` | config files parse |
+| `detect-private-key` | keys committed by accident |
+| `ruff`, `ruff-format` | Python lint and format |
+| `actionlint` | GitHub Actions workflow files |
+| `hadolint` | `Dockerfile` |
+| `pyright` | static types |
+| `pytest` | unit tests -- **manual stage only**, run with `pre-commit run pytest --hook-stage manual` |
+
+The ruff pin appears twice, in `pyproject.toml` and as the `ruff-pre-commit`
+rev. They must move together: pre-commit runs ruff from its own isolated
+environment, so a drift means the hook guarding a commit and the CI guarding a
+merge enforce different rules. Renovate groups the two for this reason.
+
+### GitHub Actions (on push and pull request to `main`)
+
+`ci.yml` runs six jobs: `lint`, `format`, `typecheck`, `test`, `actionlint` and
+`hadolint`. The first four share `.github/actions/setup-python-with-uv`, which
+reads `.python-version`, installs uv with caching and runs `uv sync --locked`.
+
+`deploy.yml` builds and pushes to GHCR after CI succeeds on `main`.
+
+Note what CI does **not** cover: `pytest -m "not integration"` excludes every
+test that touches RustFS, Iceberg or DuckDB-on-storage. A green CI run says the
+code imports and the unit tests pass. It is not evidence that the pipeline
+still ingests.
+
+### Renovate (weekly)
+
+`renovate.json` splits automerge by blast radius, which follows directly from
+the gap above:
+
+| Scope | Behaviour |
+|---|---|
+| GitHub Actions (minor/patch/digest) | grouped, automerged -- CI failing *is* the test |
+| dev dependencies (minor/patch) | grouped, automerged -- build-only, no data path |
+| `polars`, `pyiceberg`, `duckdb`, `pyarrow`, `boto3`, dbt, airflow | PR for review, held 7 days after release |
+| `python` | updates disabled entirely (see the ceiling above) |
+
+Lock file maintenance runs monthly and is never automerged.
+
+> Renovate does nothing until its GitHub App is installed on the repository.
 
 ## Current Status Snapshot
 
