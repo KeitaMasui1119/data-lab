@@ -75,6 +75,20 @@ updates at all, so this does not resurface as a recurring PR.
 
 1. Start the dev container (or run the services defined in `compose.yaml`).
 
+	Git identity is not configured by the container. VS Code's Dev Containers
+	extension copies `user.name` and `user.email` from the host's `~/.gitconfig`
+	on startup, and injects its own credential helper alongside them. If you
+	open the container some other way and `git commit` complains it does not
+	know who you are, set it once inside the container:
+
+	```bash
+	git config --global user.name "<your name>"
+	git config --global user.email "<your email>"
+	```
+
+	It used to be hardcoded in `postCreateCommand`, which meant the container
+	stamped one specific person's name onto anyone else's commits.
+
 2. Install dependencies:
 
 	```bash
