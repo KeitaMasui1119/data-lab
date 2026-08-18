@@ -16,12 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
-        with:
-          enable-cache: true
-          python-version: "3.13"
-      - name: Install dependencies
-        run: uv sync --frozen
+      - uses: ./.github/actions/setup-python-with-uv
       - name: Ruff check
         run: uv run ruff check src/ tests/
 
@@ -30,12 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
-        with:
-          enable-cache: true
-          python-version: "3.13"
-      - name: Install dependencies
-        run: uv sync --frozen
+      - uses: ./.github/actions/setup-python-with-uv
       - name: Ruff format check
         run: uv run ruff format --check src/ tests/
 
@@ -44,12 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
-        with:
-          enable-cache: true
-          python-version: "3.13"
-      - name: Install dependencies
-        run: uv sync --frozen
+      - uses: ./.github/actions/setup-python-with-uv
       - name: Pyright
         run: uv run pyright
 
@@ -58,11 +43,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
-        with:
-          enable-cache: true
-          python-version: "3.13"
-      - name: Install dependencies
-        run: uv sync --frozen
+      - uses: ./.github/actions/setup-python-with-uv
       - name: Pytest
         run: uv run pytest -m "not integration" --cov=src --cov-report=term-missing
+
+  actionlint:
+    name: Lint workflows (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Actionlint
+        uses: reviewdog/action-actionlint@v1
+
+  hadolint:
+    name: Lint Dockerfile (hadolint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Hadolint
+        uses: hadolint/hadolint-action@v3.4.0
+        with:
+          dockerfile: Dockerfile
