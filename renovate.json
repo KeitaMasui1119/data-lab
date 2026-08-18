@@ -1,0 +1,85 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+        "config:recommended",
+        ":dependencyDashboard"
+    ],
+    "timezone": "Asia/Tokyo",
+    "schedule": [
+        "before 9am on monday"
+    ],
+    "branchPrefix": "renovate/",
+    "labels": [
+        "dependencies"
+    ],
+    "rebaseWhen": "behind-base-branch",
+    "prConcurrentLimit": 5,
+    "lockFileMaintenance": {
+        "enabled": true,
+        "schedule": [
+            "before 9am on the first day of the month"
+        ]
+    },
+    "constraints": {
+        "python": "<3.14"
+    },
+    "packageRules": [
+        {
+            "description": "Python is pinned at 3.13: PyIceberg, Polars and DuckDB have no 3.14 support, and all of silver and gold runs on those three. Revisit when they ship 3.14 wheels.",
+            "matchPackageNames": [
+                "python"
+            ],
+            "enabled": false
+        },
+        {
+            "description": "GitHub Actions drift silently and are cheap to verify -- CI either passes or it does not. Group them and let non-major updates merge on their own.",
+            "matchManagers": [
+                "github-actions"
+            ],
+            "matchUpdateTypes": [
+                "minor",
+                "patch",
+                "digest"
+            ],
+            "groupName": "github-actions",
+            "automerge": true
+        },
+        {
+            "description": "Dev tooling only affects the build, never the data. Group it so one PR carries ruff, pyright, pytest and friends together. The depType spelling for a PEP 735 group has varied across Renovate versions, so match every form rather than depend on one.",
+            "matchDepTypes": [
+                "dev",
+                "dependency-groups.dev",
+                "tool.uv.dev-dependencies"
+            ],
+            "matchUpdateTypes": [
+                "minor",
+                "patch"
+            ],
+            "groupName": "dev-dependencies",
+            "automerge": true
+        },
+        {
+            "description": "ruff is pinned twice -- pyproject.toml and the ruff-pre-commit rev. They must move together or the hook and CI disagree.",
+            "matchPackageNames": [
+                "ruff",
+                "astral-sh/ruff-pre-commit"
+            ],
+            "groupName": "ruff"
+        },
+        {
+            "description": "Runtime data dependencies get a PR to read, never an automerge. CI does not exercise RustFS or Iceberg -- integration tests are excluded there -- so a green check is not evidence the pipeline still works.",
+            "matchPackageNames": [
+                "polars",
+                "pyiceberg",
+                "duckdb",
+                "pyarrow",
+                "boto3",
+                "dbt-core",
+                "dbt-duckdb",
+                "apache-airflow"
+            ],
+            "automerge": false,
+            "minimumReleaseAge": "7 days"
+        }
+    ]
+}
