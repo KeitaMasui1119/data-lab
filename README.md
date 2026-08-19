@@ -28,8 +28,10 @@ Datasets implemented so far, each following Raw -> Bronze -> Silver:
 | Hokuriku power_usage (でんき予報) | rikuden.co.jp daily snapshot CSV | `bronze.power_usage_hokuriku_{daily_summary,hourly,interval5}` | `silver.power_usage_hokuriku_{daily_summary,hourly,interval5}` |
 | supply_demand_actuals (需給実績) | Tohoku/Chugoku/Shikoku yearly actuals CSV | `bronze.supply_demand_actuals_{tohoku,chugoku,shikoku}` | `silver.supply_demand_actuals_{tohoku,chugoku,shikoku}` |
 
-See `docs/architecture/data_model.md` for the full table/column design and
-`docs/tasks/tasks.md` for what is implemented vs. still open per company.
+See `docs/architecture/data_model.md` for the full table/column design,
+`docs/architecture/pl_jepx_spot_price_design.md` for the JEPX orchestrator's
+step flow as a diagram, and `docs/tasks/tasks.md` for what is implemented vs.
+still open per company.
 
 ## Storage Layout
 
