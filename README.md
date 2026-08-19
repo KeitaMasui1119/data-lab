@@ -562,7 +562,7 @@ uv run pre-commit run --all-files   # run the whole set by hand
 | `end-of-file-fixer`, `trailing-whitespace` | whitespace hygiene |
 | `check-json`, `check-toml`, `check-yaml`, `check-xml` | config files parse |
 | `detect-private-key` | keys committed by accident |
-| `ruff`, `ruff-format` | Python lint and format |
+| `ruff`, `ruff-format` | Python lint, format, and security (`S`, the bandit port) |
 | `actionlint` | GitHub Actions workflow files |
 | `hadolint` | `Dockerfile` |
 | `pyright` | static types |
@@ -572,6 +572,15 @@ The ruff pin appears twice, in `pyproject.toml` and as the `ruff-pre-commit`
 rev. They must move together: pre-commit runs ruff from its own isolated
 environment, so a drift means the hook guarding a commit and the CI guarding a
 merge enforce different rules. Renovate groups the two for this reason.
+
+Security linting runs through ruff's `S` rules rather than a separate bandit
+install -- `S` *is* bandit, ported. One rule is switched off: `S608` fires on
+all 45 of the silver/gold DuckDB queries, which interpolate Iceberg table and
+column names from the schema CSVs and bound literals like a fiscal year. No
+external input reaches those strings. Everything else in the set stays on,
+including `S602`, which is the rule that catches a real shell injection. Should
+a query ever take a caller-supplied fragment, drop the `S608` entry from
+`ruff.toml` and annotate the safe sites individually instead.
 
 ### GitHub Actions (on push and pull request to `main`)
 
