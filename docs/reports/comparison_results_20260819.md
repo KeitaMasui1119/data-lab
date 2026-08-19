@@ -691,7 +691,7 @@ pre-commit と pyproject が別バージョンを使っていた問題。**両�
 - ~~§7-5b: `deploy.yml` が `dashboard` ステージを publish している~~ → **§10c-2 で解消**
 - ~~§7-4: `devcontainer.json` の個人情報・GCP 鍵ファイル名のハードコード~~ → **§10c-1 で解消**
 - ~~§4: カバレッジ下限 (`--cov-fail-under`) の設定 — 現状値の計測が先~~ → **§10d-1 で解消**
-- §7-3b: `apache-airflow` を任意 dependency-group へ移すか
+- ~~§7-3b: `apache-airflow` を任意 dependency-group へ移すか~~ → **§10d-2 で解消**
 - §3.2: ruff `select` の段階的拡大 (`S` / `RUF` / `SIM` / `PTH`)
 - `ruff.toml` の `exclude` に実在しないパス (`src/stg/pydev`, `src/stg/scraper`) が残存
 
@@ -778,9 +778,11 @@ matrix で 2 ランナーに分けると共通の `base` → `builder` → `prd`
 
 ## 10d. フェーズ 4 実施記録 (2026-08-19)
 
-PR #90 マージ後の追加対応。ブランチ `chore/coverage-floor`。
+PR #90 マージ後の追加対応。ブランチは項目ごとに分ける。
 
 ### 10d-1. カバレッジ下限を `--cov-fail-under=73` で強制 (§4)
+
+ブランチ: `chore/coverage-floor`。
 
 現状値の実測から:
 
@@ -826,6 +828,73 @@ CI 限定に置いた理由: ローカル開発中の細かい試行(小さな�
 `storage_client.py` は `integration` マーク付きテストが本体を叩くため、`-m "not integration"`
 から抜けている分がそのまま未カバーとして現れている。これは integration 実行時に別途カバレッジを
 合成しない限り 21% のまま出続けるので、ラチェットの対象からは外して扱う。
+
+### 10d-2. `apache-airflow` を任意 dependency-group へ移送 (§7-3b)
+
+ブランチ: `chore/airflow-optional-group`。
+
+`apache-airflow` を `[project.dependencies]` から `[dependency-groups] airflow`
+へ移し、通常の `uv sync` からは外した。
+
+**変更内容**:
+
+```toml
+# pyproject.toml
+[project]
+dependencies = [
+    # 'apache-airflow>=3.1.8',   # 削除
+    ...
+]
+
+[dependency-groups]
+airflow = [
+    'apache-airflow>=3.1.8',
+]
+
+[tool.uv]
+default-groups = ["dev"]   # ← 追加
+```
+
+**`default-groups` の追加が本質**。uv 0.12 系は `[tool.uv.default-groups]` が
+未設定だと **全ての依存グループを既定インストール対象として扱う**。単純に
+airflow を新グループへ移しただけでは `uv sync` が airflow を引き続きインストールする。
+`default-groups = ["dev"]` を明示することで、`airflow` グループは
+`uv sync --group airflow` を書いた時だけ入るようになる。
+
+**節約されたコスト**:
+
+| 指標 | 変更前 | 変更後 |
+|---|---:|---:|
+| `uv sync` の対象パッケージ | 287 | 221 (推定、airflow 依存 66 減) |
+| `uv sync --locked` のドライラン (削除される件数) | — | 66 packages |
+| Renovate の毎週スキャン対象 | airflow 依存を含む | airflow は「明示グループの中」扱いで scan は続くが CI の負担は減る |
+
+Renovate の `matchPackageNames` にある `apache-airflow` はそのまま残す。airflow を
+opt-in 化しても Renovate は `[dependency-groups]` を含めて解析するため、
+リリース時に PR は引き続き来る(7 日ホールド・非 automerge のまま)。
+
+**検証**:
+
+| 項目 | 結果 |
+|---|---|
+| `uv sync --locked --dry-run` で airflow が Would remove として出る | ✓ |
+| `uv sync --locked` 実行後 `python -c "import airflow"` | `ModuleNotFoundError` |
+| `uv run pytest -m "not integration"` | **470 passed** (前回 471。airflow の `test_installed_dependency_matches_pyproject` パラメータが 1 件消えた分) |
+| カバレッジ | 73.76% (変わらず) |
+
+**運用注意**:
+
+- 既存の devcontainer にはまだ airflow が残っている。次回の `postCreateCommand`
+  (`uv sync --locked` を含む) 実行時に自動的に除去される。手動で `uv sync --locked`
+  を叩けば即時反映。
+- Dockerfile は `uv sync --frozen --no-install-project --no-dev` を叩いているため、
+  `airflow` は `--no-dev` によって最初から prd/dashboard イメージには入らない。
+  この変更で本番イメージも同じ 66 パッケージ分軽くなる (§10c-0 の
+  ビルドコンテキスト 1,500 分の 1 とは別の効果)。
+- 将来 airflow のオーケストレーション実装に着手する時は
+  `uv sync --group airflow` を実行。運用イメージにも含めるなら Dockerfile を
+  `uv sync --frozen --no-install-project --group airflow`(または
+  専用ステージ) に切り替える。
 
 ---
 
