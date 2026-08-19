@@ -245,7 +245,7 @@ def main() -> None:
     target_at = resolve_target_at(args.timestamp_ms)
     fiscal_year = target_at.year if target_at.month >= 4 else target_at.year - 1
 
-    default_object_key, default_file_name = resolve_default_raw_object(target_at)
+    default_object_key, _default_file_name = resolve_default_raw_object(target_at)
     object_key = args.object_key or default_object_key
     source_file_name = args.source_file_name or Path(object_key).name
 

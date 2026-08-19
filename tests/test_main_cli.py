@@ -275,7 +275,7 @@ EXPECTED_COMMANDS: dict[str, tuple[list[str], dict[str, object]]] = {
 
 
 def _subparsers_action(parser: argparse.ArgumentParser) -> argparse._SubParsersAction:
-    for action in parser._actions:  # noqa: SLF001 -- introspection is the point of this test
+    for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             return action
     raise AssertionError("no subparsers action registered on the top-level parser")

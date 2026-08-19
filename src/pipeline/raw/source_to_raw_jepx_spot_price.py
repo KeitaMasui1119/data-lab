@@ -67,7 +67,7 @@ def _load_ingestion_log(storage_client: RustFSClient, bucket_name: str) -> pl.Da
 
     try:
         return pl.read_parquet(io.BytesIO(payload))
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         logger.warning(
             (
                 "Failed to parse ingestion log parquet; initializing empty "

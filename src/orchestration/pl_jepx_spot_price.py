@@ -435,7 +435,7 @@ def run_jepx_backfill_pipeline(
                         allow_duplicate_source=allow_duplicate_source,
                     )
                 )
-            except Exception as error:  # noqa: BLE001 -- one bad year must not end the range
+            except Exception as error:
                 logger.exception("Backfill failed for fiscal_year=%s", fiscal_year)
                 failed_fiscal_years.append(fiscal_year)
                 results.append(

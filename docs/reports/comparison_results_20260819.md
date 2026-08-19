@@ -692,8 +692,9 @@ pre-commit と pyproject が別バージョンを使っていた問題。**両�
 - ~~§7-4: `devcontainer.json` の個人情報・GCP 鍵ファイル名のハードコード~~ → **§10c-1 で解消**
 - ~~§4: カバレッジ下限 (`--cov-fail-under`) の設定 — 現状値の計測が先~~ → **§10d-1 で解消**
 - ~~§7-3b: `apache-airflow` を任意 dependency-group へ移すか~~ → **§10d-2 で解消**
-- §3.2: ruff `select` の段階的拡大 (`S` / `RUF` / `SIM` / `PTH`)
-- `ruff.toml` の `exclude` に実在しないパス (`src/stg/pydev`, `src/stg/scraper`) が残存
+- ~~§3.2: ruff `select` の段階的拡大 (`S` / `RUF` / `SIM` / `PTH`)~~ → **§10d-3 で PTH/SIM/RUF 採用、S は保留**
+- ~~`ruff.toml` の `exclude` に実在しないパス (`src/stg/pydev`, `src/stg/scraper`) が残存~~ → **§10d-3 で解消**
+- §10d-3 追加: `S` (bandit) の採用は保留(S608 が DuckDB 内部クエリで 45 件の誤検知)
 
 ---
 
@@ -895,6 +896,101 @@ opt-in 化しても Renovate は `[dependency-groups]` を含めて解析する�
   `uv sync --group airflow` を実行。運用イメージにも含めるなら Dockerfile を
   `uv sync --frozen --no-install-project --group airflow`(または
   専用ステージ) に切り替える。
+
+### 10d-3. `ruff.toml` を整理して 3 ルールセットを追加 (§3.2, §10b-6 の exclude 残存)
+
+ブランチ: `chore/ruff-config-cleanup`。
+
+### 追加した select
+
+各ルールの違反件数を先に計測してから採否を決めた。
+
+| ルール | 違反件数 | 採否 | 理由 |
+|---|---:|---|---|
+| **PTH** (pathlib) | 5 | **採用** | 機械的に `Path` 化して終わり。誤検知なし |
+| **SIM** (簡約) | 1 | **採用** | 1 件だけ、if-branch の or 統合 |
+| **RUF** (ruff 固有) | 56 | **採用**(+ RUF001/003 を ignore) | 内訳: RUF100 unused noqa 23 件、RUF001/003 = 全角括弧の誤検知 29 件、実質バグ 4 件 |
+| **S** (bandit) | 51 | **見送り** | S608 が DuckDB 内部クエリで 45 件。テーブル名を f-string で埋める既定パターンで、user input ではないため誤検知。全部に `# noqa: S608` を付けるとノイズ、`ignore = ["S608"]` にすると S セット全体の価値が薄まる |
+
+RUF001 / RUF003 の追加 ignore は、ダッシュボードや Japanese の comment で全角括弧
+`（` `）` や `～` を意図的に使っているため。日本語文脈では ASCII 版と混同する余地が
+なく、警告するとむしろ誤変換の温床になる。
+
+### 実施内容
+
+**`ruff.toml`**:
+
+```diff
+ select = [
+     "E", "F", "W", "I", "B", "UP",
++    "PTH", "SIM", "RUF",
+ ]
+ ignore = [
+     "D", "T201", "COM812", "COM819", ...,
++    "RUF001",  # 全角括弧・チルダは日本語ラベルで意図的
++    "RUF003",
+ ]
+ exclude = [
+     ..., ".venv", ".vscode", ...,
+-    "src/stg/pydev",     # 実在しない
+-    "src/stg/scraper",   # 実在しない
+     "*.ipynb", "notebooks",
+ ]
+```
+
+**自動 fix**: 22 件が `ruff check --fix` で解消(主に RUF100 の unused noqa 除去)。
+`src/common/iceberg/catalog.py`, `src/common/storage_client.py` などで
+`# noqa: BLE001` が 15 箇所以上除去された。BLE001 は voltlake の select にないため、
+これらの noqa は元々効いていなかった。
+
+**手動 fix (9 件)**:
+
+| 修正 | ルール | 件数 |
+|---|---|---:|
+| `os.path.exists()` → `Path().exists()` | PTH110 | 3 |
+| `open()` → `Path().open()` | PTH123 | 2 |
+| `os.path.basename()` → `Path().name` | PTH119 | 1 |
+| 3 分岐 if 文の or 統合(88 桁 wrap) | SIM114 + E501 | 1 |
+| `list = []` クラス属性 → `ClassVar[list[...]] = []` | RUF012 | 1 |
+| 正規表現に `r"..."` プリフィクス追加 | RUF043 | 1 |
+| 未使用のアンパック変数を `_default_file_name` へ | RUF059 | 1 |
+
+`Path()` 化に合わせて `build_partition_spec` / `build_table_schema` のシグネチャを
+`str` → `str | Path` に広げた。呼び出し側は既存のまま動く(str も Path も受ける)。
+
+### 検証結果
+
+| 項目 | 結果 |
+|---|---|
+| `uv run ruff check src/ tests/` | All checks passed |
+| `uv run ruff format --check src/ tests/` | 95 files already formatted |
+| `uv run pyright` | 0 errors |
+| `uv run pytest -m "not integration" --cov=src --cov-fail-under=73` | **471 passed, 73.80%** |
+
+`Path()` 化で `os.path.exists` の失敗ブランチが薄くなり、実測カバレッジが 73.76%
+→ 73.80% に微増。
+
+### 見送った `S` (bandit) の扱い
+
+S608 45 件は「テーブル名やカラム名を f-string で埋める DuckDB クエリ」で、これは
+`common/silver_write.py` や gold の各集計スクリプトが依拠する既定パターン。
+Iceberg テーブルの完全修飾名は固定文字列 + fiscal year 等のバインド済み値で構築
+されており、任意の user input が入る経路はない。
+
+対応の候補:
+
+- **A**: `ignore = ["S608"]` を足す — S の他ルール(S101 assert、S108 tmp、S603 subprocess)は
+  取れるが、実装量に対する効果が薄い(全 51 のうち 6 しか残らない)
+- **B**: `# noqa: S608` を各所に付ける — 45 箇所ノイズ
+- **C**: 見送る — 今回の選択
+
+`S101` (assert): 1 件 `bronze_to_silver_occto_unit_generation_actuals.py:72` — テスト
+専用 assert ではなく本番コードなので `raise` 化すべき。
+`S108` (tmp): 4 件 — 検討要。
+`S603` (subprocess): 1 件 `orchestration/pl_jepx_spot_price.py:83` — 内部の DuckDB CLI
+起動と思われる、要検討。
+
+これら 6 件は独立した PR で対応した方が review が薄く済む。
 
 ---
 

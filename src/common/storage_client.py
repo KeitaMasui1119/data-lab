@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 import boto3
 from botocore.client import BaseClient
@@ -77,14 +78,14 @@ class RustFSClient:
     ) -> None:
         """Upload a local file to object storage."""
         if object_name is None:
-            object_name = os.path.basename(file_path)
+            object_name = Path(file_path).name
 
         try:
             self.s3.upload_file(file_path, bucket_name, object_name)
             logger.info(
                 "File %s uploaded to %s/%s", file_path, bucket_name, object_name
             )
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             logger.error("Error uploading file: %s", error)
             raise
 
@@ -107,7 +108,7 @@ class RustFSClient:
         try:
             self.s3.put_object(**params)
             logger.info("Uploaded bytes to %s/%s", bucket_name, object_name)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             logger.error("Error uploading bytes: %s", error)
             raise
 
@@ -121,7 +122,7 @@ class RustFSClient:
                 bucket_name,
                 file_path,
             )
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             logger.error("Error downloading file: %s", error)
             raise
 
@@ -132,7 +133,7 @@ class RustFSClient:
             files = [obj["Key"] for obj in response.get("Contents", [])]
             logger.info("Files in %s/%s: %s", bucket_name, prefix, files)
             return files
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             logger.error("Error listing files: %s", error)
             raise
 
@@ -141,7 +142,7 @@ class RustFSClient:
         try:
             self.s3.delete_object(Bucket=bucket_name, Key=object_name)
             logger.info("File %s deleted from %s", object_name, bucket_name)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             logger.error("Error deleting file: %s", error)
             raise
 
@@ -176,7 +177,7 @@ class RustFSClient:
                 raise RuntimeError(
                     f"Errors occurred during batch delete: {delete_response['Errors']}"
                 )
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             logger.error("Error deleting folder '%s': %s", prefix, error)
             raise
 
@@ -193,7 +194,7 @@ class RustFSClient:
 
             self.s3.create_bucket(**params)
             logger.info("Bucket %s created", bucket_name)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             logger.error("Error creating bucket: %s", error)
             raise
 
@@ -301,7 +302,7 @@ class RustFSClient:
             response = self.s3.get_object(Bucket=bucket_name, Key=object_name)
             logger.info("Object %s retrieved from %s", object_name, bucket_name)
             return response["Body"].read()
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             logger.error(
                 "Error getting object %s from %s: %s", object_name, bucket_name, error
             )
