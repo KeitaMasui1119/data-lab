@@ -592,10 +592,17 @@ Naming the target matters: with none given, Docker builds the *last* stage in
 the file, which is `dashboard`. That is how the CLI image spent a while
 containing Streamlit.
 
+The `test` job enforces a coverage floor with `--cov-fail-under=73`. That is
+1 point below the current 73.76% baseline, not a target -- the target is 80%,
+ratcheted upward as untested modules get their first tests. The floor exists
+to catch regressions, not to describe what "good" looks like.
+
 Note what CI does **not** cover: `pytest -m "not integration"` excludes every
 test that touches RustFS, Iceberg or DuckDB-on-storage. A green CI run says the
 code imports and the unit tests pass. It is not evidence that the pipeline
-still ingests.
+still ingests -- and the 73% coverage number does not include the
+integration-marked tests that exercise `common/storage_client.py`, so its 21%
+line in the report is an artifact of the CI-only run, not a real gap.
 
 ### Renovate (weekly)
 
