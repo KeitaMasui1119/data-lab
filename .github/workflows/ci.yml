@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Each job below delegates to a nox session so the command CI runs is the
+# command a developer runs locally. noxfile.py holds the flags -- including
+# the coverage floor -- so the two cannot drift.
 jobs:
   lint:
     name: Lint (ruff check)
@@ -18,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-with-uv
       - name: Ruff check
-        run: uv run ruff check src/ tests/
+        run: uv run nox -s lint
 
   format:
     name: Format (ruff format --check)
@@ -27,7 +30,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-with-uv
       - name: Ruff format check
-        run: uv run ruff format --check src/ tests/
+        run: uv run nox -s format_check
 
   typecheck:
     name: Type check (pyright)
@@ -36,7 +39,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-with-uv
       - name: Pyright
-        run: uv run pyright
+        run: uv run nox -s typecheck
 
   test:
     name: Test (pytest)
@@ -45,7 +48,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-with-uv
       - name: Pytest
-        run: uv run pytest -m "not integration" --cov=src --cov-report=term-missing --cov-fail-under=73
+        run: uv run nox -s test
 
   actionlint:
     name: Lint workflows (actionlint)

@@ -90,3 +90,5 @@ LICENSE
 ruff.toml
 pyrightconfig.json
 .python-version
+noxfile.py
+.coveragerc

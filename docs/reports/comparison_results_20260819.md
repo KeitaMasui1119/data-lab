@@ -1229,13 +1229,95 @@ PTH123 `open()` should be replaced by `Path.open()`
 
 ### 10e-2. 残っている ECC ギャップ
 
-本 PR では扱わない。いずれも独立して実施できる。
+- ~~`C901` (複雑度) の採用 + `setup/manage_iceberg.py:main` の 1 件解消~~ → **§10e-3**
+- ~~`--cov-branch` + `.coveragerc`~~ → **§10e-4**
+- ~~`unit` マーカーの追加~~ → **§10e-5**
+- ~~`noxfile.py`~~ → **§10e-5**
+- カバレッジ 80% へのラチェット (§10d-1 の計画に沿って継続)
 
-- `C901` (複雑度) の採用 + `setup/manage_iceberg.py:main` の 1 件解消
-- `--cov-branch` + `.coveragerc` (ECC は行カバレッジしか担保していない現状を分岐まで広げる)
-- `unit` マーカーの追加 (ECC `python/testing.md` は unit / integration の 2 分類を前提)
-- `noxfile.py` (ECC `common/development-workflow.md` の「ローカルと CI が同一コマンド」)
-- カバレッジ 73% → 80% のラチェット (§10d-1 の計画に沿って)
+### 10e-3. `C901` を採用し、唯一の違反を解消
+
+ブランチ: `feat/ecc-quality-gates`。
+
+`select` に `C90` を追加し、`max-complexity = 10` を明示した (ruff の既定値と同じだが、
+暗黙の既定に依存しない)。ECC `code-review.md` はネスト 4 段までを求めており、複雑度 10
+を超える関数はたいていそこに触れている。
+
+唯一の違反 `setup/manage_iceberg.py:main` (11 > 10) は、パーサ構築と実行ルーティングを
+1 関数が兼ねていたのが原因。既存の `cli/commands/jepx.py` と同じ `_configure_*` /
+`handle_*` 規約に沿って分割した。
+
+**併せて実際の欠陥を 1 件修正**: `table create` / `recreate` で `--csv` を省略した場合、
+`logger.error` して `return` していたため **プロセスの終了コードが 0** だった。この CLI は
+スクリプトから叩かれる想定なので、「何も起きなかったのに成功」を返すのは誤り。
+`EXIT_USAGE = 2` を返すようにした。
+
+```
+$ python -m setup.manage_iceberg table create --name x   # --csv なし
+修正前: exit=0   修正後: exit=2
+```
+
+**分割の副産物としてテストが書けるようになった。** カタログを実体化せずルーティングだけを
+検証する 9 ケースを追加し、`manage_iceberg.py` は **0% → 83%** になった
+(§10d-1 のラチェット表で「未カバー領域の筆頭」に挙げていたファイル)。
+
+### 10e-4. 分岐カバレッジへ移行
+
+`--cov-branch` を CI と noxfile に入れ、設定を `.coveragerc` に集約した。
+
+| 測定方法 | 数値 | floor |
+|---|---:|---:|
+| 行のみ (§10d-1 時点) | 73.76% | 73 |
+| 行のみ (10e-3 のテスト追加後) | 75.01% | — |
+| **分岐込み (現在)** | **71.81%** | **71** |
+
+**数値が下がったのはカバレッジが落ちたからではなく、測定が厳しくなったから。** 行カバレッジは
+`if` の片側が通れば覆われたと数えるが、分岐カバレッジは両側を要求する。voltlake で実際に
+問題が起きたのは通らなかった側 — スコープフィルタが何にもマッチしない、日付列がパース
+できなくなる — なので、ゲートをかける対象としては分岐のほうが適切。
+
+`.coveragerc` の除外は最小限に留めた: `src/Jupyter/*` (本番経路外のノートブック)、
+`src/dbt/*` (まだ Python が動かない)、`if __name__ == "__main__":`、`if TYPE_CHECKING:`。
+
+### 10e-5. `noxfile.py` と `unit` マーカー
+
+**noxfile.py** — `nox` は §7-3 の時点で dev 依存に宣言されていたが `noxfile.py` が存在せず、
+CI が生の `uv run ruff check ...` を直書きしていた (§5.1 の指摘)。セッションを定義し、
+**CI の 4 ジョブをすべて nox 経由に付け替えた**:
+
+```yaml
+- run: uv run nox -s lint          # 旧: uv run ruff check src/ tests/
+- run: uv run nox -s format_check  # 旧: uv run ruff format --check src/ tests/
+- run: uv run nox -s typecheck     # 旧: uv run pyright
+- run: uv run nox -s test          # 旧: uv run pytest -m "not integration" --cov=... (長い)
+```
+
+これで **カバレッジ floor を含むフラグ一式が `noxfile.py` の 1 箇所**に集まり、
+「CI が強制するもの」と「ローカルで手打ちするもの」が乖離しなくなる。乖離が起きると、
+短く打ったローカル版のほうが通ってしまうのが厄介なところだった。
+
+`default_venv_backend = "none"` でプロジェクトの venv を再利用する。uv が `uv.lock` で
+すべてピン留めしている以上、セッションごとに別 venv を作ると同じパッケージを別リゾルバで
+入れ直すことになる。
+
+`integration` セッションも定義した。CI が回さない RustFS / Iceberg / DuckDB-on-storage の
+テストを `uv run nox -s integration` で回せる。
+
+**unit マーカー** — ECC `python/testing.md` は unit / integration の 2 分類を前提にしている。
+`integration` は既にあったので `unit` を追加した。既存テストへの一括付与はしていない
+(`-m "not integration"` が実質的に unit を意味するため、いま付けても情報が増えない)。
+今後 unit と明示したいケースで使う。
+
+### 10e-6. 検証結果
+
+| 項目 | 結果 |
+|---|---|
+| `uv run nox` (lint / format_check / typecheck / test) | **4 セッションすべて成功** |
+| `uv run pytest -m "not integration" --cov-branch --cov-fail-under=71` | **466 passed, 71.81%** |
+| `uv run pyright` | 0 errors |
+| `uv run pre-commit run --all-files` | 12 hooks すべて Passed |
+| `manage_iceberg` の終了コード | `--csv` 欠落 → 2、正常 → 0 |
+| `manage_iceberg.py` カバレッジ | 0% → **83%** |
 
 ---
 
