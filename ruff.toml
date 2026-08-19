@@ -51,8 +51,9 @@ select = [
     "UP",  # 古い構文の警告
     "PTH", # pathlib優先
     "SIM", # 簡約
-    "RUF", # ruff固有(unused noqa/mutable default等)
-    "S",   # bandit移植(セキュリティ)
+    "RUF",  # ruff固有(unused noqa/mutable default等)
+    "S",    # bandit移植(セキュリティ)
+    "C90",  # 複雑度(ECC code-review.md のネスト上限に対応)
 ]
 ignore = [
     "D",
@@ -101,6 +102,11 @@ skip-magic-trailing-comma = false
 
 # Like Black, automatically detect the appropriate line ending.
 line-ending = "auto"
+
+[lint.mccabe]
+# ruff の既定値と同じだが明示しておく。ECC code-review.md はネスト 4 段までを
+# 求めており、10 を超える関数はたいていそこに触れている。
+max-complexity = 10
 
 [lint.per-file-ignores]
 # Ignore all directories named `tests`.

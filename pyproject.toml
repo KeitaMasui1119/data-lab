@@ -61,4 +61,5 @@ default-groups = ["dev"]
 testpaths = ["tests"]
 markers = [
     "integration: tests that require external services (RustFS, DuckDB, dbt)",
+    "unit: tests that run purely in-process (no network, no storage, no catalog)",
 ]

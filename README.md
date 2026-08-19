@@ -587,10 +587,13 @@ a query ever take a caller-supplied fragment, drop the `S608` entry from
 `ci.yml` runs seven jobs: `lint`, `format`, `typecheck`, `test`, `actionlint`,
 `hadolint` and `docker-build`. The first four share
 `.github/actions/setup-python-with-uv`, which reads `.python-version`, installs
-uv with caching and runs `uv sync --locked`. `docker-build` is a matrix over the
-three shippable Dockerfile stages (`dev`, `prd`, `dashboard`); it builds each on
-every PR without pushing so a Dockerfile break gets caught before `deploy.yml`
-runs on `main`.
+uv with caching and runs `uv sync --locked`, and each one delegates to a nox
+session (`uv run nox -s lint`, `-s test`, …) rather than spelling the command
+out. `noxfile.py` is where the flags live, so what CI enforces and what you get
+locally cannot drift apart -- see Task runner below. `docker-build` is a matrix
+over the three shippable Dockerfile stages (`dev`, `prd`, `dashboard`); it
+builds each on every PR without pushing so a Dockerfile break gets caught before
+`deploy.yml` runs on `main`.
 
 `deploy.yml` builds and pushes to GHCR after CI succeeds on `main`. The
 Dockerfile has two shippable stages and both are published, each named
@@ -605,17 +608,42 @@ Naming the target matters: with none given, Docker builds the *last* stage in
 the file, which is `dashboard`. That is how the CLI image spent a while
 containing Streamlit.
 
-The `test` job enforces a coverage floor with `--cov-fail-under=73`. That is
-1 point below the current 73.76% baseline, not a target -- the target is 80%,
-ratcheted upward as untested modules get their first tests. The floor exists
-to catch regressions, not to describe what "good" looks like.
+The `test` job enforces a coverage floor with `--cov-fail-under=71`, measured
+with `--cov-branch`. That is 1 point below the current 71.81% baseline, not a
+target -- the target is 80%, ratcheted upward as untested modules get their
+first tests. The floor exists to catch regressions, not to describe what "good"
+looks like.
+
+The number is lower than the line-only figure it replaced (75.01%) because
+branch coverage is the stricter measure, not because coverage fell. Line
+coverage marks an `if` covered as soon as either side runs; branch coverage
+wants both. The paths that go untaken are where this pipeline's bugs have
+actually lived -- a scope filter that matched nothing, a date column that
+stopped parsing -- so the stricter measure is the one worth gating on.
+`.coveragerc` holds the settings.
 
 Note what CI does **not** cover: `pytest -m "not integration"` excludes every
 test that touches RustFS, Iceberg or DuckDB-on-storage. A green CI run says the
 code imports and the unit tests pass. It is not evidence that the pipeline
-still ingests -- and the 73% coverage number does not include the
-integration-marked tests that exercise `common/storage_client.py`, so its 21%
-line in the report is an artifact of the CI-only run, not a real gap.
+still ingests -- and the coverage number does not include the
+integration-marked tests that exercise `common/storage_client.py`, so its low
+line in the report is an artifact of the CI-only run, not a real gap. Run those
+with `uv run nox -s integration` against a live compose stack.
+
+### Task runner
+
+```bash
+uv run nox                 # lint, format check, typecheck, test
+uv run nox -s test         # one session
+uv run nox -s test -- -k jepx -x   # extra pytest args pass through
+uv run nox -s fmt          # rewrite files instead of checking them
+uv run nox -s integration  # the tests CI skips; needs compose up + AWS_* set
+```
+
+Sessions run against the project virtualenv (`default_venv_backend = "none"`)
+rather than building one each. uv already pins everything through `uv.lock`, and
+a per-session environment would reinstall the same packages from a second
+resolver.
 
 ### Renovate (weekly)
 

@@ -1,0 +1,26 @@
+# Coverage settings shared by local runs and CI.
+#
+# Branch coverage is on (see --cov-branch in ci.yml and noxfile): line coverage
+# alone counts an `if` as covered the moment the true side runs, which hides
+# untaken else-paths. Most of what this pipeline gets wrong lives in those
+# paths -- an empty scope filter, a date column that stopped parsing.
+
+[run]
+branch = True
+source = src
+omit =
+    # Notebook prototypes and ad-hoc analysis, not part of the production path.
+    src/Jupyter/*
+    # dbt project scaffolding; no Python of ours runs from here yet.
+    src/dbt/*
+
+[report]
+exclude_also =
+    # Module entry points: exercised by running the CLI, not by unit tests.
+    if __name__ == .__main__.:
+    # Import-time typing guards never execute at runtime.
+    if TYPE_CHECKING:
+    # Invariants that hold by construction; the raise documents the contract.
+    raise NotImplementedError
+show_missing = True
+skip_covered = False
