@@ -19,7 +19,11 @@ from common.raw_ingestion_log import (
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
 from common.utilities import resolve_target_at
-from pipeline.jepx_common import resolve_spot_summary_object_key
+from pipeline.jepx_common import (
+    resolve_fiscal_year,
+    resolve_spot_summary_file_name,
+    resolve_spot_summary_object_key,
+)
 
 # ログ設定
 logging.basicConfig(
@@ -34,10 +38,10 @@ INGESTION_LOG_KEY = DEFAULT_INGESTION_LOG_KEY
 
 
 def resolve_default_raw_object(target_at: datetime) -> tuple[str, str]:
-    fiscal_year = target_at.year if target_at.month >= 4 else target_at.year - 1
-    file_name = f"spot_summary_{fiscal_year}.csv"
-    object_key = resolve_spot_summary_object_key(target_at)
-    return object_key, file_name
+    return (
+        resolve_spot_summary_object_key(target_at),
+        resolve_spot_summary_file_name(target_at),
+    )
 
 
 def source_data_exists(table, source_file_name: str) -> bool:
@@ -243,7 +247,7 @@ def main() -> None:
     args = parser.parse_args()
 
     target_at = resolve_target_at(args.timestamp_ms)
-    fiscal_year = target_at.year if target_at.month >= 4 else target_at.year - 1
+    fiscal_year = resolve_fiscal_year(target_at)
 
     default_object_key, _default_file_name = resolve_default_raw_object(target_at)
     object_key = args.object_key or default_object_key

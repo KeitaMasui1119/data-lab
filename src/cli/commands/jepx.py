@@ -29,7 +29,7 @@ from pipeline.gold.silver_to_gold_jepx_spot_price import (
     DEFAULT_GOLD_SCHEMA_DIR,
     run_silver_to_gold_jepx_spot_price,
 )
-from pipeline.jepx_common import resolve_fiscal_year_start
+from pipeline.jepx_common import resolve_fiscal_year, resolve_fiscal_year_start
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
     scrape_jepx_spot_price_raw,
@@ -148,7 +148,7 @@ def _configure_bronze(parser: argparse.ArgumentParser) -> None:
 
 def _handle_bronze(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     target_at = resolve_target_at(args.timestamp_ms)
-    fiscal_year = target_at.year if target_at.month >= 4 else target_at.year - 1
+    fiscal_year = resolve_fiscal_year(target_at)
 
     default_object_key, _ = resolve_default_raw_object(target_at)
     object_key = args.object_key or default_object_key

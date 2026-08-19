@@ -172,7 +172,6 @@ class JEPXSpotSummaryScraper(BaseHttpScraper):
         )
 
     def build_request(self, target_at: datetime) -> RequestSpec:
-        fiscal_year = resolve_fiscal_year(target_at)
         timestamp_millis = int(target_at.timestamp() * 1000)
 
         return RequestSpec(
@@ -185,7 +184,9 @@ class JEPXSpotSummaryScraper(BaseHttpScraper):
             },
             data={
                 "dir": "spot_summary",
-                "file": f"spot_summary_{fiscal_year}.csv",
+                # JEPX serves the file under the same name we store it as, so
+                # the request payload and the raw object share one helper.
+                "file": resolve_spot_summary_file_name(target_at),
             },
         )
 
