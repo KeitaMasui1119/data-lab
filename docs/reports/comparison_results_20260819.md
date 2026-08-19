@@ -690,8 +690,8 @@ pre-commit と pyproject が別バージョンを使っていた問題。**両�
 
 - ~~§7-5b: `deploy.yml` が `dashboard` ステージを publish している~~ → **§10c-2 で解消**
 - ~~§7-4: `devcontainer.json` の個人情報・GCP 鍵ファイル名のハードコード~~ → **§10c-1 で解消**
+- ~~§4: カバレッジ下限 (`--cov-fail-under`) の設定 — 現状値の計測が先~~ → **§10d-1 で解消**
 - §7-3b: `apache-airflow` を任意 dependency-group へ移すか
-- §4: カバレッジ下限 (`--cov-fail-under`) の設定 — 現状値の計測が先
 - §3.2: ruff `select` の段階的拡大 (`S` / `RUF` / `SIM` / `PTH`)
 - `ruff.toml` の `exclude` に実在しないパス (`src/stg/pydev`, `src/stg/scraper`) が残存
 
@@ -773,6 +773,59 @@ matrix で 2 ランナーに分けると共通の `base` → `builder` → `prd`
 > (現在のトークンスコープは `gist`, `read:org`, `repo`, `workflow` のみ)。
 
 検証: `actionlint` / `check-yaml` 通過。実ビルドは main マージ後の `deploy.yml` 実行で確認する。
+
+---
+
+## 10d. フェーズ 4 実施記録 (2026-08-19)
+
+PR #90 マージ後の追加対応。ブランチ `chore/coverage-floor`。
+
+### 10d-1. カバレッジ下限を `--cov-fail-under=73` で強制 (§4)
+
+現状値の実測から:
+
+```
+TOTAL   3354  880  74%
+Total coverage: 73.76%
+```
+
+グローバル規約 (`~/.claude/rules/ecc/common/testing.md`) の 80% には届いていないが、
+参照元 (`python-uv`) と同じく **今の実測より少し下に floor を置き、段階的に上げる**
+方針を採る。**73** は 73.76% に対し 0.76 ポイントの余裕で、小さな削除や flakiness で
+CI が即赤化するのを防ぎつつ、下方への逸走は止める。
+
+**変更点**:
+
+```yaml
+# .github/workflows/ci.yml
+- run: uv run pytest -m "not integration" --cov=src --cov-report=term-missing --cov-fail-under=73
+```
+
+CI 限定に置いた理由: ローカル開発中の細かい試行(小さなテスト削除やスケルトンを書きかけの状態)
+まで即赤化させると生産性を落とす。CI をゲートにすれば「マージ時に守る」だけで済む。
+
+**ラチェット計画**:
+
+| 節目 | 下限 |
+|---|---|
+| 現在 | 73 |
+| 未カバー領域 (§7-3 で削除しない `storage_client.py` / `manage_iceberg.py` / bronze ingestor) にテストが 1 系統でも足せた時 | 76 |
+| §7-3 の未使用依存を削除して分母が縮んだ時 | 分母縮小分を実測して再設定 |
+| 上記の積算で 80% を実測で超えた時 | **80** (グローバル規約準拠) |
+
+未カバレッジの大きい上位:
+
+| ファイル | 未カバー | 全体比 |
+|---|---:|---:|
+| `src/setup/manage_iceberg.py` | 41/41 (0%) | admin CLI、テスト未整備 |
+| `src/common/storage_client.py` | 131/166 (21%) | boto3 wrapper、integration マーク側 |
+| `src/pipeline/bronze/source_to_bronze_jepx_spot_price.py` | 66/99 (33%) | |
+| bronze/supply_demand_actuals × 3 社 | 各 26/49 (47%) | |
+| `src/pipeline/bronze/source_to_bronze_occto_unit_generation_actuals.py` | 39/71 (45%) | |
+
+`storage_client.py` は `integration` マーク付きテストが本体を叩くため、`-m "not integration"`
+から抜けている分がそのまま未カバーとして現れている。これは integration 実行時に別途カバレッジを
+合成しない限り 21% のまま出続けるので、ラチェットの対象からは外して扱う。
 
 ---
 
