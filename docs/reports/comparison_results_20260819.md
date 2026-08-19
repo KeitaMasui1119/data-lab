@@ -695,6 +695,7 @@ pre-commit と pyproject が別バージョンを使っていた問題。**両�
 - ~~§3.2: ruff `select` の段階的拡大 (`S` / `RUF` / `SIM` / `PTH`)~~ → **§10d-3 で PTH/SIM/RUF 採用、S は保留**
 - ~~`ruff.toml` の `exclude` に実在しないパス (`src/stg/pydev`, `src/stg/scraper`) が残存~~ → **§10d-3 で解消**
 - ~~§7-3: 宣言されているが未使用の依存 (10 件 + dev 3 件)~~ → **§10d-4 で解消**
+- ~~§5.3: Docker / devcontainer の build 検証 workflow 追加~~ → **§10d-5 で解消**
 - §10d-3 追加: `S` (bandit) の採用は保留(S608 が DuckDB 内部クエリで 45 件の誤検知)
 
 ---
@@ -1062,6 +1063,70 @@ Renovate の scan 対象縮小 + `uv sync` の所要時間短縮 + イメージ�
 | `uv run ruff check src/ tests/` | All checks passed |
 | `uv run pyright` | 0 errors |
 | `uv run pytest -m "not integration" --cov-fail-under=73` | **457 passed, 73.80%** |
+
+### 10d-5. PR 時に Docker image を build 検証する CI ジョブを追加 (§5.3)
+
+ブランチ: `chore/pr-docker-build-check`。
+
+`ci.yml` に `docker-build` ジョブを追加した。3 つの shippable ステージ
+(`dev` / `prd` / `dashboard`) を matrix で並列ビルドし、**push はしない**。
+
+#### 動機
+
+これまでは Dockerfile の壊れは `deploy.yml` (main への push トリガー) でしか
+検知されなかった。つまり main が壊れてからでないと分からない。同じチェックを
+PR で走らせれば、マージ前に落とせる。
+
+hadolint は Dockerfile の**静的解析**なので、シェル文法エラー・COPY 先の不在・
+apt レイヤの実行時失敗といった「実際にビルドしないと分からない」種類の問題は
+検知しない。docker-build はその補完。
+
+#### `ci.yml` の追加
+
+```yaml
+docker-build:
+  name: Build Docker image (${{ matrix.target }})
+  runs-on: ubuntu-latest
+  strategy:
+    fail-fast: false
+    matrix:
+      target: [dev, prd, dashboard]
+  steps:
+    - uses: actions/checkout@v7
+    - uses: docker/setup-buildx-action@v3
+    - name: Build ${{ matrix.target }}
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        target: ${{ matrix.target }}
+        push: false
+        load: false
+        cache-from: type=gha,scope=${{ matrix.target }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+```
+
+**設計選択**:
+
+| 論点 | 選択 | 理由 |
+|---|---|---|
+| ステージ | `dev` / `prd` / `dashboard` の 3 つ | shippable なもの全部。builder は prd の依存側なので単独ビルドしても意味薄い |
+| ワークフロー分割 | `ci.yml` に統合 | 参照元の `docker.yml` / `devcontainer.yml` 分割は複数人チーム向け。個人開発では追跡箇所が増えるだけ |
+| キャッシュ | `type=gha` を target ごとに scope 分離 | dev と prd/dashboard は共通レイヤ (`base`) を持つが、target を跨いで cache が混ざると reproducibility に影響。target ごとに独立 |
+| 並列度 | matrix | fail-fast=false で 1 つ壊れても他を最後まで見る |
+| `docker/setup-buildx-action` | 必要 | `type=gha` キャッシュを使うには buildx が必須 |
+| push | false | PR で GHCR に触りたくない。build できることだけを検証 |
+| load | false | run しないので docker daemon に image をロードする必要もない |
+
+#### `docker-build` 単独時間の予測
+
+初回: 3 target × 各 90-120 秒(dev は npm install があるので長め) ≒ **3-4 分**。
+2 回目以降: gha cache hit で **各 30-60 秒**。
+
+CI 全体としては `test` ジョブ (17 秒) と並列で走るのでクリティカルパスは伸びない。
+
+#### 検証
+
+`actionlint` 通過。実挙動は main マージ後の初回 CI で確認する。
 
 ---
 

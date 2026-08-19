@@ -64,3 +64,27 @@ jobs:
         uses: hadolint/hadolint-action@v3.4.0
         with:
           dockerfile: Dockerfile
+
+  # Build the three shippable stages on every PR. `dev` is the devcontainer
+  # image; `prd` and `dashboard` are what deploy.yml publishes on merge.
+  # Catching a Dockerfile break here beats catching it after main is broken.
+  # No push -- images are thrown away when the job ends.
+  docker-build:
+    name: Build Docker image (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [dev, prd, dashboard]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.target }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          push: false
+          load: false
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
