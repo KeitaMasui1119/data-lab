@@ -575,9 +575,13 @@ merge enforce different rules. Renovate groups the two for this reason.
 
 ### GitHub Actions (on push and pull request to `main`)
 
-`ci.yml` runs six jobs: `lint`, `format`, `typecheck`, `test`, `actionlint` and
-`hadolint`. The first four share `.github/actions/setup-python-with-uv`, which
-reads `.python-version`, installs uv with caching and runs `uv sync --locked`.
+`ci.yml` runs seven jobs: `lint`, `format`, `typecheck`, `test`, `actionlint`,
+`hadolint` and `docker-build`. The first four share
+`.github/actions/setup-python-with-uv`, which reads `.python-version`, installs
+uv with caching and runs `uv sync --locked`. `docker-build` is a matrix over the
+three shippable Dockerfile stages (`dev`, `prd`, `dashboard`); it builds each on
+every PR without pushing so a Dockerfile break gets caught before `deploy.yml`
+runs on `main`.
 
 `deploy.yml` builds and pushes to GHCR after CI succeeds on `main`. The
 Dockerfile has two shippable stages and both are published, each named
