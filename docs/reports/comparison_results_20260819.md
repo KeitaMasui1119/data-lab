@@ -390,7 +390,9 @@ Airflow は将来利用予定だが着手は dbt より後、という位置づ�
 
 鍵ファイルの実ファイル名(プロジェクト ID 由来)がリポジトリにコミットされている。鍵そのものではないため直ちに危険ではないが、GCP プロジェクト識別子の露出であり、リポジトリを公開する場合は問題。git config の個人名/メールも、他者がこの環境を使うと上書きされてしまう。
 
-**推奨**: `${localEnv:...}` 経由に寄せる。参照元が `${localEnv:HOME}/.ssh` をマウントしているのと同じ発想。
+> **解消済み (2026-08-19)** — §10c-1 参照。`GOOGLE_APPLICATION_CREDENTIALS` は
+> 参照元が `devcontainer.json` の 1 行だけの完全な死に設定だったため削除。
+> git config は VS Code Dev Containers がホストの `~/.gitconfig` から自動コピーするため削除。
 
 ### 7-5b. `deploy.yml` が意図しないステージをビルドしている【MEDIUM】
 
@@ -414,6 +416,12 @@ Airflow は将来利用予定だが着手は dbt より後、という位置づ�
 **推奨**: `target: prd` を明示する。あるいは参照元の `publish-app.yml` / `publish-devcontainer.yml` に倣い、
 `prd` と `dashboard` を別タグ(`:latest` と `:dashboard`)で publish する matrix 構成にする。
 どちらが意図だったかは要判断のため、今回の 5 項目には含めていない。
+
+> **解消済み (2026-08-19)** — §10c-2 参照。両ステージを別パッケージで publish する構成に変更。
+> なお PR #89 のマージで実際に走ったビルドログにより、**推測ではなく実測で確認できた**:
+> `#18 [dashboard 1/1] COPY .streamlit` の直後に
+> `#19 naming to ghcr.io/keitamasui1119/voltlake:latest` が出ており、
+> `:latest` が dashboard ステージであったことは確定。
 
 ### 7-5. pre-commit の ruff バージョンが実依存と乖離【LOW】
 
@@ -676,12 +684,12 @@ pre-commit と pyproject が別バージョンを使っていた問題。**両�
 
 **要操作(GitHub 側)**
 
-- **Renovate App のインストール** — これをやるまで `renovate.json` は効かない
+- **Renovate App のインストール** — これをやるまで `renovate.json` は効かない → **完了 (2026-08-19)**
 
 **未対応(判断が必要)**
 
-- §7-5b: `deploy.yml` が `dashboard` ステージを publish している(`target: prd` の要否)
-- §7-4: `devcontainer.json` の個人情報・GCP 鍵ファイル名のハードコード
+- ~~§7-5b: `deploy.yml` が `dashboard` ステージを publish している~~ → **§10c-2 で解消**
+- ~~§7-4: `devcontainer.json` の個人情報・GCP 鍵ファイル名のハードコード~~ → **§10c-1 で解消**
 - §7-3b: `apache-airflow` を任意 dependency-group へ移すか
 - §4: カバレッジ下限 (`--cov-fail-under`) の設定 — 現状値の計測が先
 - §3.2: ruff `select` の段階的拡大 (`S` / `RUF` / `SIM` / `PTH`)
@@ -689,9 +697,88 @@ pre-commit と pyproject が別バージョンを使っていた問題。**両�
 
 ---
 
+## 10c. フェーズ 3 実施記録 (2026-08-19)
+
+PR #89 マージ後の追加対応。ブランチ `chore/devcontainer-drop-hardcoded-identity`。
+
+### 10c-0. `.dockerignore` の効果が実測で確認できた
+
+§10-1 で「Docker CLI がないため未検証」としていた項目。PR #89 のマージで `deploy.yml` が
+実行され、ビルドログに転送量が出た。
+
+```
+#7 transferring context: 1.14MB 0.0s done
+```
+
+**推定 約 1MB に対し実測 1.14MB。** 変更前は約 1.7GB だったので、およそ 1,500 分の 1。
+
+### 10c-1. `devcontainer.json` のハードコード除去 (§7-4)
+
+**GCP 鍵** — `GOOGLE_APPLICATION_CREDENTIALS` を削除。調査の結果、**完全な死に設定**だった:
+
+| 確認項目 | 結果 |
+|---------|------|
+| `google.cloud` を import するモジュール | **0 件** |
+| `google-cloud-*` の依存宣言 | **なし**(`pyproject.toml` に存在しない) |
+| 環境変数の参照箇所 | `devcontainer.json` の 1 行のみ |
+
+つまり認証情報を全コンテナに設定しておきながら、誰も使っていなかった。
+副作用として public リポジトリに GCP プロジェクト識別子 (`keita-masui-firstproject`) が
+露出していた(ファイル名由来)。
+
+ローカルの鍵ファイル `.secrets/keita-masui-firstproject-46adeb7731b9.json` も削除した。
+
+> **⚠️ GCP 側の失効は未実施。** サービスアカウントキーはローカルファイルを消しても
+> 失効しない。削除前に控えた識別情報:
+>
+> - プロジェクト: `keita-masui-firstproject`
+> - サービスアカウント: `data-platformer@keita-masui-firstproject.iam.gserviceaccount.com`
+> - キー ID: `46adeb7731b9124ea628a2f7d0fcf0e2ce7cf803`
+>
+> ```sh
+> gcloud iam service-accounts keys delete 46adeb7731b9124ea628a2f7d0fcf0e2ce7cf803 \
+>   --iam-account=data-platformer@keita-masui-firstproject.iam.gserviceaccount.com
+> ```
+>
+> 手元にコピーが残っていない今、失効させない限り「誰も管理していない有効な認証情報」になる。
+
+**git config** — `postCreateCommand` から `user.name` / `user.email` の設定を削除。
+
+VS Code の Dev Containers 拡張がホストの `~/.gitconfig` から両者を自動コピーするため冗長だった。
+根拠: コンテナ内の `~/.gitconfig` に VS Code が書き込んだ `credential.helper` 行が同居しており、
+VS Code がこのファイルを管理していることが確認できる。
+
+> **検証は再ビルド時。** 既存コンテナは `~/.gitconfig` に書き込み済みの値を使い続けるため、
+> 実際に効くのは次回リビルド以降。引き継がれなかった場合は README の手順で 1 回設定すれば済む。
+
+### 10c-2. `deploy.yml` が両ステージを publish するよう修正 (§7-5b)
+
+`target` 未指定で最終ステージ (`dashboard`) がビルドされていた問題。
+**両方とも publish 対象なので、`target: prd` 単独ではなく別パッケージ 2 本に分けた。**
+
+| イメージ | ステージ | エントリポイント |
+|---|---|---|
+| `ghcr.io/keitamasui1119/voltlake/app` | `prd` | `python -m src.main` |
+| `ghcr.io/keitamasui1119/voltlake/dashboard` | `dashboard` | `streamlit run src/dashboard/app.py` |
+
+**matrix を使わず 1 ジョブ内で順にビルドしている。** `dashboard` は `FROM prd` なので、
+同一ランナー上なら prd のレイヤーがビルドキャッシュに乗っており 2 本目はほぼ無料。
+matrix で 2 ランナーに分けると共通の `base` → `builder` → `prd` を二重にビルドすることになり、
+それを避けるにはリモートキャッシュ (`type=gha` + `setup-buildx-action`) の追加が必要になる。
+1 ジョブなら構成要素を増やさずに同じ効果が得られる。
+
+> **旧パッケージ `ghcr.io/keitamasui1119/voltlake` は以後 push されなくなる。**
+> 中身は dashboard ステージなので残す価値はなく、手動削除してよい。
+> CLI から消すには `gh auth refresh -h github.com -s delete:packages` でスコープ追加が必要
+> (現在のトークンスコープは `gist`, `read:org`, `repo`, `workflow` のみ)。
+
+検証: `actionlint` / `check-yaml` 通過。実ビルドは main マージ後の `deploy.yml` 実行で確認する。
+
+---
+
 ## 11. 補足: 調査環境について
 
-参照元リポジトリは以下にクローンして調査した。**調査完了後に削除すること。**
+参照元リポジトリは以下にクローンして調査した(**削除済み 2026-08-19**)。
 
 ```
 /home/vscode/.claude/jobs/4cbf3938/tmp/python-uv-reference

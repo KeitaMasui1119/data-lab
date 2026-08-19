@@ -75,6 +75,20 @@ updates at all, so this does not resurface as a recurring PR.
 
 1. Start the dev container (or run the services defined in `compose.yaml`).
 
+	Git identity is not configured by the container. VS Code's Dev Containers
+	extension copies `user.name` and `user.email` from the host's `~/.gitconfig`
+	on startup, and injects its own credential helper alongside them. If you
+	open the container some other way and `git commit` complains it does not
+	know who you are, set it once inside the container:
+
+	```bash
+	git config --global user.name "<your name>"
+	git config --global user.email "<your email>"
+	```
+
+	It used to be hardcoded in `postCreateCommand`, which meant the container
+	stamped one specific person's name onto anyone else's commits.
+
 2. Install dependencies:
 
 	```bash
@@ -565,7 +579,18 @@ merge enforce different rules. Renovate groups the two for this reason.
 `hadolint`. The first four share `.github/actions/setup-python-with-uv`, which
 reads `.python-version`, installs uv with caching and runs `uv sync --locked`.
 
-`deploy.yml` builds and pushes to GHCR after CI succeeds on `main`.
+`deploy.yml` builds and pushes to GHCR after CI succeeds on `main`. The
+Dockerfile has two shippable stages and both are published, each named
+explicitly:
+
+| Image | Stage | Entrypoint |
+|---|---|---|
+| `ghcr.io/keitamasui1119/voltlake/app` | `prd` | `python -m src.main` |
+| `ghcr.io/keitamasui1119/voltlake/dashboard` | `dashboard` | `streamlit run src/dashboard/app.py` |
+
+Naming the target matters: with none given, Docker builds the *last* stage in
+the file, which is `dashboard`. That is how the CLI image spent a while
+containing Streamlit.
 
 Note what CI does **not** cover: `pytest -m "not integration"` excludes every
 test that touches RustFS, Iceberg or DuckDB-on-storage. A green CI run says the

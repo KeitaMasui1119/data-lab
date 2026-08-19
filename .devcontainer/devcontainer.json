@@ -37,13 +37,12 @@
         "DISPLAY": "dummy",
         "UV_PROJECT_ENVIRONMENT": "${containerWorkspaceFolder}/.venv",
         "UV_GROUPS": "dev",
-        "GOOGLE_APPLICATION_CREDENTIALS": "/workspace/.secrets/keita-masui-firstproject-46adeb7731b9.json",
         "GEMINI_API_KEY": "${localEnv:GEMINI_API_KEY}",
         "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
         "GH_TOKEN": "${localEnv:GH_TOKEN}",
         "EDITOR": "code --wait"
     },
-    "postCreateCommand": "uv sync --locked $(for g in $UV_GROUPS; do printf ' --group %s' \"$g\"; done) && git config --global user.name 'Keita Masui' && git config --global user.email 'rfrnndam.tennis365@gmail.com' && (gh copilot -- --help >/dev/null 2>&1 || true)",
+    "postCreateCommand": "uv sync --locked $(for g in $UV_GROUPS; do printf ' --group %s' \"$g\"; done) && (gh copilot -- --help >/dev/null 2>&1 || true)",
     "postStartCommand": "uv run pre-commit install || true",
     "remoteUser": "vscode",
     "mounts": [
