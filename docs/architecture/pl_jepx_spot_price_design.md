@@ -18,62 +18,49 @@ code is derived from the list, not from whether the process reached the end.
 
 ```mermaid
 flowchart TD
-    START(["run-jepx-orchestrator"]) --> SCRAPE
-
-    SCRAPE["<b>1 · source_to_raw</b><br/>JEPXSpotSummaryScraper<br/>POST spot_summary_FY.csv"]
-    SCRAPE --> CHANGED{"snapshot<br/>changed?"}
-    CHANGED -- "sha256 matches<br/>stored snapshot" --> RAWSKIP(["skipped"])
-    CHANGED -- "new bytes" --> RAWOK["write raw object<br/>+ metadata catalog entry"]
-
-    RAWSKIP --> FY[["snapshot_fiscal_year"]]
-    RAWOK --> FY
-
-    FY --> BRONZE["<b>2 · raw_to_bronze</b><br/>ingest_jepx_spot_summary<br/>cp932 decode → Polars cast → Iceberg append"]
-    BRONZE --> DEDUP{"ingestion log:<br/>unprocessed<br/>snapshot exists?"}
-    DEDUP -- "no · ValueError" --> BRSKIP(["skipped"])
-    DEDUP -- "yes" --> BROK(["success<br/>rows=N"])
-
-    BRSKIP --> SCOPE
-    BROK --> SCOPE
-
-    SCOPE{"resolve_silver_fiscal_year"}
-    SCOPE -- "--silver-all-fiscal-years" --> SCOPEALL[["None → every year"]]
-    SCOPE -- "--silver-fiscal-year N" --> SCOPEN[["N"]]
-    SCOPE -- "default" --> SCOPEDEF[["snapshot_fiscal_year"]]
-
-    SCOPEALL --> SILVER
-    SCOPEN --> SILVER
-    SCOPEDEF --> SILVER
-
-    SILVER["<b>3 · bronze_to_silver</b><br/>DuckDB scan + cast + dedupe<br/>→ PyIceberg window replace"]
-    SILVER --> TABLES[/"silver.jepx_spot_price_base<br/>silver.jepx_spot_price_block<br/>silver.jepx_spot_price_area"/]
-    TABLES --> VERIFY{"verify_silver_row_counts<br/>staged / valid / actual"}
-    VERIFY -- "nothing staged<br/>· all rows dropped<br/>· count mismatch" --> SFAIL(["failed"])
-    VERIFY -- "counts agree" --> SOK(["success"])
-
-    SFAIL --> GOLD
-    SOK --> GOLD
-
-    GOLD{"--run-gold-step?"}
-    GOLD -- "no · default" --> GSKIP(["skipped"])
-    GOLD -- "yes" --> DBT["<b>4 · silver_to_gold</b><br/>subprocess: uv run dbt run --select tag:gold"]
-
-    GSKIP --> DONE
-    DBT --> DONE
-
-    DONE(["list#91;PipelineStepResult#93;<br/>exit non-zero if any step failed"])
-
-    classDef step fill:#2a78d6,stroke:#1a4d8f,color:#fff
-    classDef ok fill:#1baf7a,stroke:#12805a,color:#fff
-    classDef skip fill:#8a8a8a,stroke:#5c5c5c,color:#fff
-    classDef bad fill:#eb6834,stroke:#a8461f,color:#fff
-    classDef data fill:#f2f2f2,stroke:#999,color:#222
-
-    class SCRAPE,BRONZE,SILVER,DBT step
-    class RAWOK,BROK,SOK,DONE ok
-    class RAWSKIP,BRSKIP,GSKIP skip
-    class SFAIL bad
-    class FY,SCOPEALL,SCOPEN,SCOPEDEF,TABLES data
+START(["run-jepx-orchestrator"]) --> SCRAPE
+SCRAPE["1. source_to_raw<br/>JEPXSpotSummaryScraper<br/>POST spot_summary_FY.csv"]
+SCRAPE --> CHANGED{"snapshot changed?"}
+CHANGED -->|"sha256 matches<br/>stored snapshot"| RAWSKIP(["skipped"])
+CHANGED -->|"new bytes"| RAWOK["write raw object<br/>plus metadata catalog entry"]
+RAWSKIP --> FY[["snapshot_fiscal_year"]]
+RAWOK --> FY
+FY --> BRONZE["2. raw_to_bronze<br/>ingest_jepx_spot_summary<br/>cp932 decode, Polars cast, Iceberg append"]
+BRONZE --> DEDUP{"ingestion log:<br/>unprocessed snapshot?"}
+DEDUP -->|"no, ValueError"| BRSKIP(["skipped"])
+DEDUP -->|"yes"| BROK(["success, rows=N"])
+BRSKIP --> SCOPE
+BROK --> SCOPE
+SCOPE{"resolve_silver_fiscal_year"}
+SCOPE -->|"silver-all-fiscal-years"| SCOPEALL[["None, every year"]]
+SCOPE -->|"silver-fiscal-year N"| SCOPEN[["N"]]
+SCOPE -->|"default"| SCOPEDEF[["snapshot_fiscal_year"]]
+SCOPEALL --> SILVER
+SCOPEN --> SILVER
+SCOPEDEF --> SILVER
+SILVER["3. bronze_to_silver<br/>DuckDB scan, cast, dedupe<br/>PyIceberg window replace"]
+SILVER --> TABLES[/"silver.jepx_spot_price_base<br/>silver.jepx_spot_price_block<br/>silver.jepx_spot_price_area"/]
+TABLES --> VERIFY{"verify_silver_row_counts<br/>staged / valid / actual"}
+VERIFY -->|"nothing staged,<br/>all rows dropped,<br/>or count mismatch"| SFAIL(["failed"])
+VERIFY -->|"counts agree"| SOK(["success"])
+SFAIL --> GOLD
+SOK --> GOLD
+GOLD{"run-gold-step flag?"}
+GOLD -->|"off, the default"| GSKIP(["skipped"])
+GOLD -->|"on"| DBT["4. silver_to_gold<br/>subprocess: uv run dbt run<br/>select tag:gold"]
+GSKIP --> DONE
+DBT --> DONE
+DONE(["list of PipelineStepResult<br/>exit non-zero if any step failed"])
+classDef step fill:#2a78d6,stroke:#1a4d8f,color:#ffffff
+classDef ok fill:#1baf7a,stroke:#12805a,color:#ffffff
+classDef skip fill:#8a8a8a,stroke:#5c5c5c,color:#ffffff
+classDef bad fill:#eb6834,stroke:#a8461f,color:#ffffff
+classDef data fill:#f2f2f2,stroke:#999999,color:#222222
+class SCRAPE,BRONZE,SILVER,DBT step
+class RAWOK,BROK,SOK,DONE ok
+class RAWSKIP,BRSKIP,GSKIP skip
+class SFAIL bad
+class FY,SCOPEALL,SCOPEN,SCOPEDEF,TABLES data
 ```
 
 ### What the diagram is saying
@@ -106,42 +93,36 @@ shape both JEPX backfill incidents took.
 
 ```mermaid
 flowchart TD
-    START(["backfill-jepx<br/>--from-fiscal-year 2005 --to-fiscal-year 2026"]) --> GUARD
-
-    GUARD{"to &lt; from?"} -- "yes" --> ERR(["ValueError<br/>range covers no years"])
-    GUARD -- "no" --> MODE
-
-    MODE{"--from-raw?"}
-    MODE -- "yes" --> NOSCRAPE[["scraper = None<br/>replay from stored raw"]]
-    MODE -- "no" --> SCRAPER[["one scraper session<br/>held open for the range"]]
-
-    NOSCRAPE --> LOOP
-    SCRAPER --> LOOP
-
-    subgraph LOOP ["per fiscal year"]
-        direction TB
-        YRAW["source_to_raw<br/><i>skipped entirely when --from-raw</i>"]
-        YRAW --> YBRONZE["raw_to_bronze<br/>require_unprocessed = not from_raw"]
-        YBRONZE --> YERR{"exception?"}
-        YERR -- "yes" --> RECORD["record failed year<br/>· continue the range"]
-        YERR -- "no" --> NEXT["next year"]
-        RECORD --> NEXT
-        NEXT --> DELAY{"last year?"}
-        DELAY -- "no · and scraping" --> SLEEP["sleep 3s"]
-    end
-
-    LOOP --> SILVER["<b>bronze_to_silver — once</b><br/>fiscal_year = None"]
-    SILVER --> REPORT(["log years needing attention<br/>exit non-zero if any failed"])
-
-    classDef step fill:#2a78d6,stroke:#1a4d8f,color:#fff
-    classDef ok fill:#1baf7a,stroke:#12805a,color:#fff
-    classDef bad fill:#eb6834,stroke:#a8461f,color:#fff
-    classDef data fill:#f2f2f2,stroke:#999,color:#222
-
-    class YRAW,YBRONZE,SILVER step
-    class REPORT ok
-    class ERR,RECORD bad
-    class NOSCRAPE,SCRAPER data
+START(["backfill-jepx<br/>from-fiscal-year 2005, to-fiscal-year 2026"]) --> GUARD
+GUARD{"to before from?"}
+GUARD -->|"yes"| ERR(["ValueError<br/>range covers no years"])
+GUARD -->|"no"| MODE
+MODE{"from-raw flag?"}
+MODE -->|"on"| NOSCRAPE[["scraper = None<br/>replay from stored raw"]]
+MODE -->|"off"| SCRAPER[["one scraper session<br/>held open for the range"]]
+NOSCRAPE --> YRAW
+SCRAPER --> YRAW
+subgraph LOOP["per fiscal year"]
+direction TB
+YRAW["source_to_raw<br/>skipped entirely when replaying from raw"]
+YRAW --> YBRONZE["raw_to_bronze<br/>require_unprocessed = not from_raw"]
+YBRONZE --> YERR{"exception?"}
+YERR -->|"yes"| RECORD["record failed year,<br/>continue the range"]
+YERR -->|"no"| NEXT["next year"]
+RECORD --> NEXT
+NEXT --> DELAY{"last year?"}
+DELAY -->|"no, and scraping"| SLEEP["sleep 3s"]
+end
+LOOP --> SILVER["bronze_to_silver, once<br/>fiscal_year = None"]
+SILVER --> REPORT(["log years needing attention<br/>exit non-zero if any failed"])
+classDef step fill:#2a78d6,stroke:#1a4d8f,color:#ffffff
+classDef ok fill:#1baf7a,stroke:#12805a,color:#ffffff
+classDef bad fill:#eb6834,stroke:#a8461f,color:#ffffff
+classDef data fill:#f2f2f2,stroke:#999999,color:#222222
+class YRAW,YBRONZE,SILVER step
+class REPORT ok
+class ERR,RECORD bad
+class NOSCRAPE,SCRAPER data
 ```
 
 ### What the diagram is saying
