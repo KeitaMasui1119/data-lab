@@ -8,7 +8,6 @@ readme = "README.md"
 license = { file = "LICENSE" }
 
 dependencies = [
-    'apache-airflow>=3.1.8',
     'beautifulsoup4>=4.14.3',
     'boto3==1.42.84',
     'dbt-core>=1.11.7',
@@ -51,11 +50,25 @@ dev = [
     'ruff>=0.16.3',
 ]
 
+# Airflow will drive the pipeline once orchestration moves off the CLI, but
+# nothing imports it today. Leaving it in the default resolve makes every
+# `uv sync` and every Renovate scan carry its dependency tree -- the largest
+# in this project. Kept here so `uv sync --group airflow` installs it when the
+# migration actually starts, without holding routine work hostage in the
+# meantime.
+airflow = [
+    'apache-airflow>=3.1.8',
+]
+
 [tool.uv]
 # This repository is an application, not a distributable library. Entry points are
 # invoked as `python src/main.py`, and `tests/conftest.py` puts `src` on sys.path,
 # so nothing imports the project as an installed distribution.
 package = false
+# Without this, uv treats every dependency group as default -- moving airflow
+# to its own group would not skip installation. Explicit list pins `dev` as the
+# only always-on group; `airflow` opts in with `uv sync --group airflow`.
+default-groups = ["dev"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

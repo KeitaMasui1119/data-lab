@@ -1217,7 +1217,6 @@ name = "default"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "apache-airflow" },
     { name = "beautifulsoup4" },
     { name = "boto3" },
     { name = "dbt-core" },
@@ -1244,6 +1243,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+airflow = [
+    { name = "apache-airflow" },
+]
 dev = [
     { name = "cookiecutter" },
     { name = "cookiecutter-data-science" },
@@ -1258,7 +1260,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "apache-airflow", specifier = ">=3.1.8" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
     { name = "boto3", specifier = "==1.42.84" },
     { name = "dbt-core", specifier = ">=1.11.7" },
@@ -1285,6 +1286,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+airflow = [{ name = "apache-airflow", specifier = ">=3.1.8" }]
 dev = [
     { name = "cookiecutter", specifier = ">=2.7.1" },
     { name = "cookiecutter-data-science", specifier = ">=2.3.0" },
