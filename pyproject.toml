@@ -8,7 +8,6 @@ readme = "README.md"
 license = { file = "LICENSE" }
 
 dependencies = [
-    'beautifulsoup4>=4.14.3',
     'boto3==1.42.84',
     'dbt-core>=1.11.7',
     'dbt-duckdb>=1.10.1',
@@ -18,29 +17,17 @@ dependencies = [
     'duckdb>=1.4.1',
     'ipykernel>=7.2.0',
     "jpholiday>=1.0.3",
-    'lxml>=6.0.2',
-    'nbformat>=5.10.4',
-    'numpy>=2.3.0',
-    'pandas>=3.0.1',
     'plotly>=6.6.0',
     'polars>=1.39.3',
     'pyarrow>=23.0.1',
-    'pydantic>=2.12.5',
-    'pydantic-settings>=2.13.1',
     'pyiceberg[s3fs, sql-sqlite, pyiceberg-core]>=0.11.1',
     'requests>=2.33.0',
-    'scikit-learn>=1.8.0',
-    'Scrapy>=2.14.2',
-    'seaborn>=0.13.2',
     'shandy-sqlfmt[jinjafmt]>=0.29.0',
     "streamlit>=1.61.1",
 ]
 
 [dependency-groups]
 dev = [
-    'cookiecutter>=2.7.1',
-    'cookiecutter-data-science>=2.3.0',
-    'mkdocs-material>=9.7.6',
     'nox>=2026.2.9',
     'pre-commit>=4.5.1',
     'pyright>=1.1.408',

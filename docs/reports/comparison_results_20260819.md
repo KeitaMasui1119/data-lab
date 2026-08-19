@@ -694,6 +694,7 @@ pre-commit と pyproject が別バージョンを使っていた問題。**両�
 - ~~§7-3b: `apache-airflow` を任意 dependency-group へ移すか~~ → **§10d-2 で解消**
 - ~~§3.2: ruff `select` の段階的拡大 (`S` / `RUF` / `SIM` / `PTH`)~~ → **§10d-3 で PTH/SIM/RUF 採用、S は保留**
 - ~~`ruff.toml` の `exclude` に実在しないパス (`src/stg/pydev`, `src/stg/scraper`) が残存~~ → **§10d-3 で解消**
+- ~~§7-3: 宣言されているが未使用の依存 (10 件 + dev 3 件)~~ → **§10d-4 で解消**
 - §10d-3 追加: `S` (bandit) の採用は保留(S608 が DuckDB 内部クエリで 45 件の誤検知)
 
 ---
@@ -901,7 +902,7 @@ opt-in 化しても Renovate は `[dependency-groups]` を含めて解析する�
 
 ブランチ: `chore/ruff-config-cleanup`。
 
-### 追加した select
+#### 追加した select
 
 各ルールの違反件数を先に計測してから採否を決めた。
 
@@ -916,7 +917,7 @@ RUF001 / RUF003 の追加 ignore は、ダッシュボードや Japanese の com
 `（` `）` や `～` を意図的に使っているため。日本語文脈では ASCII 版と混同する余地が
 なく、警告するとむしろ誤変換の温床になる。
 
-### 実施内容
+#### 実施内容
 
 **`ruff.toml`**:
 
@@ -958,7 +959,7 @@ RUF001 / RUF003 の追加 ignore は、ダッシュボードや Japanese の com
 `Path()` 化に合わせて `build_partition_spec` / `build_table_schema` のシグネチャを
 `str` → `str | Path` に広げた。呼び出し側は既存のまま動く(str も Path も受ける)。
 
-### 検証結果
+#### 検証結果
 
 | 項目 | 結果 |
 |---|---|
@@ -970,7 +971,7 @@ RUF001 / RUF003 の追加 ignore は、ダッシュボードや Japanese の com
 `Path()` 化で `os.path.exists` の失敗ブランチが薄くなり、実測カバレッジが 73.76%
 → 73.80% に微増。
 
-### 見送った `S` (bandit) の扱い
+#### 見送った `S` (bandit) の扱い
 
 S608 45 件は「テーブル名やカラム名を f-string で埋める DuckDB クエリ」で、これは
 `common/silver_write.py` や gold の各集計スクリプトが依拠する既定パターン。
@@ -991,6 +992,76 @@ Iceberg テーブルの完全修飾名は固定文字列 + fiscal year 等のバ
 起動と思われる、要検討。
 
 これら 6 件は独立した PR で対応した方が review が薄く済む。
+
+### 10d-4. 未使用依存 13 件を削除 (§7-3)
+
+ブランチ: `chore/prune-unused-dependencies`。
+
+`src/` と `tests/` の import を全走査して 0 件だった依存を pyproject から外した。
+将来使う予定のあるもの (dbt / Airflow 系 / SQLFluff 待ち / ipykernel) は保持。
+
+#### 削除した依存
+
+**`[project.dependencies]` (10 件)**:
+
+| パッケージ | 削除理由 |
+|---|---|
+| `beautifulsoup4` | 0 imports。HTML スクレイピングは行っていない |
+| `lxml` | 0 imports。`read_html` 経由の間接利用も検出されず |
+| `nbformat` | 0 imports |
+| `numpy` | 0 imports。streamlit / pyarrow 経由で推移的にはインストールされる |
+| `pandas` | 0 imports。同上 |
+| `pydantic` | 0 imports |
+| `pydantic-settings` | 0 imports |
+| `scikit-learn` | 0 imports |
+| `Scrapy` | 0 imports。voltlake のスクレイピングは `common/http_scraper.py` の自前実装 |
+| `seaborn` | 0 imports。可視化は plotly |
+
+**`[dependency-groups] dev` (3 件)**:
+
+| パッケージ | 削除理由 |
+|---|---|
+| `cookiecutter` | 0 imports。テンプレートスキャフォールディングを使う予定なし |
+| `cookiecutter-data-science` | 同上 |
+| `mkdocs-material` | 0 imports、かつ `mkdocs.yml` も存在しない |
+
+#### 保持したもの
+
+- `dbt-core`, `dbt-duckdb`, `shandy-sqlfmt[jinjafmt]` — 将来 dbt を使う予定
+- `apache-airflow` — §10d-2 で任意グループ化済み
+- `ipykernel` — VSCode の Jupyter kernel 統合で必要
+- `duckdb` — 直接依存として明示 (§10-2)
+
+#### インパクト
+
+| 指標 | 変更前 | 変更後 | 削減 |
+|---|---:|---:|---:|
+| `uv.lock` パッケージ総数 | 287 | 230 | **-57** |
+| `uv sync --locked` (推移的依存を含む削減件数) | — | 57 | — |
+| pytest 総数 (パラメトリック) | 470 | 457 | -13 |
+| カバレッジ | 73.80% | **73.80%** (変化なし) | - |
+
+> 上表は §10d-2 (airflow を任意グループへ) と §10d-3 (ruff) をマージ済みの
+> main を基準にした実測値。pytest 総数は 10d-2 で airflow の 1 件が既に消えているため
+> 471 ではなく 470 から始まる。パッケージ総数の 287 は airflow を含む元の値
+> (10d-2 は `uv.lock` からは消さず、既定インストール対象から外しただけ)。
+
+パッケージ数削減 57 は削除したの 13 件 + それらが引き連れていた推移的依存 44 件の合計。
+Renovate の scan 対象縮小 + `uv sync` の所要時間短縮 + イメージビルド時間短縮の 3 点で
+継続的に効く。
+
+`renovate.json` は削除したパッケージを一切 matchPackageNames に含めていなかったため
+変更不要。
+
+
+#### 検証結果
+
+| 項目 | 結果 |
+|---|---|
+| `uv sync --locked` | 57 packages removed |
+| `uv run ruff check src/ tests/` | All checks passed |
+| `uv run pyright` | 0 errors |
+| `uv run pytest -m "not integration" --cov-fail-under=73` | **457 passed, 73.80%** |
 
 ---
 
