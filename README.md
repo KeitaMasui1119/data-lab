@@ -473,7 +473,16 @@ is idempotent (diffs and evolves an existing table's schema, additive only
 
 ## Code Structure
 
-- `src/main.py`: thin CLI orchestrator (argparse subcommands, execution flow only)
+- `src/main.py`: thin CLI entry point -- builds the parser from `src/cli/`'s
+	command registry and dispatches to the matching handler, execution flow only
+- `src/cli/`: argparse wiring, split out of `main.py` (see
+	`docs/tasks/refactaring_20260817.md`). `commands/*.py` (one file per dataset:
+	`jepx.py`, `occto.py`, `power_usage.py`, `supply_demand.py`, `silver_admin.py`,
+	`storage.py`) each build a list of `CommandSpec`s; `commands/__init__.py`
+	concatenates them into `ALL_COMMANDS`. `registry.py` turns that list into the
+	actual argparse parser and dispatch table; `args.py` holds `add_argument()`
+	helpers shared across commands; `dates.py` / `defaults.py` /
+	`scraping.py` hold the remaining cross-command helpers extracted the same way
 - `src/orchestration/`: end-to-end pipeline orchestrators (currently JEPX and OCCTO; `pl_<pipeline>.py`)
 - `src/pipeline/raw/`: HTTP scraping and raw-layer upload (`source_to_raw_<pipeline>.py`)
 - `src/pipeline/bronze/`: raw-to-bronze ingestion (`source_to_bronze_<pipeline>.py`)
@@ -483,13 +492,19 @@ is idempotent (diffs and evolves an existing table's schema, additive only
 - `src/common/`: dataset-agnostic shared primitives (`BaseHttpScraper`, `RustFSClient`,
 	Polars/DuckDB utilities, the window-replace silver write path, `common/iceberg/`
 	catalog+schema+maintenance helpers) -- anything dataset-specific belongs under `src/pipeline/` instead
-- `src/setup/`: infra provisioning (bucket creation, `manage_iceberg.py` admin CLI)
+- `src/setup/`: infra provisioning (bucket creation, `manage_iceberg.py` admin CLI --
+	`build_parser()` / `handle_namespace()` / `handle_table()` are split out and
+	independently testable; see `tests/setup/`)
 - `src/dbt/jepx_power/`: dbt project with no models yet. Gold went the same
 	Python/DuckDB/PyIceberg route as silver, so dbt is unused today, but it is
 	planned -- which is why `dbt-core` and `dbt-duckdb` stay in `pyproject.toml`
 	despite importing nowhere. SQLFluff comes in with the first models
 - `src/Jupyter/`: scraping prototypes and ad-hoc analysis notebooks (not part of the production path)
-- `tests/`: pytest unit tests, one file per `src/pipeline/**` module
+- `tests/`: pytest tests mirroring `src/`'s package layout (`pipeline/`,
+	`orchestration/`, `common/`, `dashboard/`, `setup/`, one file per module).
+	`integration` marks a test that needs RustFS/Iceberg/DuckDB-on-storage;
+	everything else is `unit` by default -- see Quality Gates below for how CI
+	and `nox` use the split
 
 ## Development Environment Snapshot
 
@@ -562,7 +577,7 @@ uv run pre-commit run --all-files   # run the whole set by hand
 | `end-of-file-fixer`, `trailing-whitespace` | whitespace hygiene |
 | `check-json`, `check-toml`, `check-yaml`, `check-xml` | config files parse |
 | `detect-private-key` | keys committed by accident |
-| `ruff`, `ruff-format` | Python lint, format, and security (`S`, the bandit port) |
+| `ruff`, `ruff-format` | Python lint, format, security (`S`, the bandit port), and complexity (`C90`, max 10) |
 | `actionlint` | GitHub Actions workflow files |
 | `hadolint` | `Dockerfile` |
 | `pyright` | static types |
