@@ -18,7 +18,7 @@ def get_catalog(catalog_name: str) -> Catalog:
         catalog = load_catalog(catalog_name)
         logger.info("Successfully loaded catalog: '%s'", catalog_name)
         return catalog
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         raise ValueError(f"Failed to load catalog '{catalog_name}': {error}") from error
 
 
@@ -27,7 +27,7 @@ def build_namespace(catalog: Catalog, namespace: str) -> None:
     try:
         catalog.create_namespace_if_not_exists(namespace)
         logger.info("Succeeded to create namespace: %s", namespace)
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         logger.error("Failed to create namespace: %s", error)
 
 
@@ -36,7 +36,7 @@ def delete_namespace(catalog: Catalog, namespace: str) -> None:
     try:
         catalog.drop_namespace(namespace)
         logger.info("Succeeded to delete namespace: %s", namespace)
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         logger.error("Failed to delete namespace: %s", error)
 
 
@@ -48,7 +48,7 @@ def view_namespace(catalog: Catalog, namespace: str):
         for ns in namespaces:
             logger.info(" - %s", ns)
         return namespaces
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         logger.error("Failed to fetch namespaces: %s", error)
         return []
 
@@ -64,7 +64,7 @@ def delete_table(catalog: Catalog, table_name: str, purge: bool = False) -> None
             logger.info("Succeeded to drop table: %s", table_name)
     except NoSuchTableError:
         logger.warning("Table does not exist: %s", table_name)
-    except Exception as error:  # noqa: BLE001
+    except Exception as error:
         logger.error("Failed to drop table: %s", error)
 
 

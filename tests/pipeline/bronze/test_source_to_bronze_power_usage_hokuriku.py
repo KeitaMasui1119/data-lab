@@ -131,7 +131,7 @@ def test_parse_snapshot_raises_on_empty_text():
 def test_parse_snapshot_raises_on_unexpected_block_count():
     text = "2026/01/02 00:00 UPDATE\nheader\n1,2,3\n"
 
-    with pytest.raises(ValueError, match="Expected .* blocks"):
+    with pytest.raises(ValueError, match=r"Expected .* blocks"):
         parse_snapshot(text, date(2026, 1, 1))
 
 

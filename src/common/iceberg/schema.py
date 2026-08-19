@@ -8,7 +8,7 @@ every table carries.
 
 import csv
 import logging
-import os
+from pathlib import Path
 
 from pyiceberg.partitioning import (
     PARTITION_FIELD_ID_START,
@@ -34,7 +34,7 @@ from pyiceberg.types import (
 logger = logging.getLogger(__name__)
 
 
-def build_partition_spec(file_path: str, schema: Schema) -> PartitionSpec:
+def build_partition_spec(file_path: str | Path, schema: Schema) -> PartitionSpec:
     """Builds a PartitionSpec from the partition_transform column of a schema CSV.
 
     Rows with an empty partition_transform are skipped. PyIceberg's own
@@ -56,11 +56,12 @@ def build_partition_spec(file_path: str, schema: Schema) -> PartitionSpec:
     Returns:
         PartitionSpec: Unpartitioned (empty) if no row declares a transform.
     """
-    if not os.path.exists(file_path):
+    file_path = Path(file_path)
+    if not file_path.exists():
         raise FileNotFoundError(f"File counld not found: {file_path}")
 
     partition_fields = []
-    with open(file_path) as f:
+    with file_path.open() as f:
         reader = csv.DictReader(f)
         for row_n, row in enumerate(reader, start=1):
             if not any(val.strip() for val in row.values() if val is not None):
@@ -112,9 +113,11 @@ def str_to_bool(required_field: str) -> bool:
         or other truthy representations.
     """
     # If required_field is null or the lenght of required field is 0 then returns False.
-    if required_field is None or len(required_field) == 0:
-        return False
-    elif required_field.lower() == "false":
+    if (
+        required_field is None
+        or len(required_field) == 0
+        or required_field.lower() == "false"
+    ):
         return False
     elif required_field.lower() == "true":
         return True
@@ -122,7 +125,7 @@ def str_to_bool(required_field: str) -> bool:
     return False
 
 
-def build_table_schema(file_path: str):
+def build_table_schema(file_path: str | Path):
     """Builds an Iceberg Schema object from a CSV definition file.
 
     Args:
@@ -154,12 +157,13 @@ def build_table_schema(file_path: str):
     column_field = []
     identifier_ids = []
 
-    if not os.path.exists(file_path):
+    file_path = Path(file_path)
+    if not file_path.exists():
         logger.error(f"File could not found. : {file_path}")
         raise FileNotFoundError(f"File counld not found: {file_path}")
     try:
         logger.info(f"Start loading the definition of schema. : {file_path}")
-        with open(file_path) as f:
+        with file_path.open() as f:
             reader = csv.DictReader(f)
             for row_n, row in enumerate(reader, start=1):
                 if not any(val.strip() for val in row.values() if val is not None):
@@ -239,4 +243,4 @@ def build_table_schema(file_path: str):
 
         return table_schema
     except Exception as e:
-        raise RuntimeError(f"An unexpected error has occurred. : {str(e)}") from e
+        raise RuntimeError(f"An unexpected error has occurred. : {e!s}") from e

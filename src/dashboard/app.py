@@ -154,7 +154,7 @@ def main() -> None:
     try:
         areas = load_areas()
         fiscal_years = load_fiscal_years()
-    except Exception as error:  # noqa: BLE001 -- surface any read failure in the UI
+    except Exception as error:
         st.error(
             "gold テーブルを読めませんでした。RustFS が起動していること、"
             f"AWS_* 環境変数が設定されていることを確認してください。\n\n{error}"

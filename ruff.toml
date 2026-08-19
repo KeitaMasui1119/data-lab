@@ -28,8 +28,6 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
-    "src/stg/pydev",
-    "src/stg/scraper",
     "*.ipynb",
     "notebooks"
 ]
@@ -45,12 +43,15 @@ target-version = "py313"
 [lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
 select = [
-    "E", # 基本スタイル・構文
-    "F", # バグ系(未使用変数など)
-    "W", # warning
-    "I", # import整形
-    "B", # bugger(バグ寄り)
-    "UP" # 古い構文の警告
+    "E",   # 基本スタイル・構文
+    "F",   # バグ系(未使用変数など)
+    "W",   # warning
+    "I",   # import整形
+    "B",   # bugger(バグ寄り)
+    "UP",  # 古い構文の警告
+    "PTH", # pathlib優先
+    "SIM", # 簡約
+    "RUF", # ruff固有(unused noqa/mutable default等)
 ]
 ignore = [
     "D",
@@ -68,6 +69,10 @@ ignore = [
     "Q002",
     "Q003",
     "W191",
+    # 全角括弧・チルダはダッシュボードのラベル等で意図的に使う。
+    # 日本語文脈では ASCII 版と混同する余地がないので false positive として無効化。
+    "RUF001", # String contains ambiguous fullwidth
+    "RUF003", # Comment contains ambiguous fullwidth
 ]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.

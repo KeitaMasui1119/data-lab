@@ -5,6 +5,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
 
@@ -614,7 +615,7 @@ def _backfill_kwargs(**overrides: object) -> dict[str, object]:
 class _RecordingScraper:
     """Scraper stand-in that records whether it was closed."""
 
-    instances: list[_RecordingScraper] = []
+    instances: ClassVar[list[_RecordingScraper]] = []
 
     def __init__(self) -> None:
         self.closed = False

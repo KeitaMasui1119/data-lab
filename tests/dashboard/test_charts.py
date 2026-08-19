@@ -14,7 +14,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-from dashboard.charts import (  # noqa: I001
+from dashboard.charts import (
     assign_series_slots,
     build_intraday_profile,
     build_price_heatmap,
@@ -164,8 +164,7 @@ def test_price_heatmap_uses_one_sequential_hue() -> None:
     assert scale_colors == list(SEQUENTIAL_BLUE)
 
 
-def test_split_rate_heatmap_pins_the_scale_to_a_full_percentage(  # noqa: D103
-) -> None:
+def test_split_rate_heatmap_pins_the_scale_to_a_full_percentage() -> None:
     # Arrange
     frame = pl.DataFrame(
         {
@@ -211,4 +210,4 @@ def test_heatmaps_drop_the_gridlines_behind_the_cells(builder) -> None:
 
     # Assert
     assert figure.layout.xaxis.showgrid is False
-    assert figure.layout.yaxis.showgrid is False  # noqa: E501
+    assert figure.layout.yaxis.showgrid is False
