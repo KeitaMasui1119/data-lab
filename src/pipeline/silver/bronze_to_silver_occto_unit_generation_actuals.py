@@ -46,6 +46,10 @@ DELIVERY_TIMEZONE = "Asia/Tokyo"
 NATURAL_KEY_COLUMNS = ("power_plant_code", "unit_name", "target_date_d")
 
 
+# A day of 30-minute slots. Japan has no DST, so this never varies.
+TIMESLOT_COUNT = 48
+
+
 def _generate_timeslot_columns() -> tuple[str, ...]:
     """Build the 48 timeslot column names in bronze schema CSV order.
 
@@ -55,7 +59,7 @@ def _generate_timeslot_columns() -> tuple[str, ...]:
     strings keeps the labels and their position in lockstep by construction.
     """
     columns = []
-    for slot_number in range(1, 49):
+    for slot_number in range(1, TIMESLOT_COUNT + 1):
         end_minutes = slot_number * 30
         hour, minute = divmod(end_minutes, 60)
         columns.append(f"timeslot_{hour:02d}_{minute:02d}")
@@ -69,7 +73,10 @@ def _generate_timeslot_columns() -> tuple[str, ...]:
 # occto_unit_generation_actuals.csv column order exactly; see the regression
 # test tying the two together.
 TIMESLOT_COLUMNS: tuple[str, ...] = _generate_timeslot_columns()
-assert len(TIMESLOT_COLUMNS) == 48
+if len(TIMESLOT_COLUMNS) != TIMESLOT_COUNT:  # pragma: no cover - by construction
+    raise RuntimeError(
+        f"Expected {TIMESLOT_COUNT} timeslot columns, got {len(TIMESLOT_COLUMNS)}"
+    )
 
 
 def _build_typed_projection() -> str:

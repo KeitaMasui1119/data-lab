@@ -91,8 +91,8 @@ def test_run_dbt_step_executes_expected_command(monkeypatch) -> None:
     result = jepx_pipeline.run_dbt_step(
         step_name="silver_to_gold",
         select_expr="tag:gold",
-        project_dir=Path("/tmp/project"),
-        profiles_dir=Path("/tmp/profiles"),
+        project_dir=Path("/dbt/project"),
+        profiles_dir=Path("/dbt/profiles"),
         full_refresh=True,
     )
 
@@ -104,9 +104,9 @@ def test_run_dbt_step_executes_expected_command(monkeypatch) -> None:
                 "dbt",
                 "run",
                 "--project-dir",
-                "/tmp/project",
+                "/dbt/project",
                 "--profiles-dir",
-                "/tmp/profiles",
+                "/dbt/profiles",
                 "--select",
                 "tag:gold",
                 "--full-refresh",

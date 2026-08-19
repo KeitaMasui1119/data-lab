@@ -52,6 +52,7 @@ select = [
     "PTH", # pathlib優先
     "SIM", # 簡約
     "RUF", # ruff固有(unused noqa/mutable default等)
+    "S",   # bandit移植(セキュリティ)
 ]
 ignore = [
     "D",
@@ -73,6 +74,12 @@ ignore = [
     # 日本語文脈では ASCII 版と混同する余地がないので false positive として無効化。
     "RUF001", # String contains ambiguous fullwidth
     "RUF003", # Comment contains ambiguous fullwidth
+    # S608 は silver/gold の DuckDB クエリ 45 箇所を一律に指摘する。いずれも
+    # Iceberg のテーブル名や列名を f-string で埋める形で、値は schema CSV と
+    # 会計年度などのバインド済みリテラルのみ。外部入力が SQL に到達する経路が
+    # ないため、ルールごと無効化して残り (S101/S103/S603 等) を有効に保つ。
+    # 経路が生まれた場合はここを外して個別に噛み砕くこと。
+    "S608", # Possible SQL injection via string-based query construction
 ]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.

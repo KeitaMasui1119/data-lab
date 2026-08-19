@@ -696,7 +696,7 @@ pre-commit と pyproject が別バージョンを使っていた問題。**両�
 - ~~`ruff.toml` の `exclude` に実在しないパス (`src/stg/pydev`, `src/stg/scraper`) が残存~~ → **§10d-3 で解消**
 - ~~§7-3: 宣言されているが未使用の依存 (10 件 + dev 3 件)~~ → **§10d-4 で解消**
 - ~~§5.3: Docker / devcontainer の build 検証 workflow 追加~~ → **§10d-5 で解消**
-- §10d-3 追加: `S` (bandit) の採用は保留(S608 が DuckDB 内部クエリで 45 件の誤検知)
+- ~~§10d-3 追加: `S` (bandit) の採用は保留(S608 が DuckDB 内部クエリで 45 件の誤検知)~~ → **§10e-1 で採用(S608 のみ ignore)**
 
 ---
 
@@ -1127,6 +1127,115 @@ CI 全体としては `test` ジョブ (17 秒) と並列で走るのでクリ�
 #### 検証
 
 `actionlint` 通過。実挙動は main マージ後の初回 CI で確認する。
+
+---
+
+## 10e. ECC × a5chin の統合 (2026-08-19)
+
+これまでの §10〜§10d は「a5chin と比べて何が足りないか」で判断してきた。ここでは軸を
+変え、**ECC (`~/.claude/rules/ecc/`) が要求する基準**を起点に、それを強制する仕組みが
+voltlake にあるかを見る。ECC はルールを宣言するが強制はしない。a5chin は仕組みを持つが
+voltlake 固有の判断を必要とする。両者は補完関係にある。
+
+### 10e-0. ギャップ一覧 (実測)
+
+| ECC のルール | 要求 | 現状 | a5chin 側の仕組み |
+|---|---|---|---|
+| `python/security.md` | **bandit を回す** | **無し** (§10d-3 で見送り) | ruff `select` の `S` |
+| `common/testing.md` | カバレッジ 80% | 73% ゲート (§10d-1) | `--cov-fail-under` ✅ |
+| `common/testing.md` | — | 行カバレッジのみ | `--cov-branch` + `.coveragerc` |
+| `common/code-review.md` | 関数 <50 行 | **準拠** (PLR0915 違反 0) | ruff `PLR` |
+| `common/code-review.md` | ファイル <800 行 | **準拠** (最大 632 行) | — |
+| `common/code-review.md` | ネスト <4 / 複雑度 | 違反 1 (`manage_iceberg.main` 11>10) | ruff `C901` |
+| `python/testing.md` | unit / integration マーカー | `integration` のみ | — |
+| `common/development-workflow.md` | ローカルと CI が同一コマンド | `nox` 宣言のみ、`noxfile.py` 無し | `noxfile.py` |
+
+構造ルール (関数長・ファイル長) は**実態としては既に守られている**。問題は守られている
+ことが強制されておらず、次の PR で崩れても誰も気づかない点にある。
+
+### 10e-1. `S` (bandit) を採用 — §10d-3 の判断を撤回
+
+**§10d-3 で `S` を見送ったのは誤りだった。** ECC `python/security.md` は
+`bandit -r src/` を明示的に要求しており、ruff の `S` はその bandit の移植である。
+「S608 が 45 件出るから」を理由にセット全体を捨てたことで、**本来検出したい
+S602 (`shell=True`) すら無効なままになっていた**。
+
+正しい形は、誤検知するルール 1 つだけを理由付きで無効化し、残りを有効に保つこと。
+
+```toml
+select = [..., "S"]      # bandit移植(セキュリティ)
+ignore = [
+    ...,
+    # S608 は silver/gold の DuckDB クエリ 45 箇所を一律に指摘する。いずれも
+    # Iceberg のテーブル名や列名を f-string で埋める形で、値は schema CSV と
+    # 会計年度などのバインド済みリテラルのみ。外部入力が SQL に到達する経路が
+    # ないため、ルールごと無効化して残りを有効に保つ。
+    "S608",
+]
+```
+
+`tests/**` の `S101` は既存の `per-file-ignores` がそのまま担当する
+(テストの `assert` は正当)。
+
+#### 実質的な指摘 6 件の処理
+
+| ルール | 箇所 | 対応 |
+|---|---|---|
+| `S603` subprocess | `orchestration/pl_jepx_spot_price.py:83` | `# noqa` + 理由。list 形式・実行ファイルはリテラル・`shell=True` なしで、引数は argv 要素として dbt に渡る。`select_expr` がどう綴られてもスロットから出られない |
+| `S101` 本番 assert | `silver/bronze_to_silver_occto_unit_generation_actuals.py:72` | `raise RuntimeError` へ置換 |
+| `S108` `/tmp` リテラル ×4 | `tests/orchestration/test_jepx_pipeline_orchestrator.py` | `/dbt/project` `/dbt/profiles` へ改名 |
+
+**S101 が実害を持つ理由**: `assert len(TIMESLOT_COLUMNS) == 48` は 48 スロットという
+不変条件を守る唯一のチェックだったが、`python -O` では assert 文ごと消える。本番を
+最適化フラグ付きで動かした瞬間に、静かに無検査になる。明示的な `raise` に変えた。
+併せてマジックナンバー 48 / 49 を `TIMESLOT_COUNT` に括り出した (ECC
+`coding-style.md` の Magic Numbers)。
+
+**S108 を tmp_path 化しなかった理由**: `subprocess.run` がモックされているため
+これらのパスはファイルシステムに触れない。単に dbt のディレクトリを表す文字列で、
+`/tmp` である必然性が最初から無かった。`tmp_path` fixture を使うと assertion 側で
+動的パスを組み立てることになり、安全性は 1 ミリも上がらず可読性だけ落ちる。
+
+#### ゲートが実際に効くことの確認
+
+設定を書いただけで満足しないよう、意図的な違反を仕込んで捕捉を確認した:
+
+```python
+# src/_bandit_probe.py (確認後に削除)
+def probe(cmd: str) -> None:
+    assert cmd
+    subprocess.run(cmd, shell=True, check=False)
+    with open("/tmp/x") as f:
+        f.read()
+```
+
+```
+S101 Use of `assert` detected
+S602 `subprocess` call with `shell=True` identified, security issue
+S108 Probable insecure usage of temporary file or directory: "/tmp/x"
+PTH123 `open()` should be replaced by `Path.open()`
+```
+
+**S602 が捕捉されている点が本質。** これが §10d-3 の判断で失われていたものである。
+
+#### 検証結果
+
+| 項目 | 結果 |
+|---|---|
+| `uv run ruff check src/ tests/` | All checks passed |
+| `uv run ruff format --check src/ tests/` | 95 files already formatted |
+| `uv run pyright` | 0 errors |
+| `uv run pytest -m "not integration" --cov-fail-under=73` | **457 passed, 73.89%** |
+
+### 10e-2. 残っている ECC ギャップ
+
+本 PR では扱わない。いずれも独立して実施できる。
+
+- `C901` (複雑度) の採用 + `setup/manage_iceberg.py:main` の 1 件解消
+- `--cov-branch` + `.coveragerc` (ECC は行カバレッジしか担保していない現状を分岐まで広げる)
+- `unit` マーカーの追加 (ECC `python/testing.md` は unit / integration の 2 分類を前提)
+- `noxfile.py` (ECC `common/development-workflow.md` の「ローカルと CI が同一コマンド」)
+- カバレッジ 73% → 80% のラチェット (§10d-1 の計画に沿って)
 
 ---
 

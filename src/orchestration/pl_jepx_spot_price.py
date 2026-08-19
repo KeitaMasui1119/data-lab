@@ -80,7 +80,11 @@ def run_dbt_step(
         dbt_command.append("--full-refresh")
 
     logger.info("Executing %s: %s", step_name, " ".join(dbt_command))
-    subprocess.run(dbt_command, check=True)
+    # S603 flags every subprocess call for review rather than detecting a fault.
+    # This one passes a list with a literal executable and no shell=True, so the
+    # arguments reach dbt as argv entries with no shell parsing in between --
+    # select_expr cannot break out of its slot however it is spelled.
+    subprocess.run(dbt_command, check=True)  # noqa: S603
     return PipelineStepResult(
         name=step_name,
         status=STATUS_SUCCESS,
