@@ -23,7 +23,6 @@ run logs a warning naming every violation that caused it.
 
 from __future__ import annotations
 
-import argparse
 import logging
 from dataclasses import dataclass
 from datetime import date
@@ -475,60 +474,3 @@ def run_bronze_to_silver_jepx_spot_price(
         dropped_row_count=dropped_row_count,
         staged_row_count=staged_row_count,
     )
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """Build the argument parser for the bronze-to-silver CLI."""
-    parser = argparse.ArgumentParser(
-        description="Transform JEPX bronze spot prices into silver Iceberg tables"
-    )
-    parser.add_argument(
-        "--catalog",
-        default=DEFAULT_CATALOG_NAME,
-        help=f"Iceberg catalog name (default: {DEFAULT_CATALOG_NAME})",
-    )
-    parser.add_argument(
-        "--bronze-location",
-        default=DEFAULT_BRONZE_LOCATION,
-        help="Bronze table location scanned by DuckDB",
-    )
-    parser.add_argument(
-        "--schema-dir",
-        default=DEFAULT_SILVER_SCHEMA_DIR,
-        help="Directory containing the silver schema CSV files",
-    )
-    parser.add_argument(
-        "--fiscal-year",
-        type=int,
-        help="Limit the run to one fiscal year (default: rebuild every year)",
-    )
-    return parser
-
-
-def main() -> None:
-    """CLI entrypoint for the JEPX bronze-to-silver transformation."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
-    args = build_parser().parse_args()
-
-    result = run_bronze_to_silver_jepx_spot_price(
-        catalog_name=args.catalog,
-        bronze_location=args.bronze_location,
-        schema_dir=args.schema_dir,
-        fiscal_year=args.fiscal_year,
-    )
-
-    logger.info("JEPX bronze-to-silver summary (execution_id=%s):", result.execution_id)
-    for write in result.writes:
-        logger.info(
-            " - table=%s, written=%s",
-            write.table_identifier,
-            write.rows_written,
-        )
-    logger.info(" - dropped rows: %s", result.dropped_row_count)
-
-
-if __name__ == "__main__":
-    main()

@@ -10,7 +10,6 @@ processing steps in dependency order:
 
 from __future__ import annotations
 
-import argparse
 import logging
 import subprocess
 import time
@@ -24,7 +23,6 @@ from orchestration.pipeline_result import (
     STATUS_SKIPPED,
     STATUS_SUCCESS,
     PipelineStepResult,
-    has_failed_step,
     verify_silver_row_counts,
 )
 from pipeline.bronze.source_to_bronze_jepx_spot_price import ingest_jepx_spot_summary
@@ -34,17 +32,10 @@ from pipeline.raw.source_to_raw_jepx_spot_price import (
     scrape_jepx_spot_price_raw,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
-    DEFAULT_BRONZE_LOCATION,
-    DEFAULT_SILVER_SCHEMA_DIR,
     run_bronze_to_silver_jepx_spot_price,
 )
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_DBT_PROJECT_DIR = Path("/workspace/src/dbt/jepx_power")
-DEFAULT_SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/bronze/jepx_spot_price/jepx_spot_price.csv"
-)
 
 # The silver table that receives one row per validated delivery key.
 BASE_TABLE_IDENTIFIER = "silver.jepx_spot_price_base"
@@ -479,151 +470,3 @@ def run_jepx_backfill_pipeline(
         logger.error("Fiscal years needing attention: %s", failed_fiscal_years)
 
     return results
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """Build argument parser for the JEPX orchestrator CLI."""
-    parser = argparse.ArgumentParser(
-        description="Run ADF-like orchestration for the JEPX pipeline"
-    )
-    parser.add_argument(
-        "--bucket",
-        default="jp-power-grid-dev",
-        help="Source/target bucket name (default: jp-power-grid-dev)",
-    )
-    parser.add_argument(
-        "--timestamp-ms",
-        type=int,
-        help="Optional UNIX timestamp in milliseconds for the JEPX run",
-    )
-    parser.add_argument(
-        "--catalog",
-        default="dlh_dev",
-        help="Iceberg catalog name (default: dlh_dev)",
-    )
-    parser.add_argument(
-        "--bronze-table",
-        default="bronze.jepx_spot_price",
-        help="Target bronze Iceberg table identifier",
-    )
-    parser.add_argument(
-        "--bronze-schema-path",
-        default=DEFAULT_SCHEMA_PATH,
-        help="Bronze schema CSV path",
-    )
-    parser.add_argument(
-        "--allow-duplicate-source",
-        action="store_true",
-        help="Allow append even if source_data already exists",
-    )
-    parser.add_argument(
-        "--dbt-project-dir",
-        default=str(DEFAULT_DBT_PROJECT_DIR),
-        help="dbt project directory",
-    )
-    parser.add_argument(
-        "--dbt-profiles-dir",
-        help="dbt profiles directory (default: same as dbt project dir)",
-    )
-    parser.add_argument(
-        "--bronze-location",
-        default=DEFAULT_BRONZE_LOCATION,
-        help="Bronze table location scanned by the silver transform",
-    )
-    parser.add_argument(
-        "--silver-schema-dir",
-        default=DEFAULT_SILVER_SCHEMA_DIR,
-        help="Directory containing the silver schema CSV files",
-    )
-    parser.add_argument(
-        "--silver-fiscal-year",
-        type=int,
-        help=(
-            "Fiscal year for the silver step "
-            "(default: the fiscal year that was just ingested)"
-        ),
-    )
-    parser.add_argument(
-        "--silver-all-fiscal-years",
-        action="store_true",
-        help="Rebuild every fiscal year in the silver step instead of just one",
-    )
-    parser.add_argument(
-        "--run-gold-step",
-        action="store_true",
-        help="Enable gold step execution",
-    )
-    parser.add_argument(
-        "--gold-select",
-        default="tag:gold",
-        help="dbt select expression for gold step",
-    )
-    parser.add_argument(
-        "--dbt-full-refresh",
-        action="store_true",
-        help="Run dbt steps with --full-refresh",
-    )
-    return parser
-
-
-def main() -> None:
-    """CLI entrypoint for JEPX pipeline orchestration."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
-
-    parser = build_parser()
-    args = parser.parse_args()
-
-    if args.silver_all_fiscal_years and args.silver_fiscal_year is not None:
-        parser.error(
-            "--silver-all-fiscal-years rebuilds every year and would discard "
-            "the year named by --silver-fiscal-year; pass only one"
-        )
-
-    dbt_project_dir = Path(args.dbt_project_dir)
-    if not dbt_project_dir.exists():
-        parser.error(f"dbt project directory does not exist: {dbt_project_dir}")
-
-    dbt_profiles_dir = (
-        Path(args.dbt_profiles_dir) if args.dbt_profiles_dir else dbt_project_dir
-    )
-    if not dbt_profiles_dir.exists():
-        parser.error(f"dbt profiles directory does not exist: {dbt_profiles_dir}")
-
-    results = run_jepx_orchestrated_pipeline(
-        bucket_name=args.bucket,
-        timestamp_ms=args.timestamp_ms,
-        catalog_name=args.catalog,
-        bronze_table_identifier=args.bronze_table,
-        bronze_schema_path=args.bronze_schema_path,
-        allow_duplicate_source=args.allow_duplicate_source,
-        dbt_project_dir=dbt_project_dir,
-        dbt_profiles_dir=dbt_profiles_dir,
-        bronze_location=args.bronze_location,
-        silver_schema_dir=args.silver_schema_dir,
-        silver_fiscal_year=args.silver_fiscal_year,
-        silver_all_fiscal_years=args.silver_all_fiscal_years,
-        run_gold_step=args.run_gold_step,
-        gold_select=args.gold_select,
-        dbt_full_refresh=args.dbt_full_refresh,
-    )
-
-    logger.info("JEPX orchestrated pipeline summary:")
-    for result in results:
-        logger.info(
-            " - step=%s, status=%s, detail=%s",
-            result.name,
-            result.status,
-            result.detail,
-        )
-
-    # A failed step that only reaches the log still exits 0, which is how both
-    # backfill incidents passed for clean runs.
-    if has_failed_step(results):
-        raise SystemExit(1)
-
-
-if __name__ == "__main__":
-    main()

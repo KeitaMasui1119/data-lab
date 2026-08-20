@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import gzip
 import hashlib
 import io
@@ -17,7 +16,6 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from common.http_scraper import BaseHttpScraper, RequestSpec
 from common.storage_client import RustFSClient
-from common.utilities import resolve_target_at
 from pipeline.jepx_common import (
     resolve_fiscal_year,
     resolve_spot_summary_file_name,
@@ -348,67 +346,3 @@ def scrape_jepx_spot_price_raw(
         ingestion_log_key=ingestion_log_key,
         snapshot_prefix=snapshot_prefix,
     )
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=("Scrape JEPX spot summary CSV and save a raw snapshot to RustFS."),
-    )
-    parser.add_argument(
-        "--bucket",
-        default="jp-power-grid-dev",
-        help="Target bucket name (default: jp-power-grid-dev)",
-    )
-    parser.add_argument(
-        "--timestamp-ms",
-        type=int,
-        help="Optional UNIX timestamp in milliseconds for the JEPX request",
-    )
-    parser.add_argument(
-        "--fiscal-year",
-        type=int,
-        help=(
-            "Fiscal year to scrape (e.g. 2024). Overrides --timestamp-ms."
-            " Use for backfilling past years."
-        ),
-    )
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
-
-    if args.fiscal_year is not None:
-        target_at = datetime(args.fiscal_year, 4, 1, tzinfo=UTC)
-    else:
-        target_at = resolve_target_at(args.timestamp_ms)
-
-    storage_client = RustFSClient()
-    scraper = JEPXSpotSummaryScraper()
-    try:
-        result = scrape_jepx_spot_price_raw(
-            storage_client=storage_client,
-            scraper=scraper,
-            bucket_name=args.bucket,
-            target_at=target_at,
-        )
-        if result.skipped:
-            logger.info(
-                "JEPX scrape skipped (no change): year=%s, sha256=%.8s",
-                result.year,
-                result.sha256,
-            )
-        else:
-            logger.info(
-                "JEPX snapshot saved: year=%s, sha256=%.8s, prefix=%s",
-                result.year,
-                result.sha256,
-                result.snapshot_prefix,
-            )
-    finally:
-        scraper.close()
-
-
-if __name__ == "__main__":
-    main()
