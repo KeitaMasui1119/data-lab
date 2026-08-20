@@ -1,4 +1,3 @@
-import argparse
 import io
 import logging
 import sys
@@ -18,9 +17,7 @@ from common.raw_ingestion_log import (
 )
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
-from common.utilities import resolve_target_at
 from pipeline.jepx_common import (
-    resolve_fiscal_year,
     resolve_spot_summary_file_name,
     resolve_spot_summary_object_key,
 )
@@ -190,89 +187,3 @@ def ingest_jepx_spot_summary(
         )
 
     return row_count
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Ingest JEPX spot summary raw CSV into bronze Iceberg table"
-    )
-    parser.add_argument(
-        "--bucket",
-        default="jp-power-grid-dev",
-        help="Source bucket name (default: jp-power-grid-dev)",
-    )
-    parser.add_argument(
-        "--object-key",
-        help="Source object key in raw layer (default resolved from timestamp)",
-    )
-    parser.add_argument(
-        "--source-file-name",
-        help="Source file name stored in source_data (default from object key)",
-    )
-    parser.add_argument(
-        "--timestamp-ms",
-        type=int,
-        help="Optional UNIX timestamp (ms) to resolve default source file",
-    )
-    parser.add_argument(
-        "--catalog",
-        default="dlh_dev",
-        help="Iceberg catalog name (default: dlh_dev)",
-    )
-    parser.add_argument(
-        "--table",
-        default="bronze.jepx_spot_price",
-        help="Target Iceberg table identifier",
-    )
-    parser.add_argument(
-        "--schema-path",
-        default=SCHEMA_PATH,
-        help="Schema CSV path",
-    )
-    parser.add_argument(
-        "--allow-duplicate-source",
-        action="store_true",
-        help="Allow append even if source_data already exists",
-    )
-    parser.add_argument(
-        "--use-ingestion-log",
-        action="store_true",
-        help="Resolve latest raw snapshot from metadata ingestion log",
-    )
-    parser.add_argument(
-        "--require-unprocessed",
-        action="store_true",
-        help="When using ingestion log, select only unprocessed latest snapshot",
-    )
-    args = parser.parse_args()
-
-    target_at = resolve_target_at(args.timestamp_ms)
-    fiscal_year = resolve_fiscal_year(target_at)
-
-    default_object_key, _default_file_name = resolve_default_raw_object(target_at)
-    object_key = args.object_key or default_object_key
-    source_file_name = args.source_file_name or Path(object_key).name
-
-    if args.use_ingestion_log and args.object_key is None:
-        object_key = None
-        source_file_name = None
-
-    client = RustFSClient()
-    ingest_jepx_spot_summary(
-        client=client,
-        bucket_name=args.bucket,
-        object_key=object_key,
-        source_file_name=source_file_name,
-        catalog_name=args.catalog,
-        table_identifier=args.table,
-        schema_path=args.schema_path,
-        skip_if_exists=not args.allow_duplicate_source,
-        fiscal_year=fiscal_year,
-        use_ingestion_log=args.use_ingestion_log,
-        require_unprocessed=args.require_unprocessed,
-        update_ingestion_log_status=args.use_ingestion_log,
-    )
-
-
-if __name__ == "__main__":
-    main()
