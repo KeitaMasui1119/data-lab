@@ -162,7 +162,7 @@ class ShikokuSnapshotResult:
     snapshot_prefix: str | None = None
 
 
-def scrape_supply_demand_actuals_shikoku_raw(
+def run_source_to_raw_supply_demand_actuals_shikoku(
     storage_client: RustFSClient,
     scraper: ShikokuSupplyDemandActualsScraper,
     bucket_name: str,

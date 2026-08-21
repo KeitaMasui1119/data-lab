@@ -188,7 +188,7 @@ class HokurikuSnapshotResult:
     snapshot_prefix: str | None = None
 
 
-def scrape_power_usage_hokuriku_raw(
+def run_source_to_raw_power_usage_hokuriku(
     storage_client: RustFSClient,
     scraper: HokurikuPowerUsageScraper,
     bucket_name: str,

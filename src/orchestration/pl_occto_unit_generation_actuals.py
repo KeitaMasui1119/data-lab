@@ -27,16 +27,16 @@ from orchestration.pipeline_result import (
     verify_silver_row_counts,
 )
 from pipeline.bronze.source_to_bronze_occto_unit_generation_actuals import (
-    ingest_occto_unit_generation,
+    run_source_to_bronze_occto_unit_generation_actuals,
 )
 from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     OCCTOUnitGenerationScraper,
-    scrape_occto_unit_generation_raw,
+    run_source_to_raw_occto_unit_generation_actuals,
 )
 from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
     DEFAULT_BRONZE_LOCATION,
     DEFAULT_SILVER_SCHEMA_DIR,
-    run_bronze_to_silver_occto_unit_generation,
+    run_bronze_to_silver_occto_unit_generation_actuals,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,7 @@ def run_bronze_to_silver_step(
     to_date: date | None,
 ) -> PipelineStepResult:
     """Transform bronze rows into the silver Iceberg table."""
-    result = run_bronze_to_silver_occto_unit_generation(
+    result = run_bronze_to_silver_occto_unit_generation_actuals(
         catalog_name=catalog_name,
         bronze_location=bronze_location,
         schema_dir=silver_schema_dir,
@@ -144,7 +144,7 @@ def run_occto_orchestrated_pipeline(
     try:
         current = resolved_from_date
         while current <= resolved_to_date:
-            snapshot_result = scrape_occto_unit_generation_raw(
+            snapshot_result = run_source_to_raw_occto_unit_generation_actuals(
                 storage_client=rustfs,
                 scraper=scraper,
                 bucket_name=bucket_name,
@@ -178,7 +178,7 @@ def run_occto_orchestrated_pipeline(
                 )
 
             try:
-                row_count = ingest_occto_unit_generation(
+                row_count = run_source_to_bronze_occto_unit_generation_actuals(
                     client=rustfs,
                     bucket_name=bucket_name,
                     object_key=None,

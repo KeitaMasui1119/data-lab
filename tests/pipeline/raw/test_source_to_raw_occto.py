@@ -26,7 +26,7 @@ from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     OCCTOUnitGenerationConfig,
     OCCTOUnitGenerationScraper,
     _resolve_manifest_key,
-    scrape_occto_unit_generation_raw,
+    run_source_to_raw_occto_unit_generation_actuals,
 )
 
 TARGET_DATE = date(2026, 8, 7)
@@ -185,7 +185,7 @@ def test_scrape_posts_search_with_date_and_filter_params():
 
 
 # ---------------------------------------------------------------------------
-# scrape_occto_unit_generation_raw() — snapshot + ingestion log
+# run_source_to_raw_occto_unit_generation_actuals() — snapshot + ingestion log
 # ---------------------------------------------------------------------------
 
 
@@ -224,7 +224,7 @@ def test_first_run_saves_snapshot():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    result = scrape_occto_unit_generation_raw(
+    result = run_source_to_raw_occto_unit_generation_actuals(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -242,7 +242,7 @@ def test_object_key_includes_target_date_and_ingested_at():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    scrape_occto_unit_generation_raw(
+    run_source_to_raw_occto_unit_generation_actuals(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -264,7 +264,7 @@ def test_unchanged_content_skips_upload():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=manifest)
 
-    result = scrape_occto_unit_generation_raw(
+    result = run_source_to_raw_occto_unit_generation_actuals(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -281,7 +281,7 @@ def test_changed_content_saves_new_snapshot():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=old_manifest)
 
-    result = scrape_occto_unit_generation_raw(
+    result = run_source_to_raw_occto_unit_generation_actuals(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -301,7 +301,7 @@ def test_ingestion_log_records_occto_dataset_row():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    scrape_occto_unit_generation_raw(
+    run_source_to_raw_occto_unit_generation_actuals(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",

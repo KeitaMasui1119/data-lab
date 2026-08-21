@@ -65,7 +65,7 @@ def _patch_raw_step(monkeypatch, scraper: object, *, skipped: bool = False) -> N
     monkeypatch.setattr(jepx_pipeline, "JEPXSpotSummaryScraper", lambda: scraper)
     monkeypatch.setattr(
         jepx_pipeline,
-        "scrape_jepx_spot_price_raw",
+        "run_source_to_raw_jepx_spot_price",
         lambda **_: SimpleNamespace(
             skipped=skipped,
             year=2026,
@@ -289,7 +289,9 @@ def test_run_jepx_orchestrated_pipeline_skips_gold_step(monkeypatch) -> None:
             detail="ok",
         )
 
-    monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", fake_ingest)
+    monkeypatch.setattr(
+        jepx_pipeline, "run_source_to_bronze_jepx_spot_price", fake_ingest
+    )
     monkeypatch.setattr(jepx_pipeline, "run_dbt_step", fake_run_dbt_step)
     monkeypatch.setattr(jepx_pipeline, "run_bronze_to_silver_step", fake_silver_step)
 
@@ -342,7 +344,9 @@ def test_run_jepx_orchestrated_pipeline_runs_gold_step(monkeypatch) -> None:
             detail="ok",
         )
 
-    monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", fake_ingest)
+    monkeypatch.setattr(
+        jepx_pipeline, "run_source_to_bronze_jepx_spot_price", fake_ingest
+    )
     monkeypatch.setattr(jepx_pipeline, "run_dbt_step", fake_run_dbt_step)
     monkeypatch.setattr(
         jepx_pipeline,
@@ -393,7 +397,9 @@ def _run_pipeline_capturing_silver(
     silver_calls: list[dict[str, object]] = []
 
     _patch_raw_step(monkeypatch, DummyScraper())
-    monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", lambda **_: 12)
+    monkeypatch.setattr(
+        jepx_pipeline, "run_source_to_bronze_jepx_spot_price", lambda **_: 12
+    )
 
     def fake_silver_step(**kwargs: object) -> object:
         silver_calls.append(kwargs)
@@ -467,7 +473,9 @@ def test_run_jepx_orchestrated_pipeline_skips_raw_to_bronze_when_no_unprocessed(
             detail="ok",
         )
 
-    monkeypatch.setattr(jepx_pipeline, "ingest_jepx_spot_summary", fake_ingest)
+    monkeypatch.setattr(
+        jepx_pipeline, "run_source_to_bronze_jepx_spot_price", fake_ingest
+    )
     monkeypatch.setattr(jepx_pipeline, "run_bronze_to_silver_step", fake_silver_step)
 
     # Act

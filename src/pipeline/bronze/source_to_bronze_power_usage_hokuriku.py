@@ -389,7 +389,7 @@ def _build_row_dataframe(row: dict[str, str], source_file_name: str) -> pl.DataF
     return add_metadata(df)
 
 
-def ingest_power_usage_hokuriku(
+def run_source_to_bronze_power_usage_hokuriku(
     client: RustFSClient,
     bucket_name: str,
     object_key: str | None,

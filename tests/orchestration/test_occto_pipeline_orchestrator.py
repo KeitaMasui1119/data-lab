@@ -57,7 +57,7 @@ def _patch_raw_step(
     monkeypatch.setattr(occto_pipeline, "OCCTOUnitGenerationScraper", lambda: scraper)
     monkeypatch.setattr(
         occto_pipeline,
-        "scrape_occto_unit_generation_raw",
+        "run_source_to_raw_occto_unit_generation_actuals",
         lambda **_: SimpleNamespace(
             skipped=skipped,
             from_date=from_date,
@@ -153,7 +153,7 @@ def _run_silver_step(monkeypatch, transform_result: OcctoBronzeToSilverResult):
     """Run the silver step against a stubbed transform."""
     monkeypatch.setattr(
         occto_pipeline,
-        "run_bronze_to_silver_occto_unit_generation",
+        "run_bronze_to_silver_occto_unit_generation_actuals",
         lambda **_: transform_result,
     )
     return occto_pipeline.run_bronze_to_silver_step(
@@ -173,7 +173,7 @@ def test_run_bronze_to_silver_step_reports_written_and_dropped(monkeypatch) -> N
         return _transform_result(staged=6, dropped=5)
 
     monkeypatch.setattr(
-        occto_pipeline, "run_bronze_to_silver_occto_unit_generation", fake_run
+        occto_pipeline, "run_bronze_to_silver_occto_unit_generation_actuals", fake_run
     )
 
     result = occto_pipeline.run_bronze_to_silver_step(
@@ -271,7 +271,11 @@ def test_run_occto_orchestrated_pipeline_runs_all_three_steps(monkeypatch) -> No
             name="bronze_to_silver", status="success", detail="ok"
         )
 
-    monkeypatch.setattr(occto_pipeline, "ingest_occto_unit_generation", fake_ingest)
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_source_to_bronze_occto_unit_generation_actuals",
+        fake_ingest,
+    )
     monkeypatch.setattr(occto_pipeline, "run_bronze_to_silver_step", fake_silver_step)
 
     results = occto_pipeline.run_occto_orchestrated_pipeline(**_pipeline_kwargs())
@@ -318,7 +322,11 @@ def test_run_occto_orchestrated_pipeline_skips_raw_to_bronze_when_no_unprocessed
             name="bronze_to_silver", status="success", detail="ok"
         )
 
-    monkeypatch.setattr(occto_pipeline, "ingest_occto_unit_generation", fake_ingest)
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_source_to_bronze_occto_unit_generation_actuals",
+        fake_ingest,
+    )
     monkeypatch.setattr(occto_pipeline, "run_bronze_to_silver_step", fake_silver_step)
 
     results = occto_pipeline.run_occto_orchestrated_pipeline(**_pipeline_kwargs())
@@ -370,8 +378,14 @@ def test_run_occto_orchestrated_pipeline_loops_per_day_for_multi_day_range(
             name="bronze_to_silver", status="success", detail="ok"
         )
 
-    monkeypatch.setattr(occto_pipeline, "scrape_occto_unit_generation_raw", fake_scrape)
-    monkeypatch.setattr(occto_pipeline, "ingest_occto_unit_generation", fake_ingest)
+    monkeypatch.setattr(
+        occto_pipeline, "run_source_to_raw_occto_unit_generation_actuals", fake_scrape
+    )
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_source_to_bronze_occto_unit_generation_actuals",
+        fake_ingest,
+    )
     monkeypatch.setattr(occto_pipeline, "run_bronze_to_silver_step", fake_silver_step)
 
     results = occto_pipeline.run_occto_orchestrated_pipeline(
@@ -436,8 +450,14 @@ def test_run_occto_orchestrated_pipeline_defaults_from_date_to_yesterday_jst(
             snapshot_prefix="raw/occto/unit_generation/target_date=2026-08-09/...",
         )
 
-    monkeypatch.setattr(occto_pipeline, "scrape_occto_unit_generation_raw", fake_scrape)
-    monkeypatch.setattr(occto_pipeline, "ingest_occto_unit_generation", lambda **_: 1)
+    monkeypatch.setattr(
+        occto_pipeline, "run_source_to_raw_occto_unit_generation_actuals", fake_scrape
+    )
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_source_to_bronze_occto_unit_generation_actuals",
+        lambda **_: 1,
+    )
     monkeypatch.setattr(
         occto_pipeline,
         "run_bronze_to_silver_step",

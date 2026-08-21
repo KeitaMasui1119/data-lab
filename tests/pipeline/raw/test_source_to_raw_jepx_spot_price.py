@@ -14,7 +14,7 @@ from pipeline.raw.source_to_raw_jepx_spot_price import (
     _resolve_ingestion_log_key,
     _resolve_manifest_key,
     _resolve_snapshot_prefix,
-    scrape_jepx_spot_price_raw,
+    run_source_to_raw_jepx_spot_price,
 )
 
 # 2026-05-14 は会計年度 2026（4月始まり）
@@ -84,7 +84,7 @@ def test_resolve_manifest_key():
 
 
 # ---------------------------------------------------------------------------
-# scrape_jepx_spot_price_raw — 初回実行（マニフェストなし）
+# run_source_to_raw_jepx_spot_price — 初回実行（マニフェストなし）
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +93,7 @@ def test_first_run_saves_snapshot():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    result = scrape_jepx_spot_price_raw(
+    result = run_source_to_raw_jepx_spot_price(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -116,7 +116,7 @@ def test_first_run_uploads_three_objects():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    result = scrape_jepx_spot_price_raw(
+    result = run_source_to_raw_jepx_spot_price(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -138,7 +138,7 @@ def test_first_run_compresses_csv():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    scrape_jepx_spot_price_raw(
+    run_source_to_raw_jepx_spot_price(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -158,7 +158,7 @@ def test_first_run_metadata_fields():
     scraper = _make_scraper(etag='"abc"', last_modified="Thu, 14 May 2026 09:00:00 GMT")
     storage = _make_storage(manifest_body=None)
 
-    scrape_jepx_spot_price_raw(
+    run_source_to_raw_jepx_spot_price(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -181,7 +181,7 @@ def test_first_run_metadata_fields():
 
 
 # ---------------------------------------------------------------------------
-# scrape_jepx_spot_price_raw — ハッシュ変化なし（スキップ）
+# run_source_to_raw_jepx_spot_price — ハッシュ変化なし（スキップ）
 # ---------------------------------------------------------------------------
 
 
@@ -192,7 +192,7 @@ def test_unchanged_content_skips_upload():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=manifest)
 
-    result = scrape_jepx_spot_price_raw(
+    result = run_source_to_raw_jepx_spot_price(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -206,7 +206,7 @@ def test_unchanged_content_skips_upload():
 
 
 # ---------------------------------------------------------------------------
-# scrape_jepx_spot_price_raw — ハッシュ変化あり（新規スナップショット）
+# run_source_to_raw_jepx_spot_price — ハッシュ変化あり（新規スナップショット）
 # ---------------------------------------------------------------------------
 
 
@@ -216,7 +216,7 @@ def test_changed_content_saves_new_snapshot():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=old_manifest)
 
-    result = scrape_jepx_spot_price_raw(
+    result = run_source_to_raw_jepx_spot_price(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -254,7 +254,7 @@ def test_ingestion_log_marks_old_latest_false_when_new_snapshot_saved():
         ingestion_log_body=_to_parquet_bytes(old_log),
     )
 
-    scrape_jepx_spot_price_raw(
+    run_source_to_raw_jepx_spot_price(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",

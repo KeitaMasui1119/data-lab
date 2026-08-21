@@ -275,7 +275,7 @@ class OCCTOSnapshotResult:
     snapshot_prefix: str | None = None
 
 
-def scrape_occto_unit_generation_raw(
+def run_source_to_raw_occto_unit_generation_actuals(
     storage_client: RustFSClient,
     scraper: OCCTOUnitGenerationScraper,
     bucket_name: str,
