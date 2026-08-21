@@ -20,8 +20,8 @@ from orchestration.pl_jepx_spot_price import (
     run_jepx_orchestrated_pipeline,
 )
 from pipeline.bronze.source_to_bronze_jepx_spot_price import (
-    ingest_jepx_spot_summary,
     resolve_default_raw_object,
+    run_source_to_bronze_jepx_spot_price,
 )
 from pipeline.gold.silver_to_gold_jepx_spot_price import (
     DEFAULT_AREA_LOCATION,
@@ -32,7 +32,7 @@ from pipeline.gold.silver_to_gold_jepx_spot_price import (
 from pipeline.jepx_common import resolve_fiscal_year, resolve_fiscal_year_start
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
-    scrape_jepx_spot_price_raw,
+    run_source_to_raw_jepx_spot_price,
     scrape_jepx_to_rustfs,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
@@ -76,7 +76,7 @@ def _handle_scrape(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         target_at = resolve_target_at(args.timestamp_ms)
 
     try:
-        result = scrape_jepx_spot_price_raw(
+        result = run_source_to_raw_jepx_spot_price(
             storage_client=rustfs,
             scraper=scraper,
             bucket_name=args.bucket,
@@ -159,7 +159,7 @@ def _handle_bronze(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         source_file_name = None
 
     rustfs = RustFSClient()
-    row_count = ingest_jepx_spot_summary(
+    row_count = run_source_to_bronze_jepx_spot_price(
         client=rustfs,
         bucket_name=args.bucket,
         object_key=object_key,
@@ -227,7 +227,7 @@ def _handle_raw_pipeline(
     finally:
         scraper.close()
 
-    row_count = ingest_jepx_spot_summary(
+    row_count = run_source_to_bronze_jepx_spot_price(
         client=rustfs,
         bucket_name=args.bucket,
         object_key=scrape_result.object_key,

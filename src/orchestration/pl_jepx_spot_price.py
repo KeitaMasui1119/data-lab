@@ -25,11 +25,13 @@ from orchestration.pipeline_result import (
     PipelineStepResult,
     verify_silver_row_counts,
 )
-from pipeline.bronze.source_to_bronze_jepx_spot_price import ingest_jepx_spot_summary
+from pipeline.bronze.source_to_bronze_jepx_spot_price import (
+    run_source_to_bronze_jepx_spot_price,
+)
 from pipeline.jepx_common import resolve_fiscal_year_start
 from pipeline.raw.source_to_raw_jepx_spot_price import (
     JEPXSpotSummaryScraper,
-    scrape_jepx_spot_price_raw,
+    run_source_to_raw_jepx_spot_price,
 )
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     run_bronze_to_silver_jepx_spot_price,
@@ -161,7 +163,7 @@ def run_source_to_raw_step(
     The scraper is passed in rather than created here so a caller looping
     over fiscal years can hold one session open for the whole range.
     """
-    snapshot_result = scrape_jepx_spot_price_raw(
+    snapshot_result = run_source_to_raw_jepx_spot_price(
         storage_client=storage_client,
         scraper=scraper,
         bucket_name=bucket_name,
@@ -213,7 +215,7 @@ def run_raw_to_bronze_step(
     filter off or every year resolves to nothing at all.
     """
     try:
-        row_count = ingest_jepx_spot_summary(
+        row_count = run_source_to_bronze_jepx_spot_price(
             client=storage_client,
             bucket_name=bucket_name,
             object_key=None,

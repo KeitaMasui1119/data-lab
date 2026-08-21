@@ -248,7 +248,7 @@ class JEPXSnapshotResult:
     snapshot_prefix: str | None = None
 
 
-def scrape_jepx_spot_price_raw(
+def run_source_to_raw_jepx_spot_price(
     storage_client: RustFSClient,
     scraper: JEPXSpotSummaryScraper,
     bucket_name: str,

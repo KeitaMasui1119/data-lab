@@ -22,25 +22,25 @@ from cli.registry import CommandSpec
 from common.storage_client import RustFSClient
 from common.utilities import resolve_default_target_date
 from pipeline.bronze.source_to_bronze_supply_demand_actuals_chugoku import (
-    ingest_supply_demand_actuals_chugoku,
+    run_source_to_bronze_supply_demand_actuals_chugoku,
 )
 from pipeline.bronze.source_to_bronze_supply_demand_actuals_shikoku import (
-    ingest_supply_demand_actuals_shikoku,
+    run_source_to_bronze_supply_demand_actuals_shikoku,
 )
 from pipeline.bronze.source_to_bronze_supply_demand_actuals_tohoku import (
-    ingest_supply_demand_actuals_tohoku,
+    run_source_to_bronze_supply_demand_actuals_tohoku,
 )
 from pipeline.raw.source_to_raw_supply_demand_actuals_chugoku import (
     ChugokuSupplyDemandActualsScraper,
-    scrape_supply_demand_actuals_chugoku_raw,
+    run_source_to_raw_supply_demand_actuals_chugoku,
 )
 from pipeline.raw.source_to_raw_supply_demand_actuals_shikoku import (
     ShikokuSupplyDemandActualsScraper,
-    scrape_supply_demand_actuals_shikoku_raw,
+    run_source_to_raw_supply_demand_actuals_shikoku,
 )
 from pipeline.raw.source_to_raw_supply_demand_actuals_tohoku import (
     TohokuSupplyDemandActualsScraper,
-    scrape_supply_demand_actuals_tohoku_raw,
+    run_source_to_raw_supply_demand_actuals_tohoku,
 )
 from pipeline.silver.bronze_to_silver_supply_demand_actuals_chugoku import (
     run_bronze_to_silver_supply_demand_actuals_chugoku,
@@ -70,24 +70,24 @@ SDA_COMPANIES = (
         key="tohoku",
         label="Tohoku",
         scraper_cls=TohokuSupplyDemandActualsScraper,
-        scrape=scrape_supply_demand_actuals_tohoku_raw,
-        ingest=ingest_supply_demand_actuals_tohoku,
+        scrape=run_source_to_raw_supply_demand_actuals_tohoku,
+        ingest=run_source_to_bronze_supply_demand_actuals_tohoku,
         to_silver=run_bronze_to_silver_supply_demand_actuals_tohoku,
     ),
     SdaCompany(
         key="chugoku",
         label="Chugoku",
         scraper_cls=ChugokuSupplyDemandActualsScraper,
-        scrape=scrape_supply_demand_actuals_chugoku_raw,
-        ingest=ingest_supply_demand_actuals_chugoku,
+        scrape=run_source_to_raw_supply_demand_actuals_chugoku,
+        ingest=run_source_to_bronze_supply_demand_actuals_chugoku,
         to_silver=run_bronze_to_silver_supply_demand_actuals_chugoku,
     ),
     SdaCompany(
         key="shikoku",
         label="Shikoku",
         scraper_cls=ShikokuSupplyDemandActualsScraper,
-        scrape=scrape_supply_demand_actuals_shikoku_raw,
-        ingest=ingest_supply_demand_actuals_shikoku,
+        scrape=run_source_to_raw_supply_demand_actuals_shikoku,
+        ingest=run_source_to_bronze_supply_demand_actuals_shikoku,
         to_silver=run_bronze_to_silver_supply_demand_actuals_shikoku,
     ),
 )

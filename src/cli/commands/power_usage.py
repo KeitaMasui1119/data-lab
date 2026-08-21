@@ -18,11 +18,11 @@ from cli.scraping import run_daily_scrape_loop
 from common.storage_client import RustFSClient
 from common.utilities import resolve_default_target_date
 from pipeline.bronze.source_to_bronze_power_usage_hokuriku import (
-    ingest_power_usage_hokuriku,
+    run_source_to_bronze_power_usage_hokuriku,
 )
 from pipeline.raw.source_to_raw_power_usage_hokuriku import (
     HokurikuPowerUsageScraper,
-    scrape_power_usage_hokuriku_raw,
+    run_source_to_raw_power_usage_hokuriku,
 )
 from pipeline.silver.bronze_to_silver_power_usage_hokuriku import (
     DEFAULT_SILVER_SCHEMA_DIR,
@@ -56,7 +56,7 @@ def _handle_scrape(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     run_daily_scrape_loop(
         from_date=from_date,
         to_date=to_date,
-        scrape_one_day=lambda current: scrape_power_usage_hokuriku_raw(
+        scrape_one_day=lambda current: run_source_to_raw_power_usage_hokuriku(
             storage_client=rustfs,
             scraper=scraper,
             bucket_name=args.bucket,
@@ -111,7 +111,7 @@ def _handle_bronze(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     target_date = parse_iso_date(parser, args.target_date, "--target-date")
 
     rustfs = RustFSClient()
-    row_counts = ingest_power_usage_hokuriku(
+    row_counts = run_source_to_bronze_power_usage_hokuriku(
         client=rustfs,
         bucket_name=args.bucket,
         object_key=args.object_key,

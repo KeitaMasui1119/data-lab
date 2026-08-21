@@ -21,7 +21,7 @@ from pipeline.raw.source_to_raw_power_usage_hokuriku import (
     HokurikuPowerUsageScraper,
     HokurikuScrapedRawObject,
     _resolve_manifest_key,
-    scrape_power_usage_hokuriku_raw,
+    run_source_to_raw_power_usage_hokuriku,
 )
 
 TARGET_DATE = date(2026, 8, 7)
@@ -89,7 +89,7 @@ def test_scrape_does_not_call_get_or_post_before_the_download_request():
 
 
 # ---------------------------------------------------------------------------
-# scrape_power_usage_hokuriku_raw() — snapshot + ingestion log
+# run_source_to_raw_power_usage_hokuriku() — snapshot + ingestion log
 # ---------------------------------------------------------------------------
 
 
@@ -128,7 +128,7 @@ def test_first_run_saves_snapshot():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    result = scrape_power_usage_hokuriku_raw(
+    result = run_source_to_raw_power_usage_hokuriku(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -146,7 +146,7 @@ def test_object_key_includes_target_date_and_ingested_at():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    scrape_power_usage_hokuriku_raw(
+    run_source_to_raw_power_usage_hokuriku(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -168,7 +168,7 @@ def test_unchanged_content_skips_upload():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=manifest)
 
-    result = scrape_power_usage_hokuriku_raw(
+    result = run_source_to_raw_power_usage_hokuriku(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -185,7 +185,7 @@ def test_changed_content_saves_new_snapshot():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=old_manifest)
 
-    result = scrape_power_usage_hokuriku_raw(
+    result = run_source_to_raw_power_usage_hokuriku(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -205,7 +205,7 @@ def test_ingestion_log_records_power_usage_hokuriku_dataset_row():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    scrape_power_usage_hokuriku_raw(
+    run_source_to_raw_power_usage_hokuriku(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",

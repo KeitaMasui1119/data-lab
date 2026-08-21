@@ -92,7 +92,7 @@ def mark_ingestion_log_processed(
     return updated
 
 
-def ingest_jepx_spot_summary(
+def run_source_to_bronze_jepx_spot_price(
     client: RustFSClient,
     bucket_name: str,
     object_key: str | None,

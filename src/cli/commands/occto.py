@@ -24,16 +24,16 @@ from orchestration.pl_occto_unit_generation_actuals import (
     run_occto_orchestrated_pipeline,
 )
 from pipeline.bronze.source_to_bronze_occto_unit_generation_actuals import (
-    ingest_occto_unit_generation,
+    run_source_to_bronze_occto_unit_generation_actuals,
 )
 from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     OCCTOUnitGenerationScraper,
-    scrape_occto_unit_generation_raw,
+    run_source_to_raw_occto_unit_generation_actuals,
 )
 from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
     DEFAULT_BRONZE_LOCATION,
     DEFAULT_SILVER_SCHEMA_DIR,
-    run_bronze_to_silver_occto_unit_generation,
+    run_bronze_to_silver_occto_unit_generation_actuals,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ def _handle_scrape(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
     run_daily_scrape_loop(
         from_date=from_date,
         to_date=to_date,
-        scrape_one_day=lambda current: scrape_occto_unit_generation_raw(
+        scrape_one_day=lambda current: run_source_to_raw_occto_unit_generation_actuals(
             storage_client=rustfs,
             scraper=scraper,
             bucket_name=args.bucket,
@@ -141,7 +141,7 @@ def _handle_bronze(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         )
 
     rustfs = RustFSClient()
-    row_count = ingest_occto_unit_generation(
+    row_count = run_source_to_bronze_occto_unit_generation_actuals(
         client=rustfs,
         bucket_name=args.bucket,
         object_key=args.object_key,
@@ -179,7 +179,7 @@ def _configure_silver(parser: argparse.ArgumentParser) -> None:
 
 def _handle_silver(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     from_date, to_date = parse_optional_date_range(parser, args)
-    result = run_bronze_to_silver_occto_unit_generation(
+    result = run_bronze_to_silver_occto_unit_generation_actuals(
         catalog_name=args.catalog,
         bronze_location=args.bronze_location,
         schema_dir=args.schema_dir,

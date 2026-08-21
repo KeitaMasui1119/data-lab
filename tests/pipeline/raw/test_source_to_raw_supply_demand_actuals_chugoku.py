@@ -19,7 +19,7 @@ from pipeline.raw.source_to_raw_supply_demand_actuals_chugoku import (
     ChugokuScrapedRawObject,
     ChugokuSupplyDemandActualsScraper,
     _resolve_manifest_key,
-    scrape_supply_demand_actuals_chugoku_raw,
+    run_source_to_raw_supply_demand_actuals_chugoku,
 )
 
 CSV_BODY = "2026/8/15 1:52 UPDATE\r\n\r\nDATE,TIME,実績(万kW)\r\n...".encode("cp932")
@@ -100,7 +100,7 @@ def test_first_run_saves_snapshot():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=None)
 
-    result = scrape_supply_demand_actuals_chugoku_raw(
+    result = run_source_to_raw_supply_demand_actuals_chugoku(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -120,7 +120,7 @@ def test_unchanged_content_skips_upload():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=manifest)
 
-    result = scrape_supply_demand_actuals_chugoku_raw(
+    result = run_source_to_raw_supply_demand_actuals_chugoku(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",
@@ -137,7 +137,7 @@ def test_changed_content_saves_new_snapshot():
     scraper = _make_scraper()
     storage = _make_storage(manifest_body=old_manifest)
 
-    result = scrape_supply_demand_actuals_chugoku_raw(
+    result = run_source_to_raw_supply_demand_actuals_chugoku(
         storage_client=storage,
         scraper=scraper,
         bucket_name="test-bucket",

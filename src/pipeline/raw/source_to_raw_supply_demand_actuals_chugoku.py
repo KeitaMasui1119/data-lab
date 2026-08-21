@@ -160,7 +160,7 @@ class ChugokuSnapshotResult:
     snapshot_prefix: str | None = None
 
 
-def scrape_supply_demand_actuals_chugoku_raw(
+def run_source_to_raw_supply_demand_actuals_chugoku(
     storage_client: RustFSClient,
     scraper: ChugokuSupplyDemandActualsScraper,
     bucket_name: str,

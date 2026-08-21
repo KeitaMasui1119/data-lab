@@ -162,7 +162,7 @@ class TohokuSnapshotResult:
     snapshot_prefix: str | None = None
 
 
-def scrape_supply_demand_actuals_tohoku_raw(
+def run_source_to_raw_supply_demand_actuals_tohoku(
     storage_client: RustFSClient,
     scraper: TohokuSupplyDemandActualsScraper,
     bucket_name: str,

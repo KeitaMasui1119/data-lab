@@ -408,7 +408,7 @@ class OcctoBronzeToSilverResult:
         return self.valid_row_count * len(TIMESLOT_COLUMNS)
 
 
-def run_bronze_to_silver_occto_unit_generation(
+def run_bronze_to_silver_occto_unit_generation_actuals(
     *,
     catalog_name: str = DEFAULT_CATALOG_NAME,
     bronze_location: str = DEFAULT_BRONZE_LOCATION,

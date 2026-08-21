@@ -75,7 +75,7 @@ def target_date_exists(table, target_date: date) -> bool:
     return existing.num_rows > 0
 
 
-def ingest_supply_demand_actuals_chugoku(
+def run_source_to_bronze_supply_demand_actuals_chugoku(
     client: RustFSClient,
     bucket_name: str,
     object_key: str,
