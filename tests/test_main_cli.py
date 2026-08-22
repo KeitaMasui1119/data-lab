@@ -236,6 +236,13 @@ EXPECTED_COMMANDS: dict[str, tuple[list[str], dict[str, object]]] = {
             "delete": False,
         },
     ),
+    "provision-metadata-tables": (
+        [],
+        {
+            "catalog": "dlh_dev",
+            "schema_dir": "/workspace/configuration/iceberg/schema/metadata",
+        },
+    ),
     "ingest-jepx-bronze-to-silver": (
         [],
         {

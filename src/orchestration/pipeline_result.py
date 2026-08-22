@@ -7,7 +7,10 @@ pl_occto_unit_generation_actuals.py needs the same shape rather than a copy.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
+
+from common.utilities import get_now_utc
 
 STATUS_SUCCESS = "success"
 STATUS_SKIPPED = "skipped"
@@ -23,6 +26,12 @@ class PipelineStepResult:
     logged success while silver went unwritten, so a step that cannot show
     those two numbers agreeing has no basis to call itself successful. Steps
     that move no rows (dbt, scraping) leave both counts unset.
+
+    ``started_at`` / ``ended_at`` are stamped by the orchestrator around the
+    call rather than set by the step itself, so a step that returns from
+    several places does not have to remember to time each of them. They stay
+    unset for a result nobody timed: the run log records that as null instead
+    of a zero duration, which would read as an instant step.
     """
 
     name: str
@@ -30,6 +39,30 @@ class PipelineStepResult:
     detail: str
     expected_row_count: int | None = None
     actual_row_count: int | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+
+    @property
+    def duration_seconds(self) -> float | None:
+        """Wall-clock seconds the step took, or None when it was not timed."""
+        if self.started_at is None or self.ended_at is None:
+            return None
+        return (self.ended_at - self.started_at).total_seconds()
+
+
+def stamp_step_timing(
+    result: PipelineStepResult,
+    *,
+    started_at: datetime,
+    ended_at: datetime | None = None,
+) -> PipelineStepResult:
+    """Return a copy of a step result carrying its wall-clock window.
+
+    The caller notes ``started_at`` before invoking the step and lets this
+    close the window, which keeps the timing at the call site even for the
+    steps that return a tuple rather than a bare result.
+    """
+    return replace(result, started_at=started_at, ended_at=ended_at or get_now_utc())
 
 
 def has_failed_step(results: Iterable[PipelineStepResult]) -> bool:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cli.commands import (
     jepx,
+    metadata_admin,
     occto,
     power_usage,
     silver_admin,
@@ -19,4 +20,5 @@ ALL_COMMANDS: list[CommandSpec] = [
     *power_usage.COMMANDS,
     *supply_demand.COMMANDS,
     *silver_admin.COMMANDS,
+    *metadata_admin.COMMANDS,
 ]
