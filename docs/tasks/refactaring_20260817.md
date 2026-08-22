@@ -19,6 +19,16 @@ CLAUDE.md は `src/main.py` を「sole CLI entry point ... Keep this as thin orc
 段階的に4フェーズへ分割して進める案を「3. リファクタリング案」に示す。
 Phase 1〜3 は**振る舞い不変**の純粋な抽出、Phase 4 のみ挙動変更を含むため合意が必要。
 
+### 進捗（2026-08-22 時点）
+
+P3 の3件はすべて決着した。
+
+| 節 | 状態 | 対応 |
+|---|---|---|
+| 2.9 import 105行と起動コスト | ⚠️ 部分解消 / 残りは **Won't Fix** | 105行ブロックと as-import は解消。起動コスト（`--help` 2.35秒）は投資対効果が見合わず見送り、実測値と対応方針を 2.9 に記録した |
+| 2.10 CLI入口の二重化 | ✅ 解消済み | PR #105 / #110。`src/main.py` が唯一のCLI入口になった（`manage_iceberg.py` のみ意図的な例外） |
+| 2.11 `resolve_default_target_date` の5重複 | ✅ 解消済み | 関数本体は `common/utils.py` へ集約済み。テスト側の5重複は PR #111 で統合し、その際に未検証だった UTC 入力経路のテストを追加 |
+
 ---
 
 ## 1. 現状の計測値
@@ -216,15 +226,59 @@ ruff の E501 が「空白を含まない1語からなる行」を除外する�
 なお、このバリデーション自体も `src/main.py:983` と
 `src/orchestration/pl_jepx_spot_price.py:339` の2箇所に重複している。
 
-### 2.9 [P3] import ブロック105行と起動コスト
+### 2.9 [P3] import ブロック105行と起動コスト — ⚠️ 部分解消 / 残りは Won't Fix
 
-1〜105行の import により、`--help` を表示するだけでも polars / pyarrow / pyiceberg / duckdb /
-boto3 / requests がすべてロードされる。25コマンドのうち実際に使うのは1つだけなので、
-起動時間の大半が無駄になっている。
+当時、`src/main.py` の1〜105行の import により、`--help` を表示するだけでも
+polars / pyarrow / pyiceberg / duckdb / boto3 / requests がすべてロードされていた。
+25コマンドのうち実際に使うのは1つだけなので、起動時間の大半が無駄になっている。
 
 また `resolve_default_target_date` が5つのモジュールに同名で存在するため、
 4回の as-import による別名付け（45, 52-54, 59-61, 66-68, 73-75行）が必要になっており、
 import ブロックの読みにくさを増している。
+
+#### 解消した部分
+
+- **105行の import ブロック**：`src/cli/` への分割（Phase 3）で解消。
+  `src/main.py` は現在 **39行・import 5行**。
+- **as-import 4回**：2.11 の集約で解消。`src/cli/commands/` に別名付き import は残っていない。
+
+#### 残った部分（Won't Fix）
+
+起動コストそのものは解消していない。`cli/commands/__init__.py` が7つのコマンドモジュールを
+eager import し、各モジュールが自分のパイプラインモジュールを module scope で import するため、
+**重い依存は `main.py` から `cli/commands/` へ移動しただけ**である。
+
+実測（`uv run python -X importtime src/main.py --help`）:
+
+| 項目 | 実測 |
+|---|---|
+| `--help` 全体 | **約 2,350 ms** |
+| うち `cli.commands`（累積） | 2,091 ms |
+| — boto3 | 709 ms |
+| — pyiceberg.catalog | 704 ms |
+| — polars | 357 ms |
+| 素の `uv run python`（argparse のみ） | 198 ms |
+
+理論上の到達点は約 250 ms（**10倍**）。障害は、パーサ構築時の `configure()` が
+**重いモジュールに置かれた軽い定数しか必要としていない**という一点に集約される。
+
+| 定数 | 現在の置き場所 | 実体 |
+|---|---|---|
+| `DEFAULT_SILVER_SCHEMA_DIR` ×3 | `pipeline/silver/*.py` | パス文字列 |
+| `DEFAULT_BRONZE_LOCATION` ×2 | `pipeline/silver/*.py` | `s3://...` |
+| `DEFAULT_AREA_LOCATION` / `DEFAULT_BASE_LOCATION` / `DEFAULT_GOLD_SCHEMA_DIR` | `pipeline/gold/*.py` | 同上 |
+| `DEFAULT_REQUEST_DELAY_SECONDS` | `orchestration/pl_jepx_spot_price.py` | `3.0` |
+
+ハンドラ専用の import は7モジュールで計40個あり、すべて関数内へ落とせることを
+AST 解析で確認済み（`configure()` が参照するのは上表の定数のみ）。したがって対応方針は
+「定数を安いモジュールへ単一定義化 → ハンドラ専用 import を関数内へ遅延」となる。
+
+**それでも見送る理由**：実パイプラインは1回の実行が数分かかるため 2 秒の import は誤差であり、
+体感差が出るのは `--help` と開発中の試行だけである。対して変更は7つのコマンドモジュール全体に
+及び、関数内 import は可読性とのトレードオフになる。P3 の投資対効果として見合わない。
+
+**再検討のトリガー**：CLI を高頻度で叩く用途（短時間コマンドのループ実行、シェル補完の実装、
+1回の実行が数秒で終わるコマンドの追加）が出てきたとき。上記の対応方針はそのまま使える。
 
 ### 2.10 [P3] CLI入口が二重化している（CLAUDE.md との乖離） — ✅ 解消済み
 
