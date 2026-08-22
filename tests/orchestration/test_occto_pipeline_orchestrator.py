@@ -75,6 +75,24 @@ def _patch_raw_step(
     )
 
 
+@pytest.fixture(autouse=True)
+def captured_run_log(monkeypatch) -> list[dict[str, object]]:
+    """Capture run log writes instead of letting them reach a live catalog.
+
+    ``record_pipeline_run`` reports rather than raises, so without this every
+    orchestrator test would quietly attempt a catalog connection and log the
+    failure. Autouse keeps that out of the tests that are about something
+    else; the tests below assert against what it captured.
+    """
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        occto_pipeline,
+        "record_pipeline_run",
+        lambda **kwargs: calls.append(kwargs) or len(kwargs),
+    )
+    return calls
+
+
 def test_resolve_silver_target_date_window_defaults_to_snapshot_range() -> None:
     """A daily run must scope silver to the range it just ingested."""
     window = occto_pipeline.resolve_silver_target_date_window(
@@ -547,3 +565,114 @@ def test_main_exits_zero_when_every_step_succeeded(monkeypatch) -> None:
 
     # Act / Assert
     occto_pipeline.main()
+
+
+# ---------------------------------------------------------------------------
+# Run log wiring — metadata.pipeline_run_log is the only durable record a run
+# leaves behind, so the orchestrator has to reach it on every path
+# ---------------------------------------------------------------------------
+
+
+class _ClosableScraper:
+    """Scraper stub for the run log tests, which never reach the source."""
+
+    def close(self) -> None:
+        return None
+
+
+def _run_with_stubbed_steps(monkeypatch, **overrides: Any) -> list[Any]:
+    """Run the orchestrator with raw, bronze and silver all stubbed out."""
+    _patch_raw_step(monkeypatch, _ClosableScraper())
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_source_to_bronze_occto_unit_generation_actuals",
+        lambda **_: 48,
+    )
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_bronze_to_silver_step",
+        lambda **_: occto_pipeline.PipelineStepResult(
+            "bronze_to_silver", "success", "written=48"
+        ),
+    )
+    return occto_pipeline.run_occto_orchestrated_pipeline(
+        **_pipeline_kwargs(**overrides)
+    )
+
+
+def test_orchestrated_run_records_every_step_under_one_run_id(
+    monkeypatch, captured_run_log
+) -> None:
+    # Act
+    results = _run_with_stubbed_steps(monkeypatch)
+
+    # Assert
+    assert len(captured_run_log) == 1
+    logged = captured_run_log[0]
+    assert logged["pipeline_name"] == "occto_unit_generation_actuals"
+    assert logged["results"] == results
+    assert logged["run_id"]
+
+
+def test_orchestrated_run_passes_its_run_id_down_to_silver(
+    monkeypatch, captured_run_log
+) -> None:
+    """The silver rows must carry the run id the run log records, or the two
+    cannot be joined."""
+    # Arrange
+    silver_calls: list[dict[str, object]] = []
+    _patch_raw_step(monkeypatch, _ClosableScraper())
+    monkeypatch.setattr(
+        occto_pipeline,
+        "run_source_to_bronze_occto_unit_generation_actuals",
+        lambda **_: 48,
+    )
+
+    def fake_silver_step(**kwargs: object) -> object:
+        silver_calls.append(kwargs)
+        return occto_pipeline.PipelineStepResult("bronze_to_silver", "success", "ok")
+
+    monkeypatch.setattr(occto_pipeline, "run_bronze_to_silver_step", fake_silver_step)
+
+    # Act
+    occto_pipeline.run_occto_orchestrated_pipeline(**_pipeline_kwargs())
+
+    # Assert
+    assert silver_calls[0]["execution_id"] == captured_run_log[0]["run_id"]
+
+
+def test_orchestrated_run_records_the_scope_silver_actually_rebuilt(
+    monkeypatch, captured_run_log
+) -> None:
+    """The run log's scope has to match what ran, not what was requested."""
+    # Act
+    _run_with_stubbed_steps(monkeypatch, silver_all_dates=True)
+
+    # Assert
+    assert captured_run_log[0]["target_scope"] == "all dates"
+
+
+def test_orchestrated_run_stamps_every_step_with_a_timing_window(
+    monkeypatch, captured_run_log
+) -> None:
+    """A step with no window logs a null duration, which reads as untimed."""
+    # Act
+    results = _run_with_stubbed_steps(monkeypatch)
+
+    # Assert
+    assert all(result.duration_seconds is not None for result in results)
+
+
+def test_a_multi_day_run_records_every_days_steps_under_one_run_id(
+    monkeypatch, captured_run_log
+) -> None:
+    """OCCTO loops raw+bronze per day; all of it is still one run."""
+    # Act
+    results = _run_with_stubbed_steps(
+        monkeypatch, from_date=date(2026, 8, 7), to_date=date(2026, 8, 9)
+    )
+
+    # Assert
+    # 3 days x (source_to_raw + raw_to_bronze) + one bronze_to_silver
+    assert len(results) == 7
+    assert captured_run_log[0]["results"] == results

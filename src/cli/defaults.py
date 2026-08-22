@@ -16,6 +16,7 @@ DEFAULT_DBT_PROJECT_DIR = "/workspace/src/dbt/jepx_power"
 SCHEMA_ROOT = Path("/workspace/configuration/iceberg/schema")
 BRONZE_SCHEMA_ROOT = SCHEMA_ROOT / "bronze"
 SILVER_SCHEMA_ROOT = SCHEMA_ROOT / "silver"
+METADATA_SCHEMA_ROOT = SCHEMA_ROOT / "metadata"
 
 
 def bronze_schema_path(dataset: str, file_name: str) -> str:

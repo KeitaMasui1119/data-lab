@@ -79,6 +79,24 @@ def _patch_raw_step(monkeypatch, scraper: object, *, skipped: bool = False) -> N
     )
 
 
+@pytest.fixture(autouse=True)
+def captured_run_log(monkeypatch) -> list[dict[str, object]]:
+    """Capture run log writes instead of letting them reach a live catalog.
+
+    ``record_pipeline_run`` reports rather than raises, so without this every
+    orchestrator test would quietly attempt a catalog connection and log the
+    failure. Autouse keeps that out of the tests that are about something
+    else; the tests below assert against what it captured.
+    """
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "record_pipeline_run",
+        lambda **kwargs: calls.append(kwargs) or len(kwargs),
+    )
+    return calls
+
+
 def test_run_dbt_step_executes_expected_command(monkeypatch) -> None:
     """run_dbt_step should call subprocess with a dbt run command."""
     calls: list[tuple[list[str], bool]] = []
@@ -715,3 +733,160 @@ def test_backfill_rejects_a_reversed_fiscal_year_range() -> None:
         jepx_pipeline.run_jepx_backfill_pipeline(
             **_backfill_kwargs(from_fiscal_year=2026, to_fiscal_year=2005)
         )
+
+
+# ---------------------------------------------------------------------------
+# Run log wiring — metadata.pipeline_run_log is the only durable record a run
+# leaves behind, so the orchestrator has to reach it on every path
+# ---------------------------------------------------------------------------
+
+
+class _ClosableScraper:
+    """Scraper stub for the run log tests, which never reach the source."""
+
+    def close(self) -> None:
+        return None
+
+
+def test_orchestrated_run_records_every_step_under_one_run_id(
+    monkeypatch, captured_run_log
+) -> None:
+    # Arrange
+    _patch_raw_step(monkeypatch, _ClosableScraper())
+    monkeypatch.setattr(
+        jepx_pipeline, "run_source_to_bronze_jepx_spot_price", lambda **_: 48
+    )
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "run_bronze_to_silver_step",
+        lambda **_: jepx_pipeline.PipelineStepResult(
+            "bronze_to_silver", "success", "written=48"
+        ),
+    )
+
+    # Act
+    results = jepx_pipeline.run_jepx_orchestrated_pipeline(**_pipeline_kwargs())
+
+    # Assert
+    assert len(captured_run_log) == 1
+    logged = captured_run_log[0]
+    assert logged["pipeline_name"] == "jepx_spot_price"
+    assert logged["results"] == results
+    assert logged["run_id"]
+
+
+def test_orchestrated_run_passes_its_run_id_down_to_silver(
+    monkeypatch, captured_run_log
+) -> None:
+    """The silver rows must carry the run id the run log records, or the two
+    cannot be joined."""
+    # Arrange
+    silver_calls: list[dict[str, object]] = []
+    _patch_raw_step(monkeypatch, _ClosableScraper())
+    monkeypatch.setattr(
+        jepx_pipeline, "run_source_to_bronze_jepx_spot_price", lambda **_: 48
+    )
+
+    def fake_silver_step(**kwargs: object) -> object:
+        silver_calls.append(kwargs)
+        return jepx_pipeline.PipelineStepResult("bronze_to_silver", "success", "ok")
+
+    monkeypatch.setattr(jepx_pipeline, "run_bronze_to_silver_step", fake_silver_step)
+
+    # Act
+    jepx_pipeline.run_jepx_orchestrated_pipeline(**_pipeline_kwargs())
+
+    # Assert
+    assert silver_calls[0]["execution_id"] == captured_run_log[0]["run_id"]
+
+
+def test_orchestrated_run_records_the_scope_silver_actually_rebuilt(
+    monkeypatch, captured_run_log
+) -> None:
+    """The run log's scope has to match what ran, not what was requested."""
+    # Arrange
+    _patch_raw_step(monkeypatch, _ClosableScraper())
+    monkeypatch.setattr(
+        jepx_pipeline, "run_source_to_bronze_jepx_spot_price", lambda **_: 48
+    )
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "run_bronze_to_silver_step",
+        lambda **_: jepx_pipeline.PipelineStepResult(
+            "bronze_to_silver", "success", "ok"
+        ),
+    )
+
+    # Act
+    jepx_pipeline.run_jepx_orchestrated_pipeline(
+        **_pipeline_kwargs(silver_all_fiscal_years=True)
+    )
+
+    # Assert
+    assert captured_run_log[0]["target_scope"] == "all fiscal years"
+
+
+def test_orchestrated_run_stamps_every_step_with_a_timing_window(
+    monkeypatch, captured_run_log
+) -> None:
+    """A step with no window logs a null duration, which reads as untimed."""
+    # Arrange
+    _patch_raw_step(monkeypatch, _ClosableScraper())
+    monkeypatch.setattr(
+        jepx_pipeline, "run_source_to_bronze_jepx_spot_price", lambda **_: 48
+    )
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "run_bronze_to_silver_step",
+        lambda **_: jepx_pipeline.PipelineStepResult(
+            "bronze_to_silver", "success", "ok"
+        ),
+    )
+
+    # Act
+    results = jepx_pipeline.run_jepx_orchestrated_pipeline(**_pipeline_kwargs())
+
+    # Assert
+    assert all(result.duration_seconds is not None for result in results)
+
+
+def test_backfill_records_its_own_run_covering_the_whole_range(
+    monkeypatch, captured_run_log
+) -> None:
+    """A replay is one run, not one per year, so the range is its scope."""
+    # Arrange
+    monkeypatch.setattr(jepx_pipeline, "RustFSClient", lambda: "rustfs-client")
+    monkeypatch.setattr(jepx_pipeline, "JEPXSpotSummaryScraper", _ClosableScraper)
+    monkeypatch.setattr(jepx_pipeline.time, "sleep", lambda _: None)
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "_run_backfill_year",
+        lambda **_: [
+            jepx_pipeline.PipelineStepResult("raw_to_bronze", "success", "rows=48")
+        ],
+    )
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "run_bronze_to_silver_step",
+        lambda **_: jepx_pipeline.PipelineStepResult(
+            "bronze_to_silver", "success", "ok"
+        ),
+    )
+
+    # Act
+    jepx_pipeline.run_jepx_backfill_pipeline(
+        bucket_name="jp-power-grid-dev",
+        from_fiscal_year=2024,
+        to_fiscal_year=2026,
+        catalog_name="dlh_dev",
+        bronze_table_identifier="bronze.jepx_spot_price",
+        bronze_schema_path=BRONZE_SCHEMA_PATH,
+        allow_duplicate_source=False,
+        bronze_location="s3://jp-power-grid-dev/bronze/jepx_spot_price",
+        silver_schema_dir=SILVER_SCHEMA_DIR,
+    )
+
+    # Assert
+    assert len(captured_run_log) == 1
+    assert captured_run_log[0]["pipeline_name"] == "jepx_spot_price_backfill"
+    assert captured_run_log[0]["target_scope"] == "fiscal_year=2024..2026"

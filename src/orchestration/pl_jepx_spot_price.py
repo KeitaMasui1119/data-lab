@@ -17,14 +17,16 @@ from datetime import datetime
 from pathlib import Path
 
 from common.storage_client import RustFSClient
-from common.utilities import resolve_target_at
+from common.utilities import gen_uuid, get_now_utc, resolve_target_at
 from orchestration.pipeline_result import (
     STATUS_FAILED,
     STATUS_SKIPPED,
     STATUS_SUCCESS,
     PipelineStepResult,
+    stamp_step_timing,
     verify_silver_row_counts,
 )
+from orchestration.pipeline_run_log import record_pipeline_run
 from pipeline.bronze.source_to_bronze_jepx_spot_price import (
     run_source_to_bronze_jepx_spot_price,
 )
@@ -104,19 +106,33 @@ def resolve_silver_fiscal_year(
     return snapshot_fiscal_year
 
 
+def _describe_silver_scope(fiscal_year: int | None) -> str:
+    """Name the fiscal years a silver run covers, for logs and the run log."""
+    if fiscal_year is None:
+        return "all fiscal years"
+    return f"fiscal_year={fiscal_year}"
+
+
 def run_bronze_to_silver_step(
     *,
     catalog_name: str,
     bronze_location: str,
     silver_schema_dir: str,
     fiscal_year: int | None,
+    execution_id: str | None = None,
 ) -> PipelineStepResult:
-    """Transform bronze rows into the silver Iceberg tables."""
+    """Transform bronze rows into the silver Iceberg tables.
+
+    ``execution_id`` is the orchestrator's run id. Passing it down stamps the
+    silver rows with the same value the run log records, so a run in
+    metadata.pipeline_run_log can be joined to the rows it wrote.
+    """
     result = run_bronze_to_silver_jepx_spot_price(
         catalog_name=catalog_name,
         bronze_location=bronze_location,
         schema_dir=silver_schema_dir,
         fiscal_year=fiscal_year,
+        execution_id=execution_id,
     )
 
     # The base table takes exactly the rows that passed validation, one per
@@ -133,7 +149,7 @@ def run_bronze_to_silver_step(
     )
 
     written = sum(write.rows_written for write in result.writes)
-    scope = "all fiscal years" if fiscal_year is None else f"fiscal_year={fiscal_year}"
+    scope = _describe_silver_scope(fiscal_year)
     detail = (
         f"execution_id={result.execution_id}, {scope}, written={written}, "
         f"dropped={result.dropped_row_count}, staged={result.staged_row_count}"
@@ -266,9 +282,11 @@ def run_jepx_orchestrated_pipeline(
     """Run the JEPX workflow in dependency order."""
     results: list[PipelineStepResult] = []
     target_at = resolve_target_at(timestamp_ms)
+    run_id = gen_uuid()
 
     rustfs = RustFSClient()
 
+    started_at = get_now_utc()
     scraper = JEPXSpotSummaryScraper()
     try:
         raw_result, snapshot_fiscal_year = run_source_to_raw_step(
@@ -279,51 +297,67 @@ def run_jepx_orchestrated_pipeline(
         )
     finally:
         scraper.close()
-    results.append(raw_result)
+    results.append(stamp_step_timing(raw_result, started_at=started_at))
 
+    started_at = get_now_utc()
     results.append(
-        run_raw_to_bronze_step(
-            storage_client=rustfs,
-            bucket_name=bucket_name,
-            catalog_name=catalog_name,
-            bronze_table_identifier=bronze_table_identifier,
-            bronze_schema_path=bronze_schema_path,
-            allow_duplicate_source=allow_duplicate_source,
-            fiscal_year=snapshot_fiscal_year,
-        )
-    )
-
-    results.append(
-        run_bronze_to_silver_step(
-            catalog_name=catalog_name,
-            bronze_location=bronze_location,
-            silver_schema_dir=silver_schema_dir,
-            fiscal_year=resolve_silver_fiscal_year(
-                silver_fiscal_year=silver_fiscal_year,
-                silver_all_fiscal_years=silver_all_fiscal_years,
-                snapshot_fiscal_year=snapshot_fiscal_year,
+        stamp_step_timing(
+            run_raw_to_bronze_step(
+                storage_client=rustfs,
+                bucket_name=bucket_name,
+                catalog_name=catalog_name,
+                bronze_table_identifier=bronze_table_identifier,
+                bronze_schema_path=bronze_schema_path,
+                allow_duplicate_source=allow_duplicate_source,
+                fiscal_year=snapshot_fiscal_year,
             ),
+            started_at=started_at,
         )
     )
 
+    silver_fiscal_year = resolve_silver_fiscal_year(
+        silver_fiscal_year=silver_fiscal_year,
+        silver_all_fiscal_years=silver_all_fiscal_years,
+        snapshot_fiscal_year=snapshot_fiscal_year,
+    )
+    started_at = get_now_utc()
+    results.append(
+        stamp_step_timing(
+            run_bronze_to_silver_step(
+                catalog_name=catalog_name,
+                bronze_location=bronze_location,
+                silver_schema_dir=silver_schema_dir,
+                fiscal_year=silver_fiscal_year,
+                execution_id=run_id,
+            ),
+            started_at=started_at,
+        )
+    )
+
+    started_at = get_now_utc()
     if run_gold_step:
-        results.append(
-            run_dbt_step(
-                step_name="silver_to_gold",
-                select_expr=gold_select,
-                project_dir=dbt_project_dir,
-                profiles_dir=dbt_profiles_dir,
-                full_refresh=dbt_full_refresh,
-            )
+        gold_result = run_dbt_step(
+            step_name="silver_to_gold",
+            select_expr=gold_select,
+            project_dir=dbt_project_dir,
+            profiles_dir=dbt_profiles_dir,
+            full_refresh=dbt_full_refresh,
         )
     else:
-        results.append(
-            PipelineStepResult(
-                name="silver_to_gold",
-                status=STATUS_SKIPPED,
-                detail="Gold step is disabled. Use --run-gold-step to enable.",
-            )
+        gold_result = PipelineStepResult(
+            name="silver_to_gold",
+            status=STATUS_SKIPPED,
+            detail="Gold step is disabled. Use --run-gold-step to enable.",
         )
+    results.append(stamp_step_timing(gold_result, started_at=started_at))
+
+    record_pipeline_run(
+        run_id=run_id,
+        pipeline_name="jepx_spot_price",
+        target_scope=_describe_silver_scope(silver_fiscal_year),
+        results=results,
+        catalog_name=catalog_name,
+    )
 
     return results
 
@@ -414,34 +448,44 @@ def run_jepx_backfill_pipeline(
     results: list[PipelineStepResult] = []
     failed_fiscal_years: list[int] = []
     fiscal_years = list(range(from_fiscal_year, to_fiscal_year + 1))
+    run_id = gen_uuid()
 
     rustfs = RustFSClient()
     scraper = None if from_raw else JEPXSpotSummaryScraper()
     try:
         for index, fiscal_year in enumerate(fiscal_years):
+            started_at = get_now_utc()
             try:
-                results.extend(
-                    _run_backfill_year(
-                        storage_client=rustfs,
-                        scraper=scraper,
-                        fiscal_year=fiscal_year,
-                        bucket_name=bucket_name,
-                        catalog_name=catalog_name,
-                        bronze_table_identifier=bronze_table_identifier,
-                        bronze_schema_path=bronze_schema_path,
-                        allow_duplicate_source=allow_duplicate_source,
-                    )
+                year_results = _run_backfill_year(
+                    storage_client=rustfs,
+                    scraper=scraper,
+                    fiscal_year=fiscal_year,
+                    bucket_name=bucket_name,
+                    catalog_name=catalog_name,
+                    bronze_table_identifier=bronze_table_identifier,
+                    bronze_schema_path=bronze_schema_path,
+                    allow_duplicate_source=allow_duplicate_source,
                 )
             except Exception as error:
                 logger.exception("Backfill failed for fiscal_year=%s", fiscal_year)
                 failed_fiscal_years.append(fiscal_year)
-                results.append(
+                year_results = [
                     PipelineStepResult(
                         name="backfill_year",
                         status=STATUS_FAILED,
                         detail=f"fiscal_year={fiscal_year}: {error}",
                     )
-                )
+                ]
+
+            # One window covers the year's whole raw+bronze pass. Timing each
+            # of its steps separately would need the timing inside
+            # _run_backfill_year, and the year is the unit a replay is judged
+            # by anyway.
+            ended_at = get_now_utc()
+            results.extend(
+                stamp_step_timing(result, started_at=started_at, ended_at=ended_at)
+                for result in year_results
+            )
 
             is_last_year = index == len(fiscal_years) - 1
             if scraper is not None and not is_last_year:
@@ -452,13 +496,26 @@ def run_jepx_backfill_pipeline(
         if scraper is not None:
             scraper.close()
 
+    started_at = get_now_utc()
     results.append(
-        run_bronze_to_silver_step(
-            catalog_name=catalog_name,
-            bronze_location=bronze_location,
-            silver_schema_dir=silver_schema_dir,
-            fiscal_year=None,
+        stamp_step_timing(
+            run_bronze_to_silver_step(
+                catalog_name=catalog_name,
+                bronze_location=bronze_location,
+                silver_schema_dir=silver_schema_dir,
+                fiscal_year=None,
+                execution_id=run_id,
+            ),
+            started_at=started_at,
         )
+    )
+
+    record_pipeline_run(
+        run_id=run_id,
+        pipeline_name="jepx_spot_price_backfill",
+        target_scope=f"fiscal_year={from_fiscal_year}..{to_fiscal_year}",
+        results=results,
+        catalog_name=catalog_name,
     )
 
     logger.info(

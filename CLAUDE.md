@@ -28,6 +28,7 @@ uv run python src/main.py run-occto-orchestrator --target-date YYYY-MM-DD
 uv run python src/main.py scrape-power-usage-hokuriku --target-date YYYY-MM-DD
 uv run python src/main.py scrape-supply-demand-actuals-tohoku --target-date YYYY-MM-DD
 uv run python src/main.py provision-silver-tables
+uv run python src/main.py provision-metadata-tables
 uv run python src/main.py ingest-jepx-bronze-to-silver
 uv run python src/main.py ingest-jepx-silver-to-gold
 
@@ -50,6 +51,10 @@ Source → Raw (RustFS s3://jp-power-grid-dev/raw/)
        → Bronze (PyIceberg, Polars cast + metadata)
        → Silver (every dataset: DuckDB transform + PyIceberg window replace)
        → Gold (DuckDB aggregate + PyIceberg window replace; JEPX daily / profile / interval spread)
+
+metadata/ sits beside the layers rather than in them:
+  metadata/raw_ingestion_log.parquet  — which file each scrape fetched (RustFS parquet)
+  metadata.pipeline_run_log           — which run executed which step (Iceberg, append-only)
 ```
 
 Datasets through Raw → Bronze → Silver: JEPX spot price, OCCTO unit generation actuals, Hokuriku power_usage (でんき予報, split into 3 bronze/silver tables), supply_demand_actuals for Tohoku / Chugoku / Shikoku. Gold exists for JEPX only. See `README.md` for per-dataset command examples and `docs/tasks/tasks.md` for what is still open.
@@ -58,7 +63,7 @@ Datasets through Raw → Bronze → Silver: JEPX spot price, OCCTO unit generati
 
 - **`src/main.py`** — CLI entry point, under 40 lines. Builds the parser from `src/cli/`'s registry and dispatches; holds no command logic of its own.
 - **`src/cli/`** — argparse wiring, extracted from `main.py` (history: `docs/tasks/refactaring_20260817.md`). `commands/*.py` is one file per dataset (`jepx`, `occto`, `power_usage`, `supply_demand`, `silver_admin`, `storage`), each exporting `CommandSpec`s that `commands/__init__.py` concatenates into `ALL_COMMANDS`. `registry.py` turns that list into the parser and dispatch table. `args.py` / `dates.py` / `defaults.py` / `scraping.py` hold helpers shared across commands. **Add a new command by adding a `CommandSpec`, not by editing `main.py`.**
-- **`src/orchestration/`** — ADF-like end-to-end orchestrators, `pl_<dataset>.py` (`pl_jepx_spot_price.py`, `pl_occto_unit_generation_actuals.py`); each returns `list[PipelineStepResult]` per step for structured result tracking.
+- **`src/orchestration/`** — ADF-like end-to-end orchestrators, `pl_<dataset>.py` (`pl_jepx_spot_price.py`, `pl_occto_unit_generation_actuals.py`); each returns `list[PipelineStepResult]` per step for structured result tracking. Every orchestrated run also persists those steps to `metadata.pipeline_run_log` via `pipeline_run_log.py` — one row per step, keyed by `run_id` + `step_seq`, so "did last night's run succeed and how many rows reached silver" survives the process. `record_pipeline_run()` reports rather than raises: a failed audit write must not fail a run that already moved its rows.
 - **`src/pipeline/raw/`** — HTTP scraping and raw upload, one `source_to_raw_<dataset>.py` per source (6 today). All extend `BaseHttpScraper`; only `build_request()` needs to be implemented, plus `prepare()` for scrapers that must establish session state first (OCCTO's disclaimer-agreement flow) before the download request can be built.
 - **`src/pipeline/bronze/`** — Raw CSV → Iceberg table ingestion. Decodes cp932, casts via schema CSV, appends metadata columns (`source_data`, `status`, `ingestion_time`, `ingestion_date`, `execution_id`).
 - **`src/pipeline/silver/`** — Bronze → Silver, one `bronze_to_silver_<dataset>.py` per dataset (6 today), all the same DuckDB-scan-then-PyIceberg-window-replace shape. JEPX replaces the affected `delivery_date` window in the base, block and area tables; daily and full-refresh runs share one code path, only `--fiscal-year` differs. OCCTO unpivots the 48 timeslot columns into one row per unit per 30-minute slot and replaces the affected `target_date` window in a single long table. Shared window-replace/write logic (`write_silver_table`, `ensure_unique_keys`, `column_bound`) lives in `common/silver_write.py`. The write is a window replace, not an upsert: `upsert()` builds a match predicate over every source key and scans the target with it, which exhausted memory once the JEPX area table reached a few million rows.
@@ -67,12 +72,14 @@ Datasets through Raw → Bronze → Silver: JEPX spot price, OCCTO unit generati
 - **`src/pipeline/gold/`** — Silver → Gold aggregation. `silver_to_gold_jepx_spot_price.py` joins the area and base silver tables and writes three tables in one run: `jepx_spot_price_daily` (collapse the time codes), `jepx_spot_price_period_profile` (collapse the dates, keeping the intraday curve per month/area/day type) and `jepx_spot_price_area_spread` (no aggregation -- the pre-joined interval fact for heatmaps). Grain notes: prices are denormalized across areas but volumes are not (they are national, so repeating them would make a SUM over areas nine times too large), and the profile stores counts rather than rates so rollups stay correct. Both frames are key-checked before either is written.
 - **`src/dashboard/`** — Streamlit app over gold. `queries.py` (DuckDB reads) and `charts.py` (Plotly figures) are Streamlit-free so they can be tested without a server; `app.py` is glue. Palette and its validation rationale live in `theme.py` — three categorical slots is a hard cap, and colour follows the entity rather than its rank.
 - **`src/dbt/jepx_power/`** — dbt project using the DuckDB adapter, no models yet. Gold took the same Python/DuckDB/PyIceberg route as silver, so nothing runs from here today, but dbt is planned and SQLFluff comes in with the first models. profiles.yml lives in the same directory.
-- **`configuration/iceberg/schema/`** — **Source of truth for all table schemas.** One subfolder per dataset under `bronze/` and `silver/`; the provisioning commands walk them recursively. CSV columns: `field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment`. `provision_table()` creates or evolves tables from these files.
+- **`configuration/iceberg/schema/`** — **Source of truth for all table schemas.** One subfolder per dataset under `bronze/` and `silver/`, plus `metadata/` for the run log; the provisioning commands walk them recursively (`cli/schema_files.py` does the walk, parameterized by namespace). CSV columns: `field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment`. `provision_table()` creates or evolves tables from these files. **`build_table_schema()` injects five audit fields (`source_data`, `status`, `ingestion_time`, `ingestion_date`, `execution_id`) into every table**, so a CSV must not declare a column with one of those names, and a writer must populate all five or the arrow cast fails on mismatched field names.
 - **`configuration/iceberg/.pyiceberg.yaml`** — Catalog config. The `dlh_dev` catalog is SQLite-backed (`catalog/dlh_dev.db`), warehoused on RustFS at `http://rustfs:9000`.
 
 ### Key design patterns
 
-**Deduplication**: `ingest_jepx_spot_summary` and `ingest_occto_unit_generation` check `source_data` column before appending. Pass `--allow-duplicate-source` to override.
+**Deduplication**: `run_source_to_bronze_jepx_spot_price` and `run_source_to_bronze_occto_unit_generation_actuals` check `source_data` column before appending. Pass `--allow-duplicate-source` to override.
+
+**Pipeline entrypoint naming**: every layer module's main entrypoint is `run_<filename>` — `run_source_to_raw_<dataset>`, `run_source_to_bronze_<dataset>`, `run_bronze_to_silver_<dataset>`, `run_silver_to_gold_<dataset>`. The one exception is `scrape_jepx_to_rustfs`, a separate backfill entrypoint that uploads without the snapshot/manifest logic.
 
 **Schema evolution**: `provision_table()` diffs the schema CSV against the existing Iceberg table and adds new columns. It does not drop columns — removals only log a warning.
 

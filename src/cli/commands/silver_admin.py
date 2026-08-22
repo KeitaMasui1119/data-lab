@@ -14,6 +14,7 @@ from pathlib import Path
 from cli.args import add_catalog_arg
 from cli.defaults import DEFAULT_BUCKET, SILVER_SCHEMA_ROOT
 from cli.registry import CommandSpec
+from cli.schema_files import iter_schema_files
 from common.iceberg.catalog import evolve_partition_spec, get_catalog, provision_table
 from common.iceberg.maintenance import (
     delete_orphan_data_files,
@@ -29,15 +30,7 @@ def iter_silver_schema_files(
     parser: argparse.ArgumentParser, schema_dir: str
 ) -> list[tuple[str, Path]]:
     """Resolve (table_identifier, schema_csv_path) pairs from a silver schema dir."""
-    directory = Path(schema_dir)
-    if not directory.exists():
-        parser.error(f"Schema directory does not exist: {directory}")
-
-    schema_files = sorted(directory.rglob("*.csv"))
-    if not schema_files:
-        parser.error(f"No schema CSV files found in: {directory}")
-
-    return [(f"silver.{schema_file.stem}", schema_file) for schema_file in schema_files]
+    return iter_schema_files(parser, schema_dir, namespace="silver")
 
 
 def _configure_schema_dir_command(parser: argparse.ArgumentParser) -> None:

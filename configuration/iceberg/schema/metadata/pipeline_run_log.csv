@@ -1,0 +1,14 @@
+field_id,name,type,is_identifier,required,doc,partition_transform,source_name,comment
+1,run_id,string,TRUE,TRUE,Identifier shared by every step of one orchestrator run; the same value is stamped as execution_id on the silver rows that run wrote,,,実行ID
+2,step_seq,int,TRUE,TRUE,1-based position of the step within its run,,,ステップ順序
+3,pipeline_name,string,FALSE,TRUE,Orchestrator that produced the step (e.g. jepx_spot_price),,,パイプライン名
+4,step_name,string,FALSE,TRUE,Step within the pipeline (source_to_raw / raw_to_bronze / bronze_to_silver / silver_to_gold),,,ステップ名
+5,step_status,string,FALSE,TRUE,success / skipped / failed. Named step_status because the injected audit column already takes 'status',,,ステップ状態
+6,started_at,timestamptz,FALSE,FALSE,When the step started; unset when a caller logged a result it did not time,,,開始時刻
+7,ended_at,timestamptz,FALSE,FALSE,When the step finished; unset when a caller logged a result it did not time,,,終了時刻
+8,duration_seconds,double,FALSE,FALSE,Wall-clock seconds between started_at and ended_at,,,所要秒数
+9,expected_row_count,long,FALSE,FALSE,Rows the step expected to move; unset for steps that move no rows (scraping / dbt),,,期待行数
+10,actual_row_count,long,FALSE,FALSE,Rows the step observed after writing; unset for steps that move no rows,,,実績行数
+11,target_scope,string,FALSE,FALSE,What the run covered (e.g. fiscal_year=2026 or target_date=2026-08-21),,,対象スコープ
+12,detail,string,FALSE,FALSE,Human-readable step detail carried through from PipelineStepResult,,,詳細
+13,logged_date,date,FALSE,TRUE,Date the row was written. Partitioned by month rather than day: a run log gains a handful of rows a day and daily partitions would leave a year of near-empty files,month,,記録日
