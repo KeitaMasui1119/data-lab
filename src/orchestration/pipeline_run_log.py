@@ -35,9 +35,6 @@ from orchestration.pipeline_result import PipelineStepResult
 logger = logging.getLogger(__name__)
 
 DEFAULT_RUN_LOG_IDENTIFIER = "metadata.pipeline_run_log"
-RUN_LOG_SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/metadata/pipeline_run_log.csv"
-)
 
 # Column order mirrors the schema CSV so the cast-to-Iceberg diff stays readable.
 RUN_LOG_COLUMNS = (

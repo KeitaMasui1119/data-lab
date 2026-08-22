@@ -12,6 +12,7 @@ suite.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -25,9 +26,15 @@ from orchestration.pipeline_result import (
     stamp_step_timing,
 )
 from orchestration.pipeline_run_log import (
-    RUN_LOG_SCHEMA_PATH,
     build_run_log_frame,
     build_run_log_write_frame,
+)
+
+# Resolved from this file rather than the repo's usual /workspace literals:
+# this test actually opens the CSV, and CI checks the repo out elsewhere.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RUN_LOG_SCHEMA_PATH = (
+    REPO_ROOT / "configuration/iceberg/schema/metadata/pipeline_run_log.csv"
 )
 
 RUN_ID = "11111111-2222-3333-4444-555555555555"
