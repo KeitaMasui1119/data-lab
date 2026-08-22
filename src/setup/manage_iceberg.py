@@ -9,7 +9,7 @@ from common.iceberg.catalog import (
     provision_table,
     view_namespace,
 )
-from common.logging_utils import configure_logging, get_logger
+from common.utils import configure_logging, get_logger
 
 configure_logging()
 logger = get_logger(__name__)

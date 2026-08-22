@@ -14,7 +14,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from common.http_scraper import BaseHttpScraper, RequestSpec
 from common.raw_ingestion_log import append_ingestion_log_entry
 from common.storage_client import RustFSClient
-from common.utilities import gen_uuid
+from common.utils import gen_uuid
 from pipeline.jepx_common import (
     resolve_fiscal_year,
     resolve_spot_summary_file_name,

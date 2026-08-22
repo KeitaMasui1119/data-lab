@@ -1,6 +1,6 @@
 """Shared helpers for JEPX spot summary pipeline components.
 
-resolve_target_at() moved to common/utilities.py: it had no JEPX-specific
+resolve_target_at() moved to common/utils.py: it had no JEPX-specific
 logic (just "now, or from an optional ms timestamp"), unlike everything
 below, which is JEPX's fiscal-year/file-naming convention specifically.
 """

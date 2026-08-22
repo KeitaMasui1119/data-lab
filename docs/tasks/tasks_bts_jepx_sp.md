@@ -402,7 +402,7 @@ FROM area_unpivoted
 
 - `source_data` — bronze から引き継いだ値をそのまま使う
 - `status` — `'loaded'` を付与
-- `ingestion_time` / `ingestion_date` / `execution_id` — `src/common/pipeline_utilities.py` の `add_metadata(df, execution_id)` を再利用する。**実行全体で同一の `execution_id` を使うこと**（3テーブルで揃える）
+- `ingestion_time` / `ingestion_date` / `execution_id` — `src/common/polars_utils.py` の `add_metadata(df, execution_id)` を再利用する。**実行全体で同一の `execution_id` を使うこと**（3テーブルで揃える）
 
 ターゲットスキーマへの整列とキャストは、既存の `src/orchestration/jepx_pipeline.py:129-144` のパターンを踏襲してよい。
 
@@ -549,7 +549,7 @@ Phase 1 で CSV を `year` に直しても、**`src/common/schema_builder.py` �
 | 用途 | 場所 |
 |---|---|
 | カタログ取得 / テーブル provision | `src/common/iceberg.py` の `get_catalog()` / `provision_table()` |
-| 監査列の付与 | `src/common/pipeline_utilities.py` の `add_metadata()` |
+| 監査列の付与 | `src/common/polars_utils.py` の `add_metadata()` |
 | ターゲットスキーマへの整列と cast | `src/orchestration/jepx_pipeline.py:129-144` のパターン |
 | S3 / DuckDB 設定値 | `src/dbt/jepx_power/profiles.yml` |
 | ステップ結果の型 | `src/orchestration/jepx_pipeline.py` の `PipelineStepResult` |

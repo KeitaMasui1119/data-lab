@@ -20,7 +20,7 @@ import pytest
 from pyiceberg.catalog import Catalog
 from pyiceberg.expressions import GreaterThanOrEqual, LessThan
 
-from common.pipeline_utilities import add_metadata
+from common.polars_utils import add_metadata
 from common.silver_write import (
     SILVER_STATUS_LOADED,
     column_bound,

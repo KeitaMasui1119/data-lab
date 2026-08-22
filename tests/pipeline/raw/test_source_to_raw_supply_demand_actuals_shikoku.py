@@ -11,9 +11,7 @@ import hashlib
 import json
 from datetime import datetime
 from unittest.mock import MagicMock
-from zoneinfo import ZoneInfo
 
-from common.utilities import resolve_default_target_date
 from pipeline.raw.source_to_raw_supply_demand_actuals_shikoku import (
     DOWNLOAD_URL_TEMPLATE,
     ShikokuScrapedRawObject,
@@ -35,12 +33,6 @@ def _mock_session_returning(body: bytes = CSV_BODY) -> MagicMock:
     response.raise_for_status.return_value = None
     session.request.return_value = response
     return session
-
-
-def test_resolve_default_target_date_is_yesterday_in_jst():
-    jst_now = datetime(2026, 8, 15, 12, 0, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
-
-    assert resolve_default_target_date(jst_now).isoformat() == "2026-08-14"
 
 
 def test_build_request_is_a_plain_get_to_the_year_keyed_url():

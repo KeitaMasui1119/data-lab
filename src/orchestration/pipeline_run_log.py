@@ -28,8 +28,8 @@ from datetime import datetime
 import polars as pl
 
 from common.iceberg.catalog import get_catalog
-from common.pipeline_utilities import add_metadata
-from common.utilities import get_now_utc
+from common.polars_utils import add_metadata
+from common.utils import get_now_utc
 from orchestration.pipeline_result import PipelineStepResult
 
 logger = logging.getLogger(__name__)

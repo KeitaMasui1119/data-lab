@@ -17,8 +17,8 @@ from pyiceberg.catalog import Catalog
 from pyiceberg.table import Table
 from pyiceberg.utils.datetime import datetime_to_millis
 
-from common.logging_utils import get_logger
 from common.storage_client import RustFSClient
+from common.utils import get_logger
 
 logger = get_logger(__name__)
 

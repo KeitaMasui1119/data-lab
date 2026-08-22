@@ -18,7 +18,7 @@ from cli.defaults import DEFAULT_BUCKET, bronze_schema_path
 from cli.registry import CommandSpec
 from cli.scraping import run_daily_scrape_loop
 from common.storage_client import RustFSClient
-from common.utilities import resolve_default_target_date
+from common.utils import resolve_default_target_date
 from orchestration.pipeline_result import has_failed_step
 from orchestration.pl_occto_unit_generation_actuals import (
     run_occto_orchestrated_pipeline,

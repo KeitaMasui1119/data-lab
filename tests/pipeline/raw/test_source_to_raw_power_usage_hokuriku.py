@@ -12,9 +12,7 @@ import hashlib
 import json
 from datetime import date, datetime
 from unittest.mock import MagicMock
-from zoneinfo import ZoneInfo
 
-from common.utilities import resolve_default_target_date
 from pipeline.raw.source_to_raw_power_usage_hokuriku import (
     DOWNLOAD_URL_TEMPLATE,
     HokurikuPowerUsageConfig,
@@ -35,19 +33,6 @@ def _mock_session_returning(body: bytes = CSV_BODY) -> MagicMock:
     response.raise_for_status.return_value = None
     session.request.return_value = response
     return session
-
-
-# ---------------------------------------------------------------------------
-# resolve_default_target_date() — yesterday in JST, same rationale as OCCTO's:
-# today's snapshot is still live/incomplete, a date's data only finalizes
-# shortly after midnight JST the following day.
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_default_target_date_is_yesterday_in_jst():
-    jst_now = datetime(2026, 8, 10, 2, 0, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
-
-    assert resolve_default_target_date(jst_now) == date(2026, 8, 9)
 
 
 # ---------------------------------------------------------------------------

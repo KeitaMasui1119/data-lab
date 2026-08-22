@@ -20,7 +20,7 @@ from cli.dates import parse_iso_date, parse_optional_date_range
 from cli.defaults import DEFAULT_BUCKET
 from cli.registry import CommandSpec
 from common.storage_client import RustFSClient
-from common.utilities import resolve_default_target_date
+from common.utils import resolve_default_target_date
 from pipeline.bronze.source_to_bronze_supply_demand_actuals_chugoku import (
     run_source_to_bronze_supply_demand_actuals_chugoku,
 )

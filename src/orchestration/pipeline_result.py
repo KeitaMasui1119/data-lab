@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from common.utilities import get_now_utc
+from common.utils import get_now_utc
 
 STATUS_SUCCESS = "success"
 STATUS_SKIPPED = "skipped"

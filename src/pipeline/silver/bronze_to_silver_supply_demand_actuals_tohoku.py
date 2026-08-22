@@ -29,7 +29,7 @@ from pyiceberg.expressions import (
 from common.duckdb_utils import create_duckdb_connection
 from common.iceberg.catalog import get_catalog
 from common.silver_write import SilverWriteResult, column_bound, write_silver_table
-from common.utilities import gen_uuid
+from common.utils import gen_uuid
 
 logger = logging.getLogger(__name__)
 

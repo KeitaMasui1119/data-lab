@@ -7,7 +7,7 @@ from pyiceberg.exceptions import NoSuchTableError
 from pyiceberg.schema import Schema
 
 from common.iceberg.schema import build_partition_spec, build_table_schema
-from common.logging_utils import get_logger
+from common.utils import get_logger
 
 logger = get_logger(__name__)
 

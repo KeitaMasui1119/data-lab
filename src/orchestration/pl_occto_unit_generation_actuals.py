@@ -17,7 +17,7 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 
 from common.storage_client import RustFSClient
-from common.utilities import gen_uuid, get_now_utc, resolve_default_target_date
+from common.utils import gen_uuid, get_now_utc, resolve_default_target_date
 from orchestration.pipeline_result import (
     STATUS_SKIPPED,
     STATUS_SUCCESS,

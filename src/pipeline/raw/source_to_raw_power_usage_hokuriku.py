@@ -19,7 +19,7 @@ from common.raw_ingestion_log import (
     append_ingestion_log_entry,
 )
 from common.storage_client import RustFSClient
-from common.utilities import gen_uuid
+from common.utils import gen_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ DATASET_NAME = "power_usage_hokuriku"
 EARLIEST_AVAILABLE_DATE = date(2020, 4, 1)
 
 
-# resolve_default_target_date() moved to common/utilities.py (shared by every
+# resolve_default_target_date() moved to common/utils.py (shared by every
 # denki-yohou dataset). Hokuriku's own rationale for "yesterday": today's
 # snapshot is a live, still-updating view (observed: a mid-day fetch has
 # empty values for the remaining hours of today and for tomorrow's forecast

@@ -60,7 +60,7 @@ from common.iceberg.catalog import get_catalog
 # window. Gold needs exactly that. Worth renaming now that three gold
 # tables depend on it; filed in docs/tasks/tasks.md section 9.
 from common.silver_write import column_bound, ensure_unique_keys, write_silver_table
-from common.utilities import gen_uuid
+from common.utils import gen_uuid
 from pipeline.silver.bronze_to_silver_jepx_spot_price import (
     FISCAL_YEAR_START_MONTH,
     build_delivery_window,
