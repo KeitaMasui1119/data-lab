@@ -105,6 +105,7 @@ def run_source_to_bronze_jepx_spot_price(
     use_ingestion_log: bool = False,
     require_unprocessed: bool = True,
     update_ingestion_log_status: bool = True,
+    execution_id: str | None = None,
 ) -> int:
     if use_ingestion_log and object_key is None:
         if fiscal_year is None:
@@ -163,7 +164,7 @@ def run_source_to_bronze_jepx_spot_price(
         pl.lit(source_file_name).alias("source_data"),
         pl.lit("new").alias("status"),
     )
-    df_with_metadata = add_metadata(cast_df)
+    df_with_metadata = add_metadata(cast_df, execution_id=execution_id)
 
     target_schema = table.schema().as_arrow()
 

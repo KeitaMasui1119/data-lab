@@ -173,6 +173,7 @@ def run_source_to_raw_step(
     scraper: JEPXSpotSummaryScraper,
     bucket_name: str,
     target_at: datetime,
+    execution_id: str | None = None,
 ) -> tuple[PipelineStepResult, int]:
     """Save one fiscal year's snapshot, returning the step and the year it covers.
 
@@ -184,6 +185,7 @@ def run_source_to_raw_step(
         scraper=scraper,
         bucket_name=bucket_name,
         target_at=target_at,
+        execution_id=execution_id,
     )
 
     if snapshot_result.skipped:
@@ -222,6 +224,7 @@ def run_raw_to_bronze_step(
     allow_duplicate_source: bool,
     fiscal_year: int,
     require_unprocessed: bool = True,
+    execution_id: str | None = None,
 ) -> PipelineStepResult:
     """Ingest one fiscal year's latest raw snapshot into bronze.
 
@@ -244,6 +247,7 @@ def run_raw_to_bronze_step(
             use_ingestion_log=True,
             require_unprocessed=require_unprocessed,
             update_ingestion_log_status=True,
+            execution_id=execution_id,
         )
     except ValueError as error:
         return PipelineStepResult(
@@ -294,6 +298,7 @@ def run_jepx_orchestrated_pipeline(
             scraper=scraper,
             bucket_name=bucket_name,
             target_at=target_at,
+            execution_id=run_id,
         )
     finally:
         scraper.close()
@@ -310,6 +315,7 @@ def run_jepx_orchestrated_pipeline(
                 bronze_schema_path=bronze_schema_path,
                 allow_duplicate_source=allow_duplicate_source,
                 fiscal_year=snapshot_fiscal_year,
+                execution_id=run_id,
             ),
             started_at=started_at,
         )
@@ -372,6 +378,7 @@ def _run_backfill_year(
     bronze_table_identifier: str,
     bronze_schema_path: str,
     allow_duplicate_source: bool,
+    execution_id: str | None = None,
 ) -> list[PipelineStepResult]:
     """Take one fiscal year from the source (or from raw) through to bronze."""
     results: list[PipelineStepResult] = []
@@ -382,6 +389,7 @@ def _run_backfill_year(
             scraper=scraper,
             bucket_name=bucket_name,
             target_at=resolve_fiscal_year_start(fiscal_year),
+            execution_id=execution_id,
         )
         results.append(raw_result)
 
@@ -398,6 +406,7 @@ def _run_backfill_year(
             # processed; leaving the filter on would resolve nothing for
             # every year and silently do no work at all.
             require_unprocessed=scraper is not None,
+            execution_id=execution_id,
         )
     )
     return results
@@ -465,6 +474,7 @@ def run_jepx_backfill_pipeline(
                     bronze_table_identifier=bronze_table_identifier,
                     bronze_schema_path=bronze_schema_path,
                     allow_duplicate_source=allow_duplicate_source,
+                    execution_id=run_id,
                 )
             except Exception as error:
                 logger.exception("Backfill failed for fiscal_year=%s", fiscal_year)

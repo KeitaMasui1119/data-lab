@@ -890,3 +890,49 @@ def test_backfill_records_its_own_run_covering_the_whole_range(
     assert len(captured_run_log) == 1
     assert captured_run_log[0]["pipeline_name"] == "jepx_spot_price_backfill"
     assert captured_run_log[0]["target_scope"] == "fiscal_year=2024..2026"
+
+
+def test_orchestrated_run_passes_its_run_id_to_raw_and_bronze(
+    monkeypatch, captured_run_log
+) -> None:
+    """The run id has to reach every layer, or the ingestion log and the bronze
+    rows name a different run than the one the run log recorded."""
+    # Arrange
+    raw_calls: list[dict[str, object]] = []
+    bronze_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(jepx_pipeline, "resolve_target_at", lambda _: "target-datetime")
+    monkeypatch.setattr(jepx_pipeline, "RustFSClient", lambda: "rustfs-client")
+    monkeypatch.setattr(
+        jepx_pipeline, "JEPXSpotSummaryScraper", lambda: _ClosableScraper()
+    )
+
+    def fake_raw(**kwargs: object) -> object:
+        raw_calls.append(kwargs)
+        return SimpleNamespace(
+            skipped=False, year=2026, sha256="abc12345", snapshot_prefix="raw/p"
+        )
+
+    def fake_bronze(**kwargs: object) -> int:
+        bronze_calls.append(kwargs)
+        return 48
+
+    monkeypatch.setattr(jepx_pipeline, "run_source_to_raw_jepx_spot_price", fake_raw)
+    monkeypatch.setattr(
+        jepx_pipeline, "run_source_to_bronze_jepx_spot_price", fake_bronze
+    )
+    monkeypatch.setattr(
+        jepx_pipeline,
+        "run_bronze_to_silver_step",
+        lambda **_: jepx_pipeline.PipelineStepResult(
+            "bronze_to_silver", "success", "ok"
+        ),
+    )
+
+    # Act
+    jepx_pipeline.run_jepx_orchestrated_pipeline(**_pipeline_kwargs())
+
+    # Assert
+    run_id = captured_run_log[0]["run_id"]
+    assert raw_calls[0]["execution_id"] == run_id
+    assert bronze_calls[0]["execution_id"] == run_id

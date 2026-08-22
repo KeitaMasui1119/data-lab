@@ -26,6 +26,7 @@ from common.raw_ingestion_log import (
 )
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
+from common.utilities import gen_uuid
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
@@ -380,13 +381,15 @@ def mark_ingestion_log_processed(
     return updated
 
 
-def _build_row_dataframe(row: dict[str, str], source_file_name: str) -> pl.DataFrame:
+def _build_row_dataframe(
+    row: dict[str, str], source_file_name: str, execution_id: str | None = None
+) -> pl.DataFrame:
     df = pl.DataFrame({name: [value] for name, value in row.items()})
     df = df.with_columns(
         pl.lit(source_file_name).alias("source_data"),
         pl.lit("new").alias("status"),
     )
-    return add_metadata(df)
+    return add_metadata(df, execution_id=execution_id)
 
 
 def run_source_to_bronze_power_usage_hokuriku(
@@ -400,6 +403,7 @@ def run_source_to_bronze_power_usage_hokuriku(
     use_ingestion_log: bool = False,
     require_unprocessed: bool = True,
     update_ingestion_log_status: bool = True,
+    execution_id: str | None = None,
 ) -> dict[str, int]:
     """Ingest one Hokuriku power_usage raw snapshot into its 3 Bronze tables.
 
@@ -408,6 +412,11 @@ def run_source_to_bronze_power_usage_hokuriku(
     leave the tables out of sync for that source_data. This is an accepted
     tradeoff of the 3-table split (see docs/architecture/data_model.md 3.1).
     """
+    # Resolved once for all three tables. Letting add_metadata() default it
+    # per call stamped the same ingestion with three different ids, which made
+    # the three halves of one run impossible to line up afterwards.
+    execution_id = execution_id or gen_uuid()
+
     if use_ingestion_log and object_key is None:
         if target_date is None:
             raise ValueError(
@@ -461,7 +470,9 @@ def run_source_to_bronze_power_usage_hokuriku(
             if name == "daily_summary"
             else catalog.load_table(table_id)
         )
-        df = _build_row_dataframe(rows_by_table[name], source_file_name)
+        df = _build_row_dataframe(
+            rows_by_table[name], source_file_name, execution_id=execution_id
+        )
         target_schema = table.schema().as_arrow()
         arrow_table = df.to_arrow().cast(target_schema)
         table.append(arrow_table)

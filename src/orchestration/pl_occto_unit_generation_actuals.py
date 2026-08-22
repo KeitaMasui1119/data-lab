@@ -168,6 +168,7 @@ def run_occto_orchestrated_pipeline(
                 bucket_name=bucket_name,
                 from_date=current,
                 to_date=current,
+                execution_id=run_id,
             )
 
             if snapshot_result.skipped:
@@ -207,6 +208,7 @@ def run_occto_orchestrated_pipeline(
                     use_ingestion_log=True,
                     require_unprocessed=True,
                     update_ingestion_log_status=True,
+                    execution_id=run_id,
                 )
                 bronze_result = PipelineStepResult(
                     name="raw_to_bronze",
