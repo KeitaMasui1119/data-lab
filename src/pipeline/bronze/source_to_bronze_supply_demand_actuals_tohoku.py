@@ -21,7 +21,7 @@ from datetime import date
 import polars as pl
 
 from common.iceberg.catalog import get_catalog
-from common.pipeline_utilities import add_metadata, build_schema_exprs
+from common.polars_utils import add_metadata, build_schema_exprs
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
 

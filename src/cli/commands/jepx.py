@@ -12,7 +12,7 @@ from cli.args import add_catalog_arg
 from cli.defaults import DEFAULT_BUCKET, DEFAULT_DBT_PROJECT_DIR, bronze_schema_path
 from cli.registry import CommandSpec
 from common.storage_client import RustFSClient
-from common.utilities import resolve_target_at
+from common.utils import resolve_target_at
 from orchestration.pipeline_result import has_failed_step
 from orchestration.pl_jepx_spot_price import (
     DEFAULT_REQUEST_DELAY_SECONDS,

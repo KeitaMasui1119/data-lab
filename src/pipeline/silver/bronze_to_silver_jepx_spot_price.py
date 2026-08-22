@@ -46,7 +46,7 @@ from common.silver_write import (
     ensure_unique_keys,
     write_silver_table,
 )
-from common.utilities import gen_uuid
+from common.utils import gen_uuid
 
 logger = logging.getLogger(__name__)
 

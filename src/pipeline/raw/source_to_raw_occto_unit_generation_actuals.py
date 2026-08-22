@@ -22,7 +22,7 @@ from common.raw_ingestion_log import (
     append_ingestion_log_entry,
 )
 from common.storage_client import RustFSClient
-from common.utilities import gen_uuid
+from common.utils import gen_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ OBJECT_PREFIX = "raw/occto/unit_generation"
 DATASET_NAME = "occto_unit_generation"
 
 
-# resolve_default_target_date() moved to common/utilities.py (shared by every
+# resolve_default_target_date() moved to common/utils.py (shared by every
 # denki-yohou dataset). OCCTO's own rationale for "yesterday": it publishes
 # each day's actuals around 15:30 JST the following day (see
 # plan_occto_pipeline.md Phase 0), so "yesterday" is the latest date that is

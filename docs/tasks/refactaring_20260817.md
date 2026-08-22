@@ -263,7 +263,9 @@ import されておらず、それが呼ぶ `common/raw_object_io.upload_local_f
 「失敗ステップは非ゼロ終了する」テスト2件は `tests/cli/commands/test_occto.py` へ移した
 （JEPX側の同名テストが `tests/cli/commands/test_jepx.py` に置かれているのと同じ形）。
 
-### 2.11 [P3] `resolve_default_target_date` が5モジュールに重複
+### 2.11 [P3] `resolve_default_target_date` が5モジュールに重複 — ✅ 解消済み
+
+当時、以下5モジュールが同一の本体（docstring 含めてバイト一致）を持っていた。
 
 ```
 src/pipeline/raw/source_to_raw_occto_unit_generation_actuals.py:75
@@ -273,8 +275,6 @@ src/pipeline/raw/source_to_raw_supply_demand_actuals_chugoku.py:38
 src/pipeline/raw/source_to_raw_supply_demand_actuals_shikoku.py:40
 ```
 
-5つとも本体は完全に同一（docstring 含めてバイト一致）。
-
 ```python
 jst_now = now.astimezone(ZoneInfo("Asia/Tokyo"))
 return (jst_now - timedelta(days=1)).date()
@@ -282,8 +282,16 @@ return (jst_now - timedelta(days=1)).date()
 
 「JSTの前日」というデータセット非依存の純粋なロジックであり、CLAUDE.md の
 「`src/common/` — Dataset-agnostic shared primitives only」の定義に照らせば
-`src/common/utilities.py`（すでに `resolve_target_at` が同じ理由で集約されている）に
+`src/common/`（すでに `resolve_target_at` が同じ理由で集約されている）に
 置くべきもの。
+
+**関数本体は既に `src/common/utils.py`（旧 `utilities.py`）へ集約済み**で、5モジュールには
+移動先を指す注記コメントだけが残っている。ただし**テスト側の重複は PR #111 まで残っていた** ——
+`test_resolve_default_target_date_is_yesterday_in_jst` が5つのテストファイルに複製され、
+うち3つはバイト一致だった。これを `tests/common/test_utils.py` に統合した際、
+5つとも JST-aware な datetime しか渡しておらず、**実際の呼び出し経路である UTC 入力
+（全呼び出し元が `datetime.now(UTC)` を渡す）が一度もテストされていなかった**ことが判明したため、
+15:00 UTC 以降は既に JST の翌日である境界ケースを追加した。
 
 ---
 
@@ -361,7 +369,7 @@ def main() -> int:
   `parse_date_range(parser, args)` を実装し、21+3箇所の重複を置換する。
 - `src/cli/args.py` に `add_bucket_arg` / `add_catalog_arg` / `add_date_range_args` を実装し、
   111回の `add_argument` のうち共通のものを集約する。
-- `resolve_default_target_date` を `src/common/utilities.py` へ集約し、5モジュールの重複を削除、
+- `resolve_default_target_date` を `src/common/utils.py` へ集約し、5モジュールの重複を削除、
   main.py の4つの as-import も解消する（2.11）。
 
 この段階で `main.py` は概算 1,641行 → 900行程度になる見込み。

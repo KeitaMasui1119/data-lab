@@ -292,7 +292,7 @@ JSON の構造を**そのまま平坦化した不変スキーマ**にする。�
 ### 実装上の注意
 
 **このリポジトリ初の JSON ソースである。** 既存6データセットはすべて CSV で、
-`build_schema_exprs()`（`common/pipeline_utilities.py`）は
+`build_schema_exprs()`（`common/polars_utils.py`）は
 「CSV の列名 → Polars キャスト」を前提にしている。
 
 - cp932 デコードは**不要**。JMA は UTF-8。

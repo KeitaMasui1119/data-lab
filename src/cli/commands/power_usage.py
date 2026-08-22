@@ -16,7 +16,7 @@ from cli.defaults import DEFAULT_BUCKET
 from cli.registry import CommandSpec
 from cli.scraping import run_daily_scrape_loop
 from common.storage_client import RustFSClient
-from common.utilities import resolve_default_target_date
+from common.utils import resolve_default_target_date
 from pipeline.bronze.source_to_bronze_power_usage_hokuriku import (
     run_source_to_bronze_power_usage_hokuriku,
 )

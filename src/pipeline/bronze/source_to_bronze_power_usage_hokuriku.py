@@ -2,7 +2,7 @@
 
 The source CSV (juyo_05_YYYYMMDD.csv) is a multi-section daily snapshot
 report, not a flat 1-row-per-CSV-column file, so
-common.pipeline_utilities.build_schema_exprs() cannot be used directly (see
+common.polars_utils.build_schema_exprs() cannot be used directly (see
 docs/tasks/tasks.md). This module parses the snapshot into three wide rows —
 daily_summary / hourly / interval5 — one per split Bronze table, before
 casting and appending each.
@@ -18,7 +18,7 @@ from datetime import date
 import polars as pl
 
 from common.iceberg.catalog import get_catalog
-from common.pipeline_utilities import add_metadata
+from common.polars_utils import add_metadata
 from common.raw_ingestion_log import (
     DEFAULT_INGESTION_LOG_KEY,
     mark_raw_object_processed,
@@ -26,7 +26,7 @@ from common.raw_ingestion_log import (
 )
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
-from common.utilities import gen_uuid
+from common.utils import gen_uuid
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"

@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from common.storage_client import RustFSClient
-from common.utilities import gen_uuid, get_now_utc, resolve_target_at
+from common.utils import gen_uuid, get_now_utc, resolve_target_at
 from orchestration.pipeline_result import (
     STATUS_FAILED,
     STATUS_SKIPPED,
