@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import gzip
 import hashlib
-import io
 import json
 import logging
 import sys
@@ -10,12 +9,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-import polars as pl
-
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from common.http_scraper import BaseHttpScraper, RequestSpec
+from common.raw_ingestion_log import append_ingestion_log_entry
 from common.storage_client import RustFSClient
+from common.utilities import gen_uuid
 from pipeline.jepx_common import (
     resolve_fiscal_year,
     resolve_spot_summary_file_name,
@@ -36,102 +35,6 @@ def _resolve_manifest_key(fiscal_year: int) -> str:
 
 def _resolve_ingestion_log_key() -> str:
     return "metadata/raw_ingestion_log.parquet"
-
-
-def _build_empty_ingestion_log() -> pl.DataFrame:
-    return pl.DataFrame(
-        {
-            "dataset": pl.Series([], dtype=pl.Utf8),
-            "fiscal_year": pl.Series([], dtype=pl.Int64),
-            "snapshot_date": pl.Series([], dtype=pl.Utf8),
-            "ingested_at": pl.Series([], dtype=pl.Utf8),
-            "file_hash": pl.Series([], dtype=pl.Utf8),
-            "file_path": pl.Series([], dtype=pl.Utf8),
-            "content_length": pl.Series([], dtype=pl.Int64),
-            "etag": pl.Series([], dtype=pl.Utf8),
-            "last_modified": pl.Series([], dtype=pl.Utf8),
-            "is_latest": pl.Series([], dtype=pl.Boolean),
-            "bronze_status": pl.Series([], dtype=pl.Utf8),
-            "bronze_processed_at": pl.Series([], dtype=pl.Utf8),
-        }
-    )
-
-
-def _load_ingestion_log(storage_client: RustFSClient, bucket_name: str) -> pl.DataFrame:
-    ingestion_log_key = _resolve_ingestion_log_key()
-    payload = storage_client.get_object_or_none(bucket_name, ingestion_log_key)
-    if payload is None:
-        return _build_empty_ingestion_log()
-
-    try:
-        return pl.read_parquet(io.BytesIO(payload))
-    except Exception as error:
-        logger.warning(
-            (
-                "Failed to parse ingestion log parquet; initializing empty "
-                "log. key=%s error=%s"
-            ),
-            ingestion_log_key,
-            error,
-        )
-        return _build_empty_ingestion_log()
-
-
-def _upload_ingestion_log(
-    storage_client: RustFSClient,
-    bucket_name: str,
-    log_df: pl.DataFrame,
-) -> None:
-    buffer = io.BytesIO()
-    log_df.write_parquet(buffer)
-    storage_client.upload_bytes(
-        bucket_name=bucket_name,
-        object_name=_resolve_ingestion_log_key(),
-        body=buffer.getvalue(),
-        content_type="application/x-parquet",
-    )
-
-
-def _update_ingestion_log(
-    storage_client: RustFSClient,
-    bucket_name: str,
-    fiscal_year: int,
-    ingested_at: datetime,
-    file_hash: str,
-    file_path: str,
-    content_length: int,
-    etag: str | None,
-    last_modified: str | None,
-) -> None:
-    existing_log = _load_ingestion_log(storage_client, bucket_name)
-
-    if not existing_log.is_empty():
-        existing_log = existing_log.with_columns(
-            pl.when(pl.col("fiscal_year") == fiscal_year)
-            .then(pl.lit(False))
-            .otherwise(pl.col("is_latest"))
-            .alias("is_latest")
-        )
-
-    new_row = pl.DataFrame(
-        {
-            "dataset": ["jepx.spot_price"],
-            "fiscal_year": [fiscal_year],
-            "snapshot_date": [ingested_at.date().isoformat()],
-            "ingested_at": [ingested_at.isoformat()],
-            "file_hash": [file_hash],
-            "file_path": [file_path],
-            "content_length": [content_length],
-            "etag": [etag],
-            "last_modified": [last_modified],
-            "is_latest": [True],
-            "bronze_status": ["pending"],
-            "bronze_processed_at": [None],
-        }
-    )
-
-    updated_log = pl.concat([existing_log, new_row], how="vertical_relaxed")
-    _upload_ingestion_log(storage_client, bucket_name, updated_log)
 
 
 @dataclass(frozen=True)
@@ -253,10 +156,14 @@ def run_source_to_raw_jepx_spot_price(
     scraper: JEPXSpotSummaryScraper,
     bucket_name: str,
     target_at: datetime | None = None,
+    execution_id: str | None = None,
 ) -> JEPXSnapshotResult:
     """Download JEPX spot price CSV and save a raw snapshot only when the content
     has changed since the last snapshot (SHA256 comparison via manifest).
     """
+    # The orchestrator passes its run id so the log row names the run that
+    # fetched the file; a standalone scrape is its own one-step run.
+    execution_id = execution_id or gen_uuid()
     target_at = target_at or datetime.now(UTC)
     fiscal_year = resolve_fiscal_year(target_at)
     manifest_key = _resolve_manifest_key(fiscal_year)
@@ -317,14 +224,17 @@ def run_source_to_raw_jepx_spot_price(
         content_type="application/json",
     )
 
-    _update_ingestion_log(
-        storage_client=storage_client,
-        bucket_name=bucket_name,
-        fiscal_year=fiscal_year,
+    append_ingestion_log_entry(
+        storage_client,
+        bucket_name,
+        dataset="jepx.spot_price",
         ingested_at=ingested_at,
         file_hash=sha256,
         file_path=f"{snapshot_prefix}/spot.csv.gz",
         content_length=len(scraped.body),
+        execution_id=execution_id,
+        fiscal_year=fiscal_year,
+        snapshot_date=ingested_at.date().isoformat(),
         etag=scraped.http_etag,
         last_modified=scraped.http_last_modified,
     )

@@ -14,17 +14,18 @@ fully elapsed / been finalized and published yet), confirmed live.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-import polars as pl
-
 from common.http_scraper import BaseHttpScraper, RequestSpec
-from common.raw_ingestion_log import DEFAULT_INGESTION_LOG_KEY, load_ingestion_log
+from common.raw_ingestion_log import (
+    DEFAULT_INGESTION_LOG_KEY,
+    append_ingestion_log_entry,
+)
 from common.storage_client import RustFSClient
+from common.utilities import gen_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -45,75 +46,6 @@ def _resolve_snapshot_prefix(year: int, ingested_at: datetime) -> str:
 
 def _resolve_manifest_key(year: int) -> str:
     return f"{OBJECT_PREFIX}/manifests/year={year}/latest.json"
-
-
-def _build_empty_ingestion_log() -> pl.DataFrame:
-    return pl.DataFrame(
-        {
-            "dataset": pl.Series([], dtype=pl.Utf8),
-            "fiscal_year": pl.Series([], dtype=pl.Int64),
-            "snapshot_date": pl.Series([], dtype=pl.Utf8),
-            "ingested_at": pl.Series([], dtype=pl.Utf8),
-            "file_hash": pl.Series([], dtype=pl.Utf8),
-            "file_path": pl.Series([], dtype=pl.Utf8),
-            "content_length": pl.Series([], dtype=pl.Int64),
-            "etag": pl.Series([], dtype=pl.Utf8),
-            "last_modified": pl.Series([], dtype=pl.Utf8),
-            "is_latest": pl.Series([], dtype=pl.Boolean),
-            "bronze_status": pl.Series([], dtype=pl.Utf8),
-            "bronze_processed_at": pl.Series([], dtype=pl.Utf8),
-        }
-    )
-
-
-def _update_ingestion_log(
-    storage_client: RustFSClient,
-    bucket_name: str,
-    year: int,
-    ingested_at: datetime,
-    file_hash: str,
-    file_path: str,
-    content_length: int,
-) -> None:
-    existing_log = load_ingestion_log(storage_client, bucket_name)
-    if existing_log.is_empty():
-        existing_log = _build_empty_ingestion_log()
-    else:
-        existing_log = existing_log.with_columns(
-            pl.when(
-                (pl.col("dataset") == DATASET_NAME) & (pl.col("fiscal_year") == year)
-            )
-            .then(pl.lit(False))
-            .otherwise(pl.col("is_latest"))
-            .alias("is_latest")
-        )
-
-    new_row = pl.DataFrame(
-        {
-            "dataset": pl.Series([DATASET_NAME], dtype=pl.Utf8),
-            "fiscal_year": pl.Series([year], dtype=pl.Int64),
-            "snapshot_date": pl.Series([None], dtype=pl.Utf8),
-            "ingested_at": pl.Series([ingested_at.isoformat()], dtype=pl.Utf8),
-            "file_hash": pl.Series([file_hash], dtype=pl.Utf8),
-            "file_path": pl.Series([file_path], dtype=pl.Utf8),
-            "content_length": pl.Series([content_length], dtype=pl.Int64),
-            "etag": pl.Series([None], dtype=pl.Utf8),
-            "last_modified": pl.Series([None], dtype=pl.Utf8),
-            "is_latest": pl.Series([True], dtype=pl.Boolean),
-            "bronze_status": pl.Series(["pending"], dtype=pl.Utf8),
-            "bronze_processed_at": pl.Series([None], dtype=pl.Utf8),
-        }
-    )
-
-    updated_log = pl.concat([existing_log, new_row], how="vertical_relaxed")
-    buffer = io.BytesIO()
-    updated_log.write_parquet(buffer)
-    storage_client.upload_bytes(
-        bucket_name=bucket_name,
-        object_name=DEFAULT_INGESTION_LOG_KEY,
-        body=buffer.getvalue(),
-        content_type="application/x-parquet",
-    )
 
 
 @dataclass(frozen=True)
@@ -165,6 +97,7 @@ def run_source_to_raw_supply_demand_actuals_chugoku(
     scraper: ChugokuSupplyDemandActualsScraper,
     bucket_name: str,
     year: int,
+    execution_id: str | None = None,
 ) -> ChugokuSnapshotResult:
     """Download Chugoku's supply_demand_actuals year CSV and save a raw
     snapshot only when the content has changed since the last snapshot for
@@ -172,6 +105,9 @@ def run_source_to_raw_supply_demand_actuals_chugoku(
     by one day's rows daily, so this naturally saves a new snapshot on
     every run until the year is complete.
     """
+    # The orchestrator passes its run id so the log row names the run that
+    # fetched the file; a standalone scrape is its own one-step run.
+    execution_id = execution_id or gen_uuid()
     manifest_key = _resolve_manifest_key(year)
 
     scraped = scraper.scrape(year)
@@ -231,14 +167,16 @@ def run_source_to_raw_supply_demand_actuals_chugoku(
         content_type="application/json",
     )
 
-    _update_ingestion_log(
-        storage_client=storage_client,
-        bucket_name=bucket_name,
-        year=year,
+    append_ingestion_log_entry(
+        storage_client,
+        bucket_name,
+        dataset=DATASET_NAME,
         ingested_at=ingested_at,
         file_hash=sha256,
         file_path=object_key,
         content_length=len(scraped.body),
+        execution_id=execution_id,
+        fiscal_year=year,
     )
 
     logger.info(

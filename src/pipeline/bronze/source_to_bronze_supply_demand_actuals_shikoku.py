@@ -83,6 +83,7 @@ def run_source_to_bronze_supply_demand_actuals_shikoku(
     source_file_name: str | None = None,
     catalog_name: str = "dlh_dev",
     skip_if_exists: bool = True,
+    execution_id: str | None = None,
 ) -> int:
     """Ingest one target_date's rows from Shikoku's year-CSV raw snapshot."""
     source_file_name = source_file_name or object_key
@@ -125,7 +126,7 @@ def run_source_to_bronze_supply_demand_actuals_shikoku(
         pl.lit(source_file_name).alias("source_data"),
         pl.lit("new").alias("status"),
     )
-    df_with_metadata = add_metadata(cast_df)
+    df_with_metadata = add_metadata(cast_df, execution_id=execution_id)
 
     target_schema = table.schema().as_arrow()
     arrow_table = df_with_metadata.to_arrow().cast(target_schema)

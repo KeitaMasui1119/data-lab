@@ -11,17 +11,18 @@ See docs/tasks/occto_pipeline_ingestion.md for the reverse-engineered details.
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-import polars as pl
-
 from common.http_scraper import BaseHttpScraper, RequestSpec
-from common.raw_ingestion_log import DEFAULT_INGESTION_LOG_KEY, load_ingestion_log
+from common.raw_ingestion_log import (
+    DEFAULT_INGESTION_LOG_KEY,
+    append_ingestion_log_entry,
+)
 from common.storage_client import RustFSClient
+from common.utilities import gen_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -91,76 +92,6 @@ def _resolve_snapshot_prefix(from_date: date, ingested_at: datetime) -> str:
 
 def _resolve_manifest_key(from_date: date) -> str:
     return f"{OBJECT_PREFIX}/manifests/target_date={from_date.isoformat()}/latest.json"
-
-
-def _build_empty_ingestion_log() -> pl.DataFrame:
-    return pl.DataFrame(
-        {
-            "dataset": pl.Series([], dtype=pl.Utf8),
-            "fiscal_year": pl.Series([], dtype=pl.Int64),
-            "snapshot_date": pl.Series([], dtype=pl.Utf8),
-            "ingested_at": pl.Series([], dtype=pl.Utf8),
-            "file_hash": pl.Series([], dtype=pl.Utf8),
-            "file_path": pl.Series([], dtype=pl.Utf8),
-            "content_length": pl.Series([], dtype=pl.Int64),
-            "etag": pl.Series([], dtype=pl.Utf8),
-            "last_modified": pl.Series([], dtype=pl.Utf8),
-            "is_latest": pl.Series([], dtype=pl.Boolean),
-            "bronze_status": pl.Series([], dtype=pl.Utf8),
-            "bronze_processed_at": pl.Series([], dtype=pl.Utf8),
-        }
-    )
-
-
-def _update_ingestion_log(
-    storage_client: RustFSClient,
-    bucket_name: str,
-    target_date: date,
-    ingested_at: datetime,
-    file_hash: str,
-    file_path: str,
-    content_length: int,
-) -> None:
-    existing_log = load_ingestion_log(storage_client, bucket_name)
-    if existing_log.is_empty():
-        existing_log = _build_empty_ingestion_log()
-    else:
-        existing_log = existing_log.with_columns(
-            pl.when(
-                (pl.col("dataset") == DATASET_NAME)
-                & (pl.col("snapshot_date") == target_date.isoformat())
-            )
-            .then(pl.lit(False))
-            .otherwise(pl.col("is_latest"))
-            .alias("is_latest")
-        )
-
-    new_row = pl.DataFrame(
-        {
-            "dataset": pl.Series([DATASET_NAME], dtype=pl.Utf8),
-            "fiscal_year": pl.Series([None], dtype=pl.Int64),
-            "snapshot_date": pl.Series([target_date.isoformat()], dtype=pl.Utf8),
-            "ingested_at": pl.Series([ingested_at.isoformat()], dtype=pl.Utf8),
-            "file_hash": pl.Series([file_hash], dtype=pl.Utf8),
-            "file_path": pl.Series([file_path], dtype=pl.Utf8),
-            "content_length": pl.Series([content_length], dtype=pl.Int64),
-            "etag": pl.Series([None], dtype=pl.Utf8),
-            "last_modified": pl.Series([None], dtype=pl.Utf8),
-            "is_latest": pl.Series([True], dtype=pl.Boolean),
-            "bronze_status": pl.Series(["pending"], dtype=pl.Utf8),
-            "bronze_processed_at": pl.Series([None], dtype=pl.Utf8),
-        }
-    )
-
-    updated_log = pl.concat([existing_log, new_row], how="vertical_relaxed")
-    buffer = io.BytesIO()
-    updated_log.write_parquet(buffer)
-    storage_client.upload_bytes(
-        bucket_name=bucket_name,
-        object_name=DEFAULT_INGESTION_LOG_KEY,
-        body=buffer.getvalue(),
-        content_type="application/x-parquet",
-    )
 
 
 @dataclass(frozen=True)
@@ -281,11 +212,15 @@ def run_source_to_raw_occto_unit_generation_actuals(
     bucket_name: str,
     from_date: date,
     to_date: date | None = None,
+    execution_id: str | None = None,
 ) -> OCCTOSnapshotResult:
     """Download OCCTO unit generation CSV and save a raw snapshot only when
     the content has changed since the last snapshot for this target date
     (SHA256 comparison via a per-date manifest).
     """
+    # The orchestrator passes its run id so the log row names the run that
+    # fetched the file; a standalone scrape is its own one-step run.
+    execution_id = execution_id or gen_uuid()
     to_date = to_date or from_date
     manifest_key = _resolve_manifest_key(from_date)
 
@@ -347,14 +282,16 @@ def run_source_to_raw_occto_unit_generation_actuals(
         content_type="application/json",
     )
 
-    _update_ingestion_log(
-        storage_client=storage_client,
-        bucket_name=bucket_name,
-        target_date=from_date,
+    append_ingestion_log_entry(
+        storage_client,
+        bucket_name,
+        dataset=DATASET_NAME,
         ingested_at=ingested_at,
         file_hash=sha256,
         file_path=object_key,
         content_length=len(scraped.body),
+        execution_id=execution_id,
+        snapshot_date=from_date.isoformat(),
     )
 
     logger.info(
