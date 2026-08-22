@@ -226,29 +226,42 @@ boto3 / requests がすべてロードされる。25コマンドのうち実際�
 4回の as-import による別名付け（45, 52-54, 59-61, 66-68, 73-75行）が必要になっており、
 import ブロックの読みにくさを増している。
 
-### 2.10 [P3] CLI入口が二重化している（CLAUDE.md との乖離）
+### 2.10 [P3] CLI入口が二重化している（CLAUDE.md との乖離） — ✅ 解消済み
 
-CLAUDE.md は `src/main.py` を「**sole** CLI entry point」と定めているが、実際には
+CLAUDE.md は `src/main.py` を「**sole** CLI entry point」と定めているが、当時は
 以下7モジュールが独自の `argparse` + `if __name__ == "__main__"` を持ち、第2のCLI表面を
-形成している。
+形成していた。
 
-- `src/orchestration/pl_jepx_spot_price.py`
-- `src/orchestration/pl_occto_unit_generation_actuals.py`
-- `src/pipeline/raw/source_to_raw_jepx_spot_price.py`
-- `src/pipeline/bronze/source_to_bronze_jepx_spot_price.py`
-- `src/pipeline/silver/bronze_to_silver_jepx_spot_price.py`
-- `src/pipeline/bronze/upload_raw.py`
-- `src/setup/manage_iceberg.py`
+| モジュール | 対応 |
+|---|---|
+| `src/orchestration/pl_jepx_spot_price.py` | PR #105 で撤去 |
+| `src/pipeline/raw/source_to_raw_jepx_spot_price.py` | PR #105 で撤去 |
+| `src/pipeline/bronze/source_to_bronze_jepx_spot_price.py` | PR #105 で撤去 |
+| `src/pipeline/silver/bronze_to_silver_jepx_spot_price.py` | PR #105 で撤去 |
+| `src/orchestration/pl_occto_unit_generation_actuals.py` | PR #110 で撤去 |
+| `src/pipeline/bronze/upload_raw.py` | PR #110 でモジュールごと削除 |
+| `src/setup/manage_iceberg.py` | **意図的に残す**（下記） |
 
 JEPX 期に作られたモジュールと OCCTO オーケストレーターに集中しており、後発の
-`power_usage_hokuriku` / `supply_demand_actuals` 系は独自CLIを持っていない。
-つまり**方針は既に「main.py に集約」へ移っており、旧世代のモジュールだけが取り残されている**。
+`power_usage_hokuriku` / `supply_demand_actuals` 系は独自CLIを持っていなかった。
+つまり**方針は既に「main.py に集約」へ移っており、旧世代のモジュールだけが取り残されていた**。
 `--silver-all-fiscal-years` バリデーションの二重実装（2.8）はこの乖離の実害の一例。
 
 例外として `src/setup/manage_iceberg.py` は、テーブル作成という運用系の別コマンドとして
 `README.md:282` と `docs/architecture/data_model.md:159` が
 `python -m setup.manage_iceberg table create ...` の直接実行を正規の手順として案内しており、
 これは残す判断でよい（README.md:304 も「`manage_iceberg.py` admin CLI」と明記）。
+
+`upload_raw.py` だけは撤去ではなく削除になった。`upload_raw_file()` はどこからも
+import されておらず、それが呼ぶ `common/raw_object_io.upload_local_file()` も
+この1箇所からしか使われていなかったため、`__main__` を外すとモジュール全体が
+到達不能になる。手動アップロードは `mc` / `aws s3 cp` で足りるので、両方削除した
+（`read_object_text()` は bronze 6モジュールが使うので `raw_object_io.py` 自体は残存）。
+
+撤去で失われるカバレッジは移設した。フラグ排他バリデーションは
+`tests/test_main_cli.py` が既にCLI経由で検証しており、モジュール `main()` の
+「失敗ステップは非ゼロ終了する」テスト2件は `tests/cli/commands/test_occto.py` へ移した
+（JEPX側の同名テストが `tests/cli/commands/test_jepx.py` に置かれているのと同じ形）。
 
 ### 2.11 [P3] `resolve_default_target_date` が5モジュールに重複
 
@@ -390,11 +403,11 @@ CLAUDE.md の「thin orchestration only」と coding-style の800行/50行制限
 2. **未登録コマンドを即時エラーにする**（2.3）。レジストリ化（Phase 3）で自動的に達成される。
 3. **ハンドラの戻り値を終了コードにする**（`sys.exit(main())`）。
    `tasks.md` 8.4 で `status="failed"` を導入する際の受け皿になる。
-4. **旧世代モジュールの独自 `__main__` を撤去する**（2.10）。
-   `manage_iceberg.py` は運用コマンドとして意図的に直接実行されているため対象外。
-   撤去対象は JEPX 系5モジュール + OCCTO オーケストレーター。
-   撤去せず残す場合でも、`--silver-all-fiscal-years` バリデーションの二重実装は
-   共通関数へ寄せるべき。
+4. ~~**旧世代モジュールの独自 `__main__` を撤去する**（2.10）。~~ ✅ **完了**
+   PR #105 が JEPX 系4モジュール、PR #110 が OCCTO オーケストレーターを撤去し、
+   `upload_raw.py` は到達不能になるためモジュールごと削除した。
+   `manage_iceberg.py` は運用コマンドとして意図的に直接実行されているため対象外のまま。
+   これにより `src/main.py` が CLAUDE.md の言う唯一のCLI入口になった。
 
 ---
 

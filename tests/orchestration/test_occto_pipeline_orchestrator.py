@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from datetime import date
 from types import SimpleNamespace
 from typing import Any
@@ -499,72 +498,6 @@ def test_run_occto_orchestrated_pipeline_defaults_from_date_to_yesterday_jst(
 # validation for `python src/main.py run-occto-orchestrator`;
 # tests/test_main_cli.py covers that one. These cover running this module
 # directly, mirroring the JEPX orchestrator's tests.
-
-
-def test_main_rejects_both_silver_scope_flags(monkeypatch) -> None:
-    """--silver-all-dates would discard the range --silver-from-date names."""
-    # Arrange
-    pipeline_calls: list[dict[str, object]] = []
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "pl_occto_unit_generation_actuals.py",
-            "--silver-all-dates",
-            "--silver-from-date",
-            "2026-08-07",
-        ],
-    )
-    monkeypatch.setattr(
-        occto_pipeline,
-        "run_occto_orchestrated_pipeline",
-        lambda **kwargs: pipeline_calls.append(kwargs),
-    )
-
-    # Act / Assert
-    with pytest.raises(SystemExit) as exit_info:
-        occto_pipeline.main()
-
-    assert exit_info.value.code == 2  # argparse's usage-error exit code
-    assert pipeline_calls == []
-
-
-def test_main_exits_nonzero_when_a_step_failed(monkeypatch) -> None:
-    """A failed step has to reach the shell, or the run still looks clean."""
-    # Arrange
-    monkeypatch.setattr(sys, "argv", ["pl_occto_unit_generation_actuals.py"])
-    monkeypatch.setattr(
-        occto_pipeline,
-        "run_occto_orchestrated_pipeline",
-        lambda **_: [
-            occto_pipeline.PipelineStepResult("source_to_raw", "success", "ok"),
-            occto_pipeline.PipelineStepResult("bronze_to_silver", "failed", "no rows"),
-        ],
-    )
-
-    # Act / Assert
-    with pytest.raises(SystemExit) as exit_info:
-        occto_pipeline.main()
-
-    assert exit_info.value.code == 1
-
-
-def test_main_exits_zero_when_every_step_succeeded(monkeypatch) -> None:
-    """The guard fires on failure only, not on any completed run."""
-    # Arrange
-    monkeypatch.setattr(sys, "argv", ["pl_occto_unit_generation_actuals.py"])
-    monkeypatch.setattr(
-        occto_pipeline,
-        "run_occto_orchestrated_pipeline",
-        lambda **_: [
-            occto_pipeline.PipelineStepResult("source_to_raw", "skipped", "no change"),
-            occto_pipeline.PipelineStepResult("bronze_to_silver", "success", "ok"),
-        ],
-    )
-
-    # Act / Assert
-    occto_pipeline.main()
 
 
 # ---------------------------------------------------------------------------

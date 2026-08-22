@@ -13,7 +13,6 @@ docs/tasks/plan_occto_pipeline.md Phase 5).
 
 from __future__ import annotations
 
-import argparse
 import logging
 from datetime import UTC, date, datetime, timedelta
 
@@ -23,7 +22,6 @@ from orchestration.pipeline_result import (
     STATUS_SKIPPED,
     STATUS_SUCCESS,
     PipelineStepResult,
-    has_failed_step,
     stamp_step_timing,
     verify_silver_row_counts,
 )
@@ -36,17 +34,10 @@ from pipeline.raw.source_to_raw_occto_unit_generation_actuals import (
     run_source_to_raw_occto_unit_generation_actuals,
 )
 from pipeline.silver.bronze_to_silver_occto_unit_generation_actuals import (
-    DEFAULT_BRONZE_LOCATION,
-    DEFAULT_SILVER_SCHEMA_DIR,
     run_bronze_to_silver_occto_unit_generation_actuals,
 )
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_SCHEMA_PATH = (
-    "/workspace/configuration/iceberg/schema/bronze/occto_unit_generation_actuals/"
-    "occto_unit_generation_actuals.csv"
-)
 
 
 def resolve_silver_target_date_window(
@@ -258,134 +249,3 @@ def run_occto_orchestrated_pipeline(
     )
 
     return results
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """Build argument parser for the OCCTO orchestrator CLI."""
-    parser = argparse.ArgumentParser(
-        description="Run ADF-like orchestration for the OCCTO pipeline"
-    )
-    parser.add_argument(
-        "--bucket",
-        default="jp-power-grid-dev",
-        help="Source/target bucket name (default: jp-power-grid-dev)",
-    )
-    parser.add_argument(
-        "--target-date",
-        help="Target date in YYYY-MM-DD (default: previous day in Asia/Tokyo)",
-    )
-    parser.add_argument(
-        "--to-date",
-        help=(
-            "End of target date range in YYYY-MM-DD for a multi-day fetch "
-            "(default: same as --target-date, i.e. a single day)"
-        ),
-    )
-    parser.add_argument(
-        "--catalog",
-        default="dlh_dev",
-        help="Iceberg catalog name (default: dlh_dev)",
-    )
-    parser.add_argument(
-        "--bronze-table",
-        default="bronze.occto_unit_generation_actuals",
-        help="Target bronze Iceberg table identifier",
-    )
-    parser.add_argument(
-        "--bronze-schema-path",
-        default=DEFAULT_SCHEMA_PATH,
-        help="Bronze schema CSV path",
-    )
-    parser.add_argument(
-        "--allow-duplicate-source",
-        action="store_true",
-        help="Allow append even if source_data already exists",
-    )
-    parser.add_argument(
-        "--bronze-location",
-        default=DEFAULT_BRONZE_LOCATION,
-        help="Bronze table location scanned by the silver transform",
-    )
-    parser.add_argument(
-        "--silver-schema-dir",
-        default=DEFAULT_SILVER_SCHEMA_DIR,
-        help="Directory containing the silver schema CSV files",
-    )
-    parser.add_argument(
-        "--silver-from-date",
-        help=(
-            "Start of the silver step's target_date range in YYYY-MM-DD "
-            "(default: the range that was just ingested)"
-        ),
-    )
-    parser.add_argument(
-        "--silver-to-date",
-        help="End of the silver step's target_date range in YYYY-MM-DD"
-        " (default: same as --silver-from-date)",
-    )
-    parser.add_argument(
-        "--silver-all-dates",
-        action="store_true",
-        help="Rebuild every target_date in the silver step"
-        " instead of just the range ingested",
-    )
-    return parser
-
-
-def main() -> None:
-    """CLI entrypoint for OCCTO pipeline orchestration."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
-
-    parser = build_parser()
-    args = parser.parse_args()
-
-    if args.silver_all_dates and (args.silver_from_date or args.silver_to_date):
-        parser.error(
-            "--silver-all-dates rebuilds every date and would discard the "
-            "range named by --silver-from-date/--silver-to-date; pass only one"
-        )
-
-    from_date = date.fromisoformat(args.target_date) if args.target_date else None
-    to_date = date.fromisoformat(args.to_date) if args.to_date else None
-    silver_from_date = (
-        date.fromisoformat(args.silver_from_date) if args.silver_from_date else None
-    )
-    silver_to_date = (
-        date.fromisoformat(args.silver_to_date) if args.silver_to_date else None
-    )
-
-    results = run_occto_orchestrated_pipeline(
-        bucket_name=args.bucket,
-        from_date=from_date,
-        to_date=to_date,
-        catalog_name=args.catalog,
-        bronze_table_identifier=args.bronze_table,
-        bronze_schema_path=args.bronze_schema_path,
-        allow_duplicate_source=args.allow_duplicate_source,
-        bronze_location=args.bronze_location,
-        silver_schema_dir=args.silver_schema_dir,
-        silver_from_date=silver_from_date,
-        silver_to_date=silver_to_date,
-        silver_all_dates=args.silver_all_dates,
-    )
-
-    logger.info("OCCTO orchestrated pipeline summary:")
-    for result in results:
-        logger.info(
-            " - step=%s, status=%s, detail=%s",
-            result.name,
-            result.status,
-            result.detail,
-        )
-
-    # A failed step that only reaches the log still exits 0, which is how both
-    # JEPX backfill incidents passed for clean runs.
-    if has_failed_step(results):
-        raise SystemExit(1)
-
-
-if __name__ == "__main__":
-    main()
