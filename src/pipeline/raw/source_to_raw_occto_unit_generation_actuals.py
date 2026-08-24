@@ -69,7 +69,7 @@ DISCLAIMER_AGREED_VALUE = "0"
 
 FILE_NAME_TEMPLATE = "ユニット別発電実績_{date_label}.csv"
 OBJECT_PREFIX = "raw/occto/unit_generation"
-DATASET_NAME = "occto_unit_generation"
+DATASET_NAME = "occto_unit_generation_actuals"
 
 
 # resolve_default_target_date() moved to common/utils.py (shared by every

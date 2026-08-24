@@ -23,14 +23,20 @@ from pipeline.jepx_common import (
 
 logger = logging.getLogger(__name__)
 
+OBJECT_PREFIX = "raw/jepx/spot_price"
+# The name this source goes by in the raw ingestion log's `dataset` column.
+# Underscore-separated to match the module, the bronze table and every other
+# dataset; it read "jepx.spot_price" until the existing log rows were migrated.
+DATASET_NAME = "jepx_spot_price"
+
 
 def _resolve_snapshot_prefix(fiscal_year: int, ingested_at: datetime) -> str:
     ts = ingested_at.strftime("%Y%m%dT%H%M%S")
-    return f"raw/jepx/spot_price/year={fiscal_year}/ingested_at={ts}"
+    return f"{OBJECT_PREFIX}/year={fiscal_year}/ingested_at={ts}"
 
 
 def _resolve_manifest_key(fiscal_year: int) -> str:
-    return f"raw/jepx/spot_price/manifests/year={fiscal_year}/latest.json"
+    return f"{OBJECT_PREFIX}/manifests/year={fiscal_year}/latest.json"
 
 
 def _resolve_ingestion_log_key() -> str:
@@ -227,7 +233,7 @@ def run_source_to_raw_jepx_spot_price(
     append_ingestion_log_entry(
         storage_client,
         bucket_name,
-        dataset="jepx.spot_price",
+        dataset=DATASET_NAME,
         ingested_at=ingested_at,
         file_hash=sha256,
         file_path=f"{snapshot_prefix}/spot.csv.gz",

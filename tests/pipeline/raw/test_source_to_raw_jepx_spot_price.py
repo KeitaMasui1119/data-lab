@@ -231,7 +231,7 @@ def test_changed_content_saves_new_snapshot():
 def test_ingestion_log_marks_old_latest_false_when_new_snapshot_saved():
     old_log = pl.DataFrame(
         {
-            "dataset": ["jepx.spot_price"],
+            "dataset": ["jepx_spot_price"],
             "fiscal_year": [FISCAL_YEAR],
             "snapshot_date": ["2026-05-13"],
             "ingested_at": ["2026-05-13T09:00:00+00:00"],

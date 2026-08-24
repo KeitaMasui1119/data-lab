@@ -21,6 +21,7 @@ from pipeline.jepx_common import (
     resolve_spot_summary_file_name,
     resolve_spot_summary_object_key,
 )
+from pipeline.raw.source_to_raw_jepx_spot_price import DATASET_NAME
 
 # ログ設定
 logging.basicConfig(
@@ -57,7 +58,7 @@ def resolve_raw_object_from_ingestion_log(
     object_key = resolve_latest_raw_object(
         client=client,
         bucket_name=bucket_name,
-        dataset="jepx.spot_price",
+        dataset=DATASET_NAME,
         fiscal_year=fiscal_year,
         require_unprocessed=require_unprocessed,
         log_key=INGESTION_LOG_KEY,

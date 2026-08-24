@@ -17,6 +17,7 @@ from common.raw_ingestion_log import (
 )
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
+from pipeline.raw.source_to_raw_occto_unit_generation_actuals import DATASET_NAME
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
@@ -28,7 +29,6 @@ SCHEMA_PATH = (
     "occto_unit_generation_actuals.csv"
 )
 DEFAULT_TABLE = "bronze.occto_unit_generation_actuals"
-DATASET_NAME = "occto_unit_generation"
 INGESTION_LOG_KEY = DEFAULT_INGESTION_LOG_KEY
 
 
