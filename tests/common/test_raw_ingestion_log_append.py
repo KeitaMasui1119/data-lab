@@ -56,7 +56,7 @@ def _to_parquet(frame: pl.DataFrame) -> bytes:
 def _append(storage: FakeStorage, **overrides: object) -> None:
     """Append one entry for a fiscal-year-keyed dataset, with overrides."""
     kwargs: dict[str, object] = {
-        "dataset": "jepx.spot_price",
+        "dataset": "jepx_spot_price",
         "ingested_at": INGESTED_AT,
         "file_hash": "hash-1",
         "file_path": "raw/jepx/spot_price/year=2026/f.csv",
@@ -104,7 +104,7 @@ def test_first_entry_creates_the_log() -> None:
     # Assert
     log = storage.read_log()
     assert log.height == 1
-    assert log["dataset"].to_list() == ["jepx.spot_price"]
+    assert log["dataset"].to_list() == ["jepx_spot_price"]
     assert log["file_path"].to_list() == ["raw/jepx/spot_price/year=2026/f.csv"]
 
 
@@ -172,7 +172,7 @@ def test_appending_leaves_another_datasets_latest_alone() -> None:
     _append(storage, dataset="supply_demand_actuals_tohoku", file_path="tohoku.csv")
 
     # Act
-    _append(storage, dataset="jepx.spot_price", file_path="jepx.csv")
+    _append(storage, dataset="jepx_spot_price", file_path="jepx.csv")
 
     # Assert
     log = storage.read_log().sort("file_path")
@@ -199,7 +199,7 @@ def test_a_snapshot_date_keyed_dataset_scopes_by_date() -> None:
     storage = FakeStorage()
     _append(
         storage,
-        dataset="occto_unit_generation",
+        dataset="occto_unit_generation_actuals",
         fiscal_year=None,
         snapshot_date="2026-08-20",
         file_path="d20.csv",
@@ -208,7 +208,7 @@ def test_a_snapshot_date_keyed_dataset_scopes_by_date() -> None:
     # Act
     _append(
         storage,
-        dataset="occto_unit_generation",
+        dataset="occto_unit_generation_actuals",
         fiscal_year=None,
         snapshot_date="2026-08-21",
         file_path="d21.csv",
@@ -224,7 +224,7 @@ def test_a_snapshot_date_keyed_dataset_clears_its_own_previous_day() -> None:
     storage = FakeStorage()
     _append(
         storage,
-        dataset="occto_unit_generation",
+        dataset="occto_unit_generation_actuals",
         fiscal_year=None,
         snapshot_date="2026-08-20",
         file_path="first.csv",
@@ -233,7 +233,7 @@ def test_a_snapshot_date_keyed_dataset_clears_its_own_previous_day() -> None:
     # Act
     _append(
         storage,
-        dataset="occto_unit_generation",
+        dataset="occto_unit_generation_actuals",
         fiscal_year=None,
         snapshot_date="2026-08-20",
         file_path="second.csv",
@@ -268,7 +268,7 @@ def test_appending_onto_a_log_written_before_execution_id_existed() -> None:
             legacy,
             pl.DataFrame(
                 {
-                    "dataset": ["jepx.spot_price"],
+                    "dataset": ["jepx_spot_price"],
                     "fiscal_year": [2025],
                     "snapshot_date": [None],
                     "ingested_at": ["2026-01-01T00:00:00+00:00"],

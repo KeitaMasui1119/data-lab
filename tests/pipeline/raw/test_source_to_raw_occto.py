@@ -301,6 +301,6 @@ def test_ingestion_log_records_occto_dataset_row():
     log_df = pl.read_parquet(io.BytesIO(log_call.kwargs["body"]))
     assert log_df.height == 1
     row = log_df.row(0, named=True)
-    assert row["dataset"] == "occto_unit_generation"
+    assert row["dataset"] == "occto_unit_generation_actuals"
     assert row["snapshot_date"] == TARGET_DATE.isoformat()
     assert row["is_latest"] is True

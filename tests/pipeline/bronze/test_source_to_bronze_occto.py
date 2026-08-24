@@ -112,7 +112,7 @@ def test_resolve_raw_object_from_ingestion_log_returns_latest_unprocessed():
     log_df = _log_df(
         [
             {
-                "dataset": "occto_unit_generation",
+                "dataset": "occto_unit_generation_actuals",
                 "fiscal_year": None,
                 "snapshot_date": "2026-08-07",
                 "ingested_at": "2026-08-07T09:00:00+00:00",
@@ -127,7 +127,7 @@ def test_resolve_raw_object_from_ingestion_log_returns_latest_unprocessed():
                 "bronze_processed_at": "2026-08-07T09:30:00+00:00",
             },
             {
-                "dataset": "occto_unit_generation",
+                "dataset": "occto_unit_generation_actuals",
                 "fiscal_year": None,
                 "snapshot_date": "2026-08-07",
                 "ingested_at": "2026-08-07T15:30:00+00:00",
@@ -164,7 +164,7 @@ def test_resolve_raw_object_from_ingestion_log_raises_when_no_target():
     log_df = _log_df(
         [
             {
-                "dataset": "occto_unit_generation",
+                "dataset": "occto_unit_generation_actuals",
                 "fiscal_year": None,
                 "snapshot_date": "2026-08-07",
                 "ingested_at": "2026-08-07T09:00:00+00:00",
@@ -196,7 +196,7 @@ def test_mark_ingestion_log_processed_updates_target_row():
     log_df = _log_df(
         [
             {
-                "dataset": "occto_unit_generation",
+                "dataset": "occto_unit_generation_actuals",
                 "fiscal_year": None,
                 "snapshot_date": "2026-08-07",
                 "ingested_at": "2026-08-07T15:30:00+00:00",

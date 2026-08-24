@@ -27,6 +27,7 @@ from common.raw_ingestion_log import (
 from common.raw_object_io import read_object_text
 from common.storage_client import RustFSClient
 from common.utils import gen_uuid
+from pipeline.raw.source_to_raw_power_usage_hokuriku import DATASET_NAME
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
@@ -34,7 +35,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SCHEMA_DIR = "/workspace/configuration/iceberg/schema/bronze/power_usage_hokuriku"
-DATASET_NAME = "power_usage_hokuriku"
 INGESTION_LOG_KEY = DEFAULT_INGESTION_LOG_KEY
 
 # name -> (table identifier, schema CSV path)

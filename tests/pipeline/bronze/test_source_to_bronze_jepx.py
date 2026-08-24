@@ -23,7 +23,7 @@ def _to_parquet_bytes(df: pl.DataFrame) -> bytes:
 def test_resolve_raw_object_from_ingestion_log_returns_latest_unprocessed() -> None:
     log_df = pl.DataFrame(
         {
-            "dataset": ["jepx.spot_price", "jepx.spot_price"],
+            "dataset": ["jepx_spot_price", "jepx_spot_price"],
             "fiscal_year": [2026, 2026],
             "snapshot_date": ["2026-05-23", "2026-05-24"],
             "ingested_at": ["2026-05-23T00:00:00+00:00", "2026-05-24T00:00:00+00:00"],
@@ -60,7 +60,7 @@ def test_resolve_raw_object_from_ingestion_log_returns_latest_unprocessed() -> N
 def test_resolve_raw_object_from_ingestion_log_raises_when_no_target() -> None:
     log_df = pl.DataFrame(
         {
-            "dataset": ["jepx.spot_price"],
+            "dataset": ["jepx_spot_price"],
             "fiscal_year": [2026],
             "snapshot_date": ["2026-05-24"],
             "ingested_at": ["2026-05-24T00:00:00+00:00"],
@@ -91,7 +91,7 @@ def test_resolve_raw_object_from_ingestion_log_raises_when_no_target() -> None:
 def test_mark_ingestion_log_processed_updates_target_row() -> None:
     log_df = pl.DataFrame(
         {
-            "dataset": ["jepx.spot_price", "jepx.spot_price"],
+            "dataset": ["jepx_spot_price", "jepx_spot_price"],
             "fiscal_year": [2026, 2026],
             "snapshot_date": ["2026-05-23", "2026-05-24"],
             "ingested_at": ["2026-05-23T00:00:00+00:00", "2026-05-24T00:00:00+00:00"],
